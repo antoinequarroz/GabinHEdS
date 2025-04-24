@@ -6,7 +6,7 @@ if (!process.argv.includes('--as-api-server')) {
 }
 
 const express = require('express');
-const { startRecording, stopRecording, pauseRecording, resumeRecording } = require('./obsControl');
+const { startRecording, stopRecording, pauseRecording, resumeRecording, connectOBS } = require('./obsControl');
 const app = express();
 const port = 3030;
 
@@ -42,6 +42,16 @@ app.post('/obs/record/resume', async (req, res) => {
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/obs/status', async (req, res) => {
+  try {
+    // On tente une commande simple pour vérifier la connexion OBS
+    await connectOBS();
+    res.json({ connected: true });
+  } catch (e) {
+    res.json({ connected: false, error: e.message });
   }
 });
 

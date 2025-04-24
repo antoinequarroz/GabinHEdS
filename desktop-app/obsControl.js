@@ -29,4 +29,4 @@ async function resumeRecording() {
   await obs.call('ResumeRecord');
 }
 
-module.exports = { startRecording, stopRecording, pauseRecording, resumeRecording };
+module.exports = { startRecording, stopRecording, pauseRecording, resumeRecording, connectOBS };

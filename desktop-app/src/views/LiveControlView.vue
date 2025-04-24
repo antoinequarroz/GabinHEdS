@@ -8,6 +8,10 @@
       <Button label="STOP" icon="pi pi-stop" class="p-button-danger live-action-btn stop-btn" @click="onStopRec" :disabled="!isRecording" />
     </div>
     <div class="live-overlay-info">
+      <div class="obs-status" :class="{ connected: obsConnected, disconnected: !obsConnected }">
+        <i :class="obsConnected ? 'pi pi-check-circle' : 'pi pi-times-circle'"/>
+        <span>{{ obsConnected ? 'OBS connecté' : 'OBS non connecté' }}</span>
+      </div>
       <div class="audio-status">
         <i :class="audioOk ? 'pi pi-volume-up' : 'pi pi-volume-off'" :style="audioOk ? 'color:#4caf50' : 'color:#f44336'" />
         <span class="audio-status-label">{{ audioOk ? 'Son OK' : 'Problème audio' }}</span>
@@ -48,11 +52,27 @@ const scenes = ref([
   { name: 'Plan animateur', active: false },
 ]);
 
+const obsConnected = ref(false);
+const obsStatusError = ref('');
+
 const obsVideo = ref(null);
 const OBS_HLS_URL = 'http://localhost:8081/index.m3u8';
 let hls;
 
+async function checkObsStatus() {
+  try {
+    const res = await fetch('http://localhost:3030/obs/status');
+    const data = await res.json();
+    obsConnected.value = !!data.connected;
+    obsStatusError.value = data.error || '';
+  } catch (e) {
+    obsConnected.value = false;
+    obsStatusError.value = e.message;
+  }
+}
+
 onMounted(() => {
+  checkObsStatus();
   if (Hls.isSupported()) {
     hls = new Hls();
     hls.loadSource(OBS_HLS_URL);
@@ -164,6 +184,30 @@ async function onStopRec() {
   gap: 1.7rem;
   z-index: 10;
   align-items: flex-end;
+}
+.obs-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.1rem;
+  font-weight: bold;
+  margin-bottom: 0.7rem;
+  padding: 0.6rem 1.2rem;
+  border-radius: 12px;
+  background: #1e335c;
+  color: #fff;
+  border: 2px solid #3e5a8c;
+  box-shadow: 0 1px 6px #0004;
+}
+.obs-status.connected {
+  background: #e8f5e9;
+  color: #388e3c;
+  border-color: #388e3c;
+}
+.obs-status.disconnected {
+  background: #ffebee;
+  color: #c62828;
+  border-color: #c62828;
 }
 .audio-status {
   background: rgba(34,59,107,0.93);
