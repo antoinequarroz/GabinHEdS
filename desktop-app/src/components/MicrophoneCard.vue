@@ -1,7 +1,7 @@
 <template>
   <div class="microphone-card" :class="{ 'active': soundOk }">
     <div class="microphone-card-header">
-      <img class="microphone-img" src="/img/podcast.png" alt="Micro podcast" />
+      <img class="microphone-img" :src="micImgSrc" alt="Micro podcast" />
       <span class="microphone-card-title">Micro {{ index + 1 }}</span>
     </div>
     <div class="microphone-card-label">{{ label || 'Microphone' }}</div>
@@ -14,6 +14,7 @@
 </template>
 
 <script setup>
+const micImgSrc = import.meta.env.BASE_URL + 'img/podcast.png'
 defineProps({
   label: String,
   level: Number,

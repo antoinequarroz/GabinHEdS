@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router';
+import { createRouter, createWebHashHistory } from 'vue-router';
 import ModalitySelectView from '../views/ModalitySelectView.vue';
 import DashboardView from '../views/DashboardView.vue';
 import TvView from '../views/TvView.vue';
@@ -8,7 +8,7 @@ import MicrophoneSetupView from '../views/MicrophoneSetupView.vue';
 import LiveControlView from '../views/LiveControlView.vue';
 
 export default createRouter({
-  history: createWebHistory(),
+  history: createWebHashHistory(),
   routes: [
     { path: '/', name: 'modality', component: ModalitySelectView },
     { path: '/dashboard', name: 'dashboard', component: DashboardView },

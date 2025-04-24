@@ -6,21 +6,21 @@
         <ModalityCard
           title="Podcast"
           desc="Créer votre podcast"
-          image="/img/podcast.png"
+          :image="podcastImgSrc"
           :selected="selected === 'podcast'"
           @select="selected = 'podcast'"
         />
         <ModalityCard
           title="Powerpoint sonorisé"
           desc="Créer votre présentation"
-          image="/img/powerpoint.png"
+          :image="powerpointImgSrc"
           :selected="selected === 'powerpoint'"
           @select="selected = 'powerpoint'"
         />
         <ModalityCard
           title="Table ronde"
-          desc="Créer votre table ronde"
-          image="/img/roundtable.png"
+          desc="Enregistrer une table ronde"
+          :image="roundtableImgSrc"
           :selected="selected === 'roundtable'"
           @select="selected = 'roundtable'"
         />
@@ -48,6 +48,9 @@ const router = useRouter()
 const selected = ref('')
 const showConfirmation = ref(false)
 const confirmationMessage = ref('')
+const podcastImgSrc = import.meta.env.BASE_URL + 'img/podcast.png'
+const powerpointImgSrc = import.meta.env.BASE_URL + 'img/powerpoint.png'
+const roundtableImgSrc = import.meta.env.BASE_URL + 'img/roundtable.png'
 
 function confirmSelection() {
   if (!selected.value) return

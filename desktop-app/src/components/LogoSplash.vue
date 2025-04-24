@@ -12,8 +12,8 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-const logoSrc = '/img/hes-logo.png'
-const showLogo = ref(false)   
+const logoSrc = import.meta.env.BASE_URL + 'img/hes-logo.png'
+const showLogo = ref(false)
 const showLoading = ref(false)
 
 onMounted(() => {

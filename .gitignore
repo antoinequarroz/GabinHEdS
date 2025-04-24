@@ -1,4 +1,4 @@
-# Node modules
+rm -rf dist/win-unpacked/# Node modules
 node_modules/
 
 # Build output

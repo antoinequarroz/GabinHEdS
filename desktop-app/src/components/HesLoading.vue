@@ -2,7 +2,7 @@
   <div class="hes-loading-bg">
     <div class="hes-loading-center">
       <img
-        src="/img/hes-logo.png"
+        :src="logoSrc"
         class="hes-logo-spin"
         alt="Logo HES"
       />
@@ -13,6 +13,7 @@
 </template>
 
 <script setup>
+const logoSrc = import.meta.env.BASE_URL + 'img/hes-logo.png'
 </script>
 
 <style scoped>
