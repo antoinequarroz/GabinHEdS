@@ -1,31 +1,36 @@
 <template>
   <div class="live-full-bg">
     <Button class="live-back-btn" icon="pi pi-arrow-left" @click="goBack" aria-label="Retour" />
-    <video ref="obsVideo" controls autoplay class="live-full-video"></video>
+    <div v-if="obsConnected && videoAvailable">
+      <video ref="obsVideo" :src="OBS_HLS_URL" controls autoplay class="live-full-video"></video>
+    </div>
+    <div v-else class="no-video-placeholder">
+      <i class="pi pi-video-off" style="font-size: 6rem; color: #f3c300;" />
+      <p>Aucun retour vidéo OBS disponible</p>
+    </div>
     <div class="live-overlay-controls">
-      <Button label="REC" icon="pi pi-circle-on" class="p-button-success live-action-btn rec-btn" @click="onStartRec" :disabled="isRecording" />
-      <Button label="PAUSE" icon="pi pi-pause" class="p-button-warning live-action-btn pause-btn" @click="onPauseRec" :disabled="!isRecording" />
-      <Button label="STOP" icon="pi pi-stop" class="p-button-danger live-action-btn stop-btn" @click="onStopRec" :disabled="!isRecording" />
+      <Button v-if="!isRecording" label="REC" icon="pi pi-circle-on" class="p-button-success live-action-btn rec-btn" @click="onStartRec" />
+      <Button v-else label="STOP" icon="pi pi-stop" class="p-button-danger live-action-btn stop-btn" @click="onStopRec" />
+      <Button v-if="isRecording" :label="isPaused ? 'RESUME' : 'PAUSE'" icon="pi pi-pause" class="p-button-warning live-action-btn pause-btn" @click="onPauseRec" />
     </div>
     <div class="live-overlay-info">
       <div class="obs-status" :class="{ connected: obsConnected, disconnected: !obsConnected }">
         <i :class="obsConnected ? 'pi pi-check-circle' : 'pi pi-times-circle'"/>
         <span>{{ obsConnected ? 'OBS connecté' : 'OBS non connecté' }}</span>
       </div>
+      <div class="scene-status">
+        <p>Scène active : <b>{{ currentScene }}</b></p>
+        <div>
+          <span v-for="scene in scenes" :key="scene.name" style="margin-right: 1rem;">
+            <Button :label="scene.name" :class="scene.active ? 'p-button-info' : 'p-button-secondary'" @click="switchScene(scene.name)" />
+          </span>
+        </div>
+        <p v-if="isRecording && !isPaused" style="color:red; font-weight:bold;">● Enregistrement en cours</p>
+        <p v-if="isRecording && isPaused" style="color:orange; font-weight:bold;">⏸️ Enregistrement en pause</p>
+      </div>
       <div class="audio-status">
         <i :class="audioOk ? 'pi pi-volume-up' : 'pi pi-volume-off'" :style="audioOk ? 'color:#4caf50' : 'color:#f44336'" />
         <span class="audio-status-label">{{ audioOk ? 'Son OK' : 'Problème audio' }}</span>
-      </div>
-      <div class="scene-status">
-        <ul>
-          <li v-for="scene in scenes" :key="scene.name" :class="{active: scene.active}">
-            <span class="scene-badge" :class="{active: scene.active}">
-              <i class="pi pi-video"></i>
-            </span>
-            {{ scene.name }}
-            <span v-if="scene.active" class="switch-indicator">(Actif)</span>
-          </li>
-        </ul>
       </div>
     </div>
   </div>
@@ -35,7 +40,7 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import Button from 'primevue/button';
-import Hls from 'hls.js';
+import { obsClient } from '@/obs'
 
 const router = useRouter();
 function goBack() {
@@ -46,73 +51,64 @@ const isRecording = ref(false);
 const isPaused = ref(false);
 
 const audioOk = ref(true);
-const scenes = ref([
-  { name: 'Plan large', active: true },
-  { name: 'Plan invité', active: false },
-  { name: 'Plan animateur', active: false },
-]);
-
-const obsConnected = ref(false);
-const obsStatusError = ref('');
-
-const obsVideo = ref(null);
-const OBS_HLS_URL = 'http://localhost:8081/index.m3u8';
-let hls;
-
-async function checkObsStatus() {
-  try {
-    const res = await fetch('http://localhost:3030/obs/status');
-    const data = await res.json();
-    obsConnected.value = !!data.connected;
-    obsStatusError.value = data.error || '';
-  } catch (e) {
-    obsConnected.value = false;
-    obsStatusError.value = e.message;
-  }
-}
+const currentScene = ref(undefined)
+const scenes = ref([])
+const obsConnected = ref(false)
+const videoAvailable = ref(true)
+const OBS_HLS_URL = 'http://localhost:8081/hls/test.m3u8'
 
 onMounted(() => {
-  checkObsStatus();
-  if (Hls.isSupported()) {
-    hls = new Hls();
-    hls.loadSource(OBS_HLS_URL);
-    hls.attachMedia(obsVideo.value);
-  } else if (obsVideo.value && obsVideo.value.canPlayType('application/vnd.apple.mpegurl')) {
-    obsVideo.value.src = OBS_HLS_URL;
-  }
-  window.addEventListener('keydown', handleKeydown)
-});
+  obsClient.connect()
 
-onUnmounted(() => {
-  if (hls) hls.destroy();
-  window.removeEventListener('keydown', handleKeydown)
-});
+  const sub1 = obsClient.activeScene$.subscribe(scene => {
+    currentScene.value = scene
+  })
+  const sub2 = obsClient.scenes$.subscribe(list => {
+    scenes.value = list.map(s => ({ ...s, active: s.name === currentScene.value }))
+  })
+  const sub3 = obsClient.recording$.subscribe(val => {
+    isRecording.value = val
+  })
+  const sub4 = obsClient.paused$.subscribe(val => {
+    isPaused.value = val
+  })
+  const sub5 = obsClient.obsConnected$.subscribe(val => {
+    obsConnected.value = val
+  })
+
+  onUnmounted(() => {
+    sub1.unsubscribe()
+    sub2.unsubscribe()
+    sub3.unsubscribe()
+    sub4.unsubscribe()
+    sub5.unsubscribe()
+  })
+})
 
 function handleKeydown(e) {
   if (e.key === 'Enter' || e.key === ' ') onStartRec()
   if (e.key.toLowerCase() === 'r') goBack()
 }
 
-async function onStartRec() {
-  await fetch('http://localhost:3030/obs/record/start', { method: 'POST' });
-  isRecording.value = true;
-  isPaused.value = false;
+function onStartRec() {
+  obsClient.startRecording()
 }
-async function onPauseRec() {
+function onPauseRec() {
   if (!isRecording.value) return;
   if (!isPaused.value) {
-    await fetch('http://localhost:3030/obs/record/pause', { method: 'POST' });
-    isPaused.value = true;
+    obsClient.pauseRecording()
   } else {
-    await fetch('http://localhost:3030/obs/record/resume', { method: 'POST' });
-    isPaused.value = false;
+    obsClient.resumeRecording()
   }
 }
-async function onStopRec() {
-  await fetch('http://localhost:3030/obs/record/stop', { method: 'POST' });
-  isRecording.value = false;
-  isPaused.value = false;
+function onStopRec() {
+  obsClient.stopRecording()
 }
+function switchScene(sceneName) {
+  obsClient.setScene(sceneName)
+}
+
+const obsVideo = ref(null);
 </script>
 
 <style scoped>
@@ -294,6 +290,18 @@ async function onStopRec() {
   height: 100%;
   object-fit: cover;
   z-index: -1;
+}
+.no-video-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 50vh;
+  color: #f3c300;
+  background: #19233a;
+  border-radius: 24px;
+  margin: 2rem;
+  font-size: 2rem;
 }
 @media (max-width: 800px) {
   .live-overlay-controls {

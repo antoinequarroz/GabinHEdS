@@ -35,8 +35,10 @@
     "vue-router": "^4.1.0"
   },
   "dependencies": {
+    "deep-eql": "^5.0.2",
     "express": "^5.1.0",
     "hls.js": "^1.6.2",
-    "lamejs": "^1.2.1"
+    "lamejs": "^1.2.1",
+    "rxjs": "^7.8.2"
   }
 }
