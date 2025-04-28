@@ -1,0 +1,13 @@
+diff --git a/node_modules/node-osc/dist/lib/Server.js b/node_modules/node-osc/dist/lib/Server.js
+index 9bfaab1..0f94cb6 100644
+--- a/node_modules/node-osc/dist/lib/Server.js
++++ b/node_modules/node-osc/dist/lib/Server.js
+@@ -2,7 +2,7 @@
+ 
+ var node_dgram = require('node:dgram');
+ var node_events = require('node:events');
+-var decode = require('#decode');
++var decode = require('./internal/decode');
+ 
+ class Server extends node_events.EventEmitter {
+   constructor(port, host='127.0.0.1', cb) {
