@@ -1,5 +1,11 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
+let obsControl = null;
+try {
+  obsControl = require('./obsControl');
+} catch (e) {
+  console.warn('obsControl.js non trouvé ou erreur au chargement :', e.message);
+}
 
 function createWindows() {
   // Fenêtre unique, plein écran (kiosk) sans barre de titre
@@ -39,4 +45,18 @@ app.on('window-all-closed', () => {
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindows();
+});
+
+// Ajout : handler IPC pour démarrer l'auto-switch à partir du profil choisi
+ipcMain.handle('start-auto-switch-from-profile', async (event, profileName) => {
+  try {
+    if (obsControl && obsControl.startAutoSwitchFromProfileName) {
+      obsControl.startAutoSwitchFromProfileName(profileName);
+      return { success: true };
+    } else {
+      return { success: false, error: 'obsControl non disponible' };
+    }
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
 });

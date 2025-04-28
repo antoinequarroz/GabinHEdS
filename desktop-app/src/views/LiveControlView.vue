@@ -80,10 +80,18 @@ onMounted(() => {
   } else if (obsVideo.value && obsVideo.value.canPlayType('application/vnd.apple.mpegurl')) {
     obsVideo.value.src = OBS_HLS_URL;
   }
+  window.addEventListener('keydown', handleKeydown)
 });
+
 onUnmounted(() => {
   if (hls) hls.destroy();
+  window.removeEventListener('keydown', handleKeydown)
 });
+
+function handleKeydown(e) {
+  if (e.key === 'Enter' || e.key === ' ') onStartRec()
+  if (e.key.toLowerCase() === 'r') goBack()
+}
 
 async function onStartRec() {
   await fetch('http://localhost:3030/obs/record/start', { method: 'POST' });

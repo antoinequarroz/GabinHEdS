@@ -52,6 +52,7 @@
 import lamejs from 'lamejs'
 import MicrophoneCard from '../components/MicrophoneCard.vue'
 import Button from 'primevue/button'
+// import { ipcRenderer } from 'electron';
 
 let obsSocket = null;
 
@@ -207,17 +208,24 @@ export default {
         };
         reader.readAsArrayBuffer(blob);
       });
-    }
+    },
+    handleKeydown(e) {
+      if ((e.key === 'Enter' || e.key === ' ') && !this.isRecording) this.onRec()
+      if ((e.key === 'Enter' || e.key === ' ') && this.isRecording) this.onStop()
+      if (e.key.toLowerCase() === 'r') this.$router.back()
+    },
   },
   mounted() {
     this.getMicrophones();
     this.setupAudioLevel();
     this.connectOBS();
+    window.addEventListener('keydown', this.handleKeydown)
   },
   beforeUnmount() {
     if (this.audioContext) this.audioContext.close();
     if (this.stream) this.stream.getTracks().forEach(t => t.stop());
     if (obsSocket) obsSocket.close();
+    window.removeEventListener('keydown', this.handleKeydown)
   }
 }
 </script>

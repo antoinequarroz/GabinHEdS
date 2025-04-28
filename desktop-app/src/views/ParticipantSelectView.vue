@@ -9,6 +9,7 @@
           :name="p.name"
           :image="p.image"
           :selected="selectedIdx === idx"
+          :number="idx + 1"
           @select="selectedIdx = idx"
         />
       </div>
@@ -41,10 +42,10 @@ import { useRouter } from 'vue-router'
 import ParticipantCard from '../components/ParticipantCard.vue'
 const router = useRouter()
 const participants = ref([
-  { name: 'Intervenant 1', image: '' },
-  { name: 'Intervenant 2', image: '' },
-  { name: 'Intervenant 3', image: '' },
-  { name: 'Intervenant 4', image: '' },
+  { name: 'Intervenant', image: import.meta.env.BASE_URL + 'img/men1.png' },
+  { name: 'Intervenant', image: import.meta.env.BASE_URL + 'img/woman1.png' },
+  { name: 'Intervenant', image: import.meta.env.BASE_URL + 'img/men2.png' },
+  { name: 'Intervenant', image: import.meta.env.BASE_URL + 'img/woman2.png' },
 ])
 const selectedIdx = ref(null)
 const showConfirmation = ref(false)
@@ -68,19 +69,22 @@ function confirmSelection() {
 function goBack() {
   router.back()
 }
-function handleKeydown(e) {
-  if (e.key === '1') selectedIdx.value = 0
-  if (e.key === '2') selectedIdx.value = 1
-  if (e.key === '3') selectedIdx.value = 2
-  if (e.key === '4') selectedIdx.value = 3
-  if ((e.key === 'Enter' || e.key === ' ') && selectedIdx.value !== null) confirmSelection()
-}
+
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
 })
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown)
 })
+
+function handleKeydown(e) {
+  if ((e.key === 'Enter' || e.key === ' ') && selectedIdx.value !== null) confirmSelection()
+  if (e.key.toLowerCase() === 'r') goBack()
+  if (['1','2','3','4'].includes(e.key)) {
+    const idx = parseInt(e.key, 10) - 1
+    if (participants.value[idx]) selectedIdx.value = idx
+  }
+}
 </script>
 
 <style scoped>

@@ -49,7 +49,7 @@ const selected = ref('')
 const showConfirmation = ref(false)
 const confirmationMessage = ref('')
 const podcastImgSrc = import.meta.env.BASE_URL + 'img/podcast.png'
-const powerpointImgSrc = import.meta.env.BASE_URL + 'img/powerpoint.png'
+const powerpointImgSrc = import.meta.env.BASE_URL + 'img/powerpoints.png'
 const roundtableImgSrc = import.meta.env.BASE_URL + 'img/roundtable.png'
 
 function confirmSelection() {
@@ -67,11 +67,17 @@ function confirmSelection() {
 }
 
 function handleKeydown(e) {
+  if ((e.key === 'Enter' || e.key === ' ') && selected.value) confirmSelection()
+  if (e.key.toLowerCase() === 'r') goBack()
   if (e.key === '1') selected.value = 'podcast'
   if (e.key === '2') selected.value = 'powerpoint'
   if (e.key === '3') selected.value = 'roundtable'
-  if ((e.key === 'Enter' || e.key === ' ') && selected.value) confirmSelection()
 }
+
+function goBack() {
+  router.back()
+}
+
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
 })

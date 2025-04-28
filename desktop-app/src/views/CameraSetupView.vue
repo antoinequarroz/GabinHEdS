@@ -3,29 +3,11 @@
     <div class="camera-setup-container camera-setup-no-border">
       <h2 class="camera-setup-title">Configuration des caméras</h2>
       <div class="camera-setup-grid" :class="`cameras-${cameraGridCount}`">
-        <div v-for="n in cameraCount" :key="n" class="camera-setup-card">
+        <div v-for="n in cameraCount" :key="n" class="camera-setup-card" :class="{ 'camera-ready': videoStreams[n-1] }">
           <div class="camera-setup-card-inner">
-            <!-- Aperçu vidéo réel de la caméra -->
-            <video
-              v-if="videoStreams[n-1]"
-              :ref="el => videoElements[n-1] = el"
-              autoplay
-              muted
-              playsinline
-              class="camera-preview-video"
-            ></video>
-            <div v-else class="camera-preview-placeholder">
-              <i class="pi pi-video camera-setup-icon"></i>
-            </div>
-            <div class="camera-setup-label">Caméra {{ n }}</div>
-          </div>
-        </div>
-        <!-- Case HDMI/PC pour Powerpoint sonorisé -->
-        <div v-if="showHdmiCase" class="camera-setup-card hdmi-card">
-          <div class="camera-setup-card-inner">
-            <template v-if="hdmiStream">
+            <template v-if="videoStreams[n-1]">
               <video
-                ref="hdmiVideoEl"
+                :ref="el => videoElements[n-1] = el"
                 autoplay
                 muted
                 playsinline
@@ -33,18 +15,42 @@
               ></video>
             </template>
             <template v-else>
-              <div class="hdmi-preview-placeholder">
-                <i class="pi pi-desktop hdmi-setup-icon"></i>
+              <div class="camera-preview-placeholder camera-preview-disconnected">
+                <i class="pi pi-video-slash camera-setup-icon-disconnected"></i>
+                <span class="camera-disconnected-text">Caméra non connectée</span>
               </div>
             </template>
-            <div class="camera-setup-label">
-              PC/HDMI
-              <select v-if="showHdmiCase && hdmiDevices.length > 0" v-model="selectedHdmiDeviceId" @change="changeHdmiSource">
-                <option v-for="device in hdmiDevices" :key="device.deviceId" :value="device.deviceId">
-                  {{ device.label || ('Source HDMI ' + (hdmiDevices.indexOf(device)+1)) }}
-                </option>
-              </select>
+            <div class="camera-setup-label">Caméra {{ n }}</div>
+          </div>
+        </div>
+      </div>
+      <div class="camera-setup-labels">
+        <!-- empty -->
+      </div>
+      <!-- Case HDMI/PC pour Powerpoint sonorisé -->
+      <div v-if="showHdmiCase" class="hdmi-card">
+        <div class="camera-setup-card-inner">
+          <template v-if="hdmiStream">
+            <video
+              ref="hdmiVideoEl"
+              autoplay
+              muted
+              playsinline
+              class="camera-preview-video"
+            ></video>
+          </template>
+          <template v-else>
+            <div class="hdmi-preview-placeholder">
+              <i class="pi pi-desktop hdmi-setup-icon"></i>
             </div>
+          </template>
+          <div class="camera-setup-label">
+            PC/HDMI
+            <select v-if="showHdmiCase && hdmiDevices.length > 0" v-model="selectedHdmiDeviceId" @change="changeHdmiSource">
+              <option v-for="device in hdmiDevices" :key="device.deviceId" :value="device.deviceId">
+                {{ device.label || ('Source HDMI ' + (hdmiDevices.indexOf(device)+1)) }}
+              </option>
+            </select>
           </div>
         </div>
       </div>
@@ -70,7 +76,7 @@ const route = useRoute()
 const router = useRouter()
 const participantCount = computed(() => parseInt(route.query.count) || 1)
 const modality = computed(() => route.query.modality || '')
-const cameraCount = computed(() => participantCount.value <= 2 ? 2 : 3)
+const cameraCount = computed(() => 3)
 const showHdmiCase = computed(() => modality.value === 'powerpoint')
 const cameraGridCount = computed(() => cameraCount.value + (showHdmiCase.value ? 1 : 0))
 
@@ -160,8 +166,14 @@ function confirmSelection() {
   router.push({ name: 'LiveControl' });
 }
 
+function handleKeydown(e) {
+  if ((e.key === 'Enter' || e.key === ' ') && !nextDisabled.value) confirmSelection()
+  if (e.key.toLowerCase() === 'r') goBack()
+}
+
 onMounted(() => {
   setupCameras()
+  window.addEventListener('keydown', handleKeydown)
 })
 onBeforeUnmount(() => {
   // Stoppe tous les flux vidéo pour libérer les caméras
@@ -169,7 +181,9 @@ onBeforeUnmount(() => {
     if (stream) stream.getTracks().forEach(track => track.stop())
   })
   if (hdmiStream.value) hdmiStream.value.getTracks().forEach(track => track.stop())
+  window.removeEventListener('keydown', handleKeydown)
 })
+
 // Si l'utilisateur change la sélection HDMI
 watch(selectedHdmiDeviceId, (id) => {
   if (id) setupHdmiStream(id)
@@ -228,77 +242,125 @@ watch(selectedHdmiDeviceId, (id) => {
 }
 .camera-setup-grid {
   display: flex;
-  gap: 48px;
+  flex-wrap: wrap;
+  gap: 48px 36px;
   justify-content: center;
-  align-items: stretch;
+  align-items: flex-start;
   margin-bottom: 2.5rem;
+  width: 100vw;
+  max-width: 100vw;
+  overflow-x: auto;
 }
 .camera-setup-card {
-  background: linear-gradient(135deg, #223b6b 0%, #0B213F 100%);
+  width: 520px;
+  min-height: 320px;
+  background: linear-gradient(135deg, #1e335c 0%, #12294b 60%, #0B213F 100%);
   border-radius: 24px;
-  border: none;
-  box-shadow: none;
-  width: 220px;
-  height: 200px;
+  box-shadow: 0 6px 40px 0 #0B213F44, 0 1.5px 8px #f3c30033;
   display: flex;
   align-items: center;
   justify-content: center;
+  cursor: pointer;
+  border: 2.5px solid transparent;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
+  flex-direction: column;
+  padding: 0;
+  margin-bottom: 0.5rem;
+}
+.camera-setup-card.selected,
+.camera-setup-card.camera-ready {
+  border: 2.5px solid #f3c300 !important;
+  box-shadow: 0 8px 40px 0 #f3c30099, 0 2px 12px #fff2;
+  animation: card-pop 0.22s cubic-bezier(.4,2,.6,1) 1;
+}
+@keyframes card-pop {
+  0% { transform: scale(1); }
+  60% { transform: scale(1.09); }
+  100% { transform: scale(1.04); }
 }
 .camera-setup-card-inner {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1.2rem;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  box-sizing: border-box;
 }
-.camera-preview-video {
-  width: 180px;
-  height: 110px;
-  border-radius: 16px;
+.camera-preview-video, .camera-preview-placeholder {
+  width: 480px;
+  height: 270px;
+  border-radius: 18px;
   object-fit: cover;
   background: #000;
-  margin-bottom: 1.2rem;
+  margin-bottom: 0.7rem;
 }
-.camera-preview-placeholder {
-  width: 180px;
-  height: 110px;
-  border-radius: 16px;
-  background: #222b;
+@media (max-width: 900px) {
+  .camera-preview-video, .camera-preview-placeholder {
+    width: 92vw;
+    height: calc(92vw * 0.5625);
+    border-radius: 10px;
+  }
+}
+.camera-preview-placeholder.camera-preview-disconnected {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  margin-bottom: 1.2rem;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #232c3b 70%, #0B213F 100%);
+  border-radius: 18px;
+  border: 2px solid #fff3;
+  color: #fff8;
+  position: relative;
+  min-height: 180px;
 }
-.camera-setup-icon {
-  font-size: 3.5rem;
-  color: #f3c300;
+.camera-setup-icon-disconnected {
+  font-size: 3.2rem;
+  color: #fff4;
   margin-bottom: 0.5rem;
+}
+.camera-disconnected-text {
+  font-size: 1.1rem;
+  color: #fff;
+  opacity: 0.85;
+  text-shadow: 0 2px 8px #000b;
+  margin-top: 0.2rem;
 }
 .camera-setup-label {
   font-size: 1.3rem;
   font-weight: 700;
   color: #fff;
-  letter-spacing: 0.01em;
-}
-.camera-setup-info {
-  color: #fff;
-  font-size: 1.1rem;
-  margin-top: 1.2rem;
   text-align: center;
-  opacity: 0.92;
+  margin-bottom: 0.2rem;
+  letter-spacing: 0.01em;
+  line-height: 1.1;
+  word-break: break-word;
+  white-space: normal;
+  text-shadow: 0 2px 8px #000c;
+  background: rgba(20,30,50,0.7);
+  border-radius: 12px;
+  padding: 0.3rem 1.2rem;
+  display: inline-block;
 }
 .hdmi-card {
-  border: 2.5px solid #f3c300;
-  background: linear-gradient(135deg, #2a3f6b 0%, #1d2c4f 100%);
-  width: 220px;
-  height: 200px;
+  width: 320px;
+  min-height: 240px;
+  background: linear-gradient(135deg, #1e335c 0%, #12294b 60%, #0B213F 100%);
+  border-radius: 32px;
+  box-shadow: 0 6px 40px 0 #0B213F44, 0 1.5px 8px #f3c30033;
   display: flex;
   align-items: center;
   justify-content: center;
+  cursor: pointer;
+  transition: box-shadow 0.18s, transform 0.18s, border 0.18s;
+  border: 2.5px solid transparent;
   position: relative;
   overflow: hidden;
+  flex-direction: column;
 }
 .hdmi-preview-placeholder {
   width: 180px;
@@ -312,23 +374,8 @@ watch(selectedHdmiDeviceId, (id) => {
 }
 .hdmi-setup-icon {
   font-size: 3.5rem;
-  color: #f3c300;
+  color: #0B213F;
 }
-.hdmi-card select {
-  margin-left: 1rem;
-  background: #0B213F;
-  color: #fff;
-  border: 1.5px solid #f3c300;
-  border-radius: 12px;
-  padding: 0.2rem 0.6rem;
-  font-size: 1rem;
-}
-.hdmi-card select:focus {
-  outline: none;
-  border-color: #fff;
-}
-.cameras-2 .camera-setup-card { width: 260px; }
-.cameras-3 .camera-setup-card { width: 200px; }
 .camera-setup-actions {
   display: flex;
   flex-direction: row;
@@ -370,12 +417,14 @@ watch(selectedHdmiDeviceId, (id) => {
 @media (max-width: 900px) {
   .camera-setup-grid {
     flex-direction: column;
-    gap: 32px;
+    gap: 18px;
     width: 100vw;
     max-width: 98vw;
   }
-  .camera-setup-container {
-    padding: 1.5rem 0.5rem;
+  .camera-setup-card {
+    width: 98vw;
+    min-height: 180px;
+    border-radius: 12px;
   }
 }
 </style>

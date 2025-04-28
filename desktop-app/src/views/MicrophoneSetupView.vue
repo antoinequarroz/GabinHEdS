@@ -1,44 +1,58 @@
 <template>
   <div class="micro-setup-bg">
-    <div class="micro-setup-container">
-      <h2 class="micro-setup-title">Configuration des micros</h2>
-      <div class="micro-setup-grid" :class="`micros-${microCount}`">
-        <div v-for="n in microCount" :key="n" class="micro-setup-card">
-          <div class="micro-setup-card-inner">
-            <i class="pi pi-microphone micro-setup-icon"></i>
-            <div class="micro-setup-label">Micro {{ n }}</div>
+    <h2 class="micro-setup-title">Configuration des micros</h2>
+    <div class="micro-setup-grid" :class="`micros-${microCount}`">
+      <div v-for="n in microCount" :key="n" class="modality-card-beautiful micro-setup-card">
+        <div class="modality-card-center">
+          <div class="modality-image-wrapper">
+            <img :src="imgSrc" alt="Microphone" class="modality-image" />
           </div>
+          <div class="modality-title">Micro {{ n }}</div>
         </div>
       </div>
-      <div class="micro-setup-actions">
-        <button class="micro-setup-back" @click="goBack">
-          <i class="pi pi-arrow-left"></i> Retour
-        </button>
-        <button class="micro-setup-next" @click="goToPodcast">
-          Continuer <i class="pi pi-arrow-right"></i>
-        </button>
-      </div>
-      <div class="micro-setup-info">
-        <span>{{ microCount }} micro<span v-if="microCount > 1">s</span> utilisable<span v-if="microCount > 1">s</span> pour {{ participantCount }} participant<span v-if="participantCount > 1">s</span>.</span>
-      </div>
+    </div>
+    <div class="micro-setup-actions">
+      <button class="micro-setup-back" @click="goBack">
+        <i class="pi pi-arrow-left"></i> Retour
+      </button>
+      <button class="micro-setup-next" @click="goToPodcast">
+        Continuer <i class="pi pi-arrow-right"></i>
+      </button>
+    </div>
+    <div class="micro-setup-info">
+      <span>{{ microCount }} micro<span v-if="microCount > 1">s</span> utilisable<span v-if="microCount > 1">s</span>.</span>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 const route = useRoute()
 const router = useRouter()
+const imgSrc = import.meta.env.BASE_URL + 'img/podcast.png'
+const nextDisabled = ref(false)
+
 function goBack() {
   router.back()
 }
 function goToPodcast() {
-  // On passe le nombre de micros/personnes en query param
+  // On passe le nombre de micros en query param
   router.push({ name: 'Podcast', query: { count: microCount.value } })
 }
-const participantCount = computed(() => parseInt(route.query.count) || 1)
-const microCount = computed(() => participantCount.value)
+const microCount = computed(() => parseInt(route.query.count) || 1)
+
+onMounted(() => {
+  window.addEventListener('keydown', handleKeydown)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleKeydown)
+})
+
+function handleKeydown(e) {
+  if (e.key === 'Enter' || e.key === ' ') goToPodcast()
+  if (e.key.toLowerCase() === 'r') goBack()
+}
 </script>
 
 <style scoped>
@@ -47,19 +61,9 @@ const microCount = computed(() => participantCount.value)
   width: 100vw;
   background: linear-gradient(135deg, #1e335c 0%, #12294b 60%, #0B213F 100%);
   display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.micro-setup-container {
-  background: rgba(13, 31, 63, 0.97);
-  border-radius: 32px;
-  padding: 3.5rem 5rem 2.5rem 5rem;
-  box-shadow: 0 8px 60px #0B213F33;
-  display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2.5rem;
 }
 .micro-setup-title {
   color: #fff;
@@ -71,50 +75,14 @@ const microCount = computed(() => participantCount.value)
 }
 .micro-setup-grid {
   display: flex;
-  gap: 48px;
+  gap: 96px;
   justify-content: center;
   align-items: stretch;
   margin-bottom: 2.5rem;
+  width: 100vw;
+  max-width: 100vw;
+  overflow-x: auto;
 }
-.micro-setup-card {
-  background: linear-gradient(135deg, #223b6b 0%, #0B213F 100%);
-  border-radius: 24px;
-  box-shadow: 0 4px 24px #0B213F33;
-  width: 220px;
-  height: 200px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  overflow: hidden;
-}
-.micro-setup-card-inner {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1.2rem;
-}
-.micro-setup-icon {
-  font-size: 3.5rem;
-  color: #f3c300;
-  margin-bottom: 0.5rem;
-}
-.micro-setup-label {
-  font-size: 1.3rem;
-  font-weight: 700;
-  color: #fff;
-  letter-spacing: 0.01em;
-}
-.micro-setup-info {
-  color: #fff;
-  font-size: 1.1rem;
-  margin-top: 1.2rem;
-  text-align: center;
-  opacity: 0.92;
-}
-.micros-2 .micro-setup-card { width: 260px; }
-.micros-3 .micro-setup-card, .micros-4 .micro-setup-card { width: 200px; }
 .micro-setup-actions {
   display: flex;
   flex-direction: row;
@@ -155,15 +123,80 @@ const microCount = computed(() => participantCount.value)
   color: #fff8;
   cursor: not-allowed;
 }
+.micro-setup-info {
+  color: #fff;
+  font-size: 1.1rem;
+  margin-top: 1.2rem;
+  text-align: center;
+  opacity: 0.92;
+}
+/* --- ModalityCard style for beautiful cards --- */
+.modality-card-beautiful {
+  aspect-ratio: unset;
+  width: 420px;
+  min-height: 420px;
+  max-width: 480px;
+  background: linear-gradient(135deg, #1e335c 0%, #12294b 60%, #0B213F 100%),
+    radial-gradient(circle at 60% 30%, #25477a33 0%, #0B213F00 80%);
+  border-radius: 38px;
+  box-shadow: 0 10px 60px 0 #0B213F44, 0 2px 14px #f3c30033;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: box-shadow 0.18s, transform 0.18s, border 0.18s;
+  border: 3.5px solid transparent;
+  position: relative;
+  overflow: hidden;
+  flex-direction: column;
+}
+.modality-card-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  height: 100%;
+  padding: 2.2rem 1.5rem 1.5rem 1.5rem;
+  box-sizing: border-box;
+}
+.modality-image-wrapper {
+  width: 100%;
+  height: 210px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 2.8rem;
+  background: none;
+  box-shadow: none;
+  border-radius: 0;
+  overflow: visible;
+}
+.modality-image {
+  width: 200px;
+  height: 200px;
+  object-fit: contain;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.modality-title {
+  font-size: 3.2rem;
+  font-weight: 900;
+  color: #fff;
+  text-align: center;
+  margin-bottom: 1.4rem;
+  letter-spacing: 0.01em;
+  line-height: 1.1;
+  word-break: break-word;
+  white-space: normal;
+}
 @media (max-width: 900px) {
   .micro-setup-grid {
     flex-direction: column;
     gap: 32px;
     width: 100vw;
     max-width: 98vw;
-  }
-  .micro-setup-container {
-    padding: 1.5rem 0.5rem;
   }
 }
 </style>
