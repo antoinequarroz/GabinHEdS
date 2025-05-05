@@ -3,7 +3,8 @@
     <Button class="podcast-back-btn" icon="pi pi-arrow-left" @click="$router.back()" aria-label="Retour" />
     <div class="modality-onboarding-container podcast-container">
       <div class="podcast-header">
-        <h1 class="podcast-title">Mode Podcast</h1>
+        <h1 class="page-title">Enregistrer le podcast</h1>
+        <div class="page-subtitle">Lancez l'enregistrement et suivez le déroulé de la session</div>
       </div>
       <div class="mic-list">
         <MicrophoneCard
@@ -257,11 +258,28 @@ export default {
 }
 .podcast-header {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 2rem;
   margin-bottom: 2rem;
   margin-top: 2.5rem;
+}
+.page-title {
+  font-size: 2.7rem;
+  font-weight: 900;
+  color: #f3c300;
+  margin-bottom: 0.2em;
+  letter-spacing: 1px;
+  text-align: center;
+}
+.page-subtitle {
+  font-size: 1.25rem;
+  color: #fff;
+  font-weight: 400;
+  margin-bottom: 1.2em;
+  text-align: center;
+  opacity: 0.88;
 }
 .podcast-title {
   font-size: 2.7rem;

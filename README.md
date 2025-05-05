@@ -1,75 +1,92 @@
-# GabinHEdS – Guide de prise en main
+# Gabin Desktop App
 
-Ce projet est une application Electron/Vue.js destinée à simplifier la gestion de podcasts, de présentations sonorisées (PowerPoint), et de tables rondes, avec intégration OBS pour l'enregistrement audio/vidéo.
+Application de gestion d'enregistrements audio/vidéo multi-modalités (podcast, interview, PowerPoint sonorisé, etc.)
 
 ## Fonctionnalités principales
 
-- **Interface utilisateur moderne** basée sur Vue.js et PrimeVue pour une expérience fluide et professionnelle.
-- **Gestion de plusieurs modalités** :
-  - **Podcast** : Enregistrement audio multi-microphones (Rodecaster Pro).
-  - **PowerPoint sonorisé** : Capture audio et vidéo synchronisée avec une présentation.
-  - **Table ronde** : Enregistrement multi-intervenants.
-- **Contrôle d'OBS Studio** intégré via WebSocket (démarrage, arrêt, pause, reprise de l'enregistrement depuis l'UI).
-- **Enregistrement audio au format MP3** (avec lamejs).
-- **Gestion des assets/images** :
-  - Les images sont placées dans `public/img/` et référencées via `import.meta.env.BASE_URL + 'img/...'` pour garantir leur accessibilité en développement, build web, et Electron.
-  - Attention à la casse et à la taille des images (évitez les PNG > 10 Mo).
-- **Sécurité** :
-  - Accès micro contrôlé via permissions navigateur/Electron.
-  - OBS doit être lancé avec WebSocket activé sur le port 4455.
+- **Sélection du type de projet** : Choisissez la modalité (podcast, interview, etc.) pour adapter le parcours utilisateur.
+- **Sélection des intervenants** : Choisissez le nombre d'intervenants (1 à 4) avec illustration visuelle personnalisée.
+- **Positionnement** : Visualisez le schéma de placement des intervenants dans la salle, avec image dynamique selon le nombre sélectionné.
+- **Configuration micro/caméra** : Vérifiez et ajustez les périphériques avant l'enregistrement.
+- **Enregistrement & Contrôle du direct** : Lancez, suivez et contrôlez la session en temps réel.
+- **Tableau de bord** : Accédez à la synthèse des projets et enregistrements précédents.
 
 ## Structure du projet
 
-- `desktop-app/` : Code source principal (Vue, Electron, scripts de contrôle OBS).
-- `public/img/` : Images statiques utilisées dans l'interface (podcast.png, powerpoint.png, roundtable.png, etc.).
-- `src/components/` : Composants Vue réutilisables (MicrophoneCard, ModalityCard, LogoSplash, etc.).
-- `src/views/` : Vues principales de l'application (PodcastView, ModalitySelectView, CameraSetupView, etc.).
-- `obsControl.js` : Script Node.js pour piloter OBS Studio via WebSocket.
+```
+/desktop-app
+├── public/
+│   └── img/           # Images pour les intervenants, schémas de positionnement, etc.
+├── src/
+│   ├── assets/        # Styles, images additionnelles
+│   ├── components/    # Composants Vue réutilisables (ParticipantCard, MicrophoneCard, etc.)
+│   ├── views/         # Vues principales (ModalitySelectView, ParticipantSelectView, ...)
+│   ├── router/        # Configuration des routes (index.js)
+│   ├── App.vue        # Racine de l'application
+│   └── main.js        # Point d'entrée
+└── package.json       # Dépendances et scripts
+```
 
 ## Installation & Lancement
 
-1. **Pré-requis** : Node.js 18+, OBS Studio (avec WebSocket activé), Rodecaster Pro (pour le mode podcast).
-2. **Installation des dépendances** :
-   ```sh
-   cd desktop-app
-   npm install
-   ```
-3. **Lancement en développement** :
-   ```sh
-   npm run dev
-   ```
-4. **Build production/Electron** :
-   ```sh
-   npm run build
-   ```
-   Le build Electron se trouve dans `desktop-app/dist/`.
+### Prérequis
+- Node.js >= 16
+- npm >= 8
 
-## Points d'attention
+### Installation
+```bash
+npm install
+```
 
-- **Images manquantes** :
-  - Vérifiez que toutes les images nécessaires sont bien dans `public/img/` ET que leur nom correspond exactement (casse comprise).
-  - Utilisez toujours `import.meta.env.BASE_URL + 'img/...'` pour référencer une image dans le code Vue.
-- **Problèmes de chargement d'image** :
-  - Si une image ne s'affiche pas après build, vérifiez sa taille, son nom, et la présence dans `dist/img/`.
-  - Pour des images très lourdes, privilégiez des PNG/JPG optimisés (< 2 Mo si possible).
-- **OBS** :
-  - L'application nécessite qu'OBS Studio soit lancé avec le plugin WebSocket (port 4455).
-  - Les fonctions d'enregistrement (start/pause/stop) sont pilotées via le script `obsControl.js`.
+### Lancer l'application en développement
+```bash
+npm run dev
+```
 
-## Dépannage rapide
+### Générer la version de production
+```bash
+npm run build
+```
 
-- **Image ne s'affiche pas** :
-  - Ouvrez la console devtools dans Electron ou le navigateur, vérifiez le chemin de l'image et essayez d'ouvrir ce chemin directement.
-  - Remplacez temporairement l'image par une version plus légère pour tester.
-- **Erreur OBS** :
-  - Vérifiez que le WebSocket OBS est bien activé et écoute sur le bon port.
-  - Vérifiez la connexion réseau localhost.
+### Lancer la version production localement
+```bash
+npm run preview
+```
+
+## Personnalisation des images
+- Placez vos images de positionnement (ex : `1intervenantsPosition.png`, `2intervenantsPosition.png`, etc.) dans `public/img/`.
+- Les images des cards intervenant sont aussi à placer dans ce dossier (`1intervenantsImg.png`, ...).
+
+## Navigation & UX
+- Chaque vue comporte un titre explicite et un sous-titre pour guider l'utilisateur.
+- Navigation clavier possible sur certaines étapes (ex : touche "Entrée" pour continuer, "R" pour retour sur la vue de positionnement).
+- Les étapes s'adaptent selon la modalité choisie (podcast, interview, etc.).
+
+## Technologies utilisées
+- [Vue 3](https://vuejs.org/) (Composition API)
+- [Vue Router](https://router.vuejs.org/)
+- [PrimeVue](https://www.primevue.org/) (UI components)
+- CSS custom/scoped
+
+## Bonnes pratiques
+- Structure de code claire (components/views)
+- Styles cohérents et adaptatifs
+- UX pensée pour la simplicité et l'efficacité
+
+## Origine du code
+
+Une partie du code de cette application a été forkée depuis le projet Gabin de Micode.
+Merci à Micode et à la communauté Gabin pour leur travail et leur inspiration.
 
 ## Contribution
+1. Forkez le repo / clonez localement
+2. Créez une branche (`feature/ma-nouvelle-fonctionnalite`)
+3. Commitez vos changements
+4. Ouvrez une Pull Request
 
-- Merci de faire un `git add .` puis `git commit -m "message"` et `git push` pour toute modification.
-- Documentez les changements importants dans ce README.
+## Support
+Pour toute question ou bug, ouvrez une issue sur le repo ou contactez l'équipe technique.
 
 ---
 
-Pour toute question ou bug, contactez antoine.quarroz@hesge.ch ou ouvrez une issue sur le dépôt GitHub.
+© Gabin, 2025. Tous droits réservés.

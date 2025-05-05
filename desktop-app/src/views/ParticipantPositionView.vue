@@ -1,6 +1,7 @@
 <template>
   <div class="positioning-bg">
-    <h2 class="positioning-title">Positionnement des intervenants</h2>
+    <h1 class="page-title">Vérifier la disposition des intervenants dans la salle</h1>
+    <div class="page-subtitle">Assurez-vous que chaque intervenant soit bien positionné selon le schéma ci-dessous</div>
     <div class="positioning-img-container">
       <img :src="positionImage" :alt="`Positionnement ${participantCount} intervenant(s)`" class="positioning-img" />
     </div>
@@ -19,7 +20,7 @@
 
 <script setup>
 import { useRouter } from 'vue-router'
-import { computed } from 'vue'
+import { computed, onMounted, onBeforeUnmount } from 'vue'
 const router = useRouter()
 const colors = [
   '#E53935', // Rouge
@@ -51,6 +52,20 @@ function goNext() {
 function goBack() {
   router.back()
 }
+
+function handleKeydown(e) {
+  if (e.key === 'Enter') {
+    goNext()
+  } else if (e.key.toLowerCase() === 'r') {
+    goBack()
+  }
+}
+onMounted(() => {
+  window.addEventListener('keydown', handleKeydown)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleKeydown)
+})
 </script>
 
 <style scoped>
@@ -62,6 +77,22 @@ function goBack() {
   justify-content: center;
   background: #0B213F;
   color: #fff;
+}
+.page-title {
+  font-size: 2.7rem;
+  font-weight: 900;
+  color: #f3c300;
+  margin-bottom: 0.2em;
+  letter-spacing: 1px;
+  text-align: center;
+}
+.page-subtitle {
+  font-size: 1.25rem;
+  color: #fff;
+  font-weight: 400;
+  margin-bottom: 1.2em;
+  text-align: center;
+  opacity: 0.88;
 }
 .positioning-title {
   font-size: 2.3rem;

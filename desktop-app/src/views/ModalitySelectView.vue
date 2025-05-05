@@ -1,7 +1,8 @@
 <template>
   <div class="modality-onboarding-bg">
     <div class="modality-onboarding-container">
-      <h2 class="modality-onboarding-title">Choisissez une modalité</h2>
+      <h1 class="page-title">Choisir le type de modalité</h1>
+      <div class="page-subtitle">Sélectionnez le format de votre enregistrement (podcast, interview, etc.)</div>
       <div class="modality-onboarding-grid">
         <ModalityCard
           title="Podcast"
@@ -113,6 +114,22 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+}
+.page-title {
+  font-size: 2.7rem;
+  font-weight: 900;
+  color: #f3c300;
+  margin-bottom: 0.2em;
+  letter-spacing: 1px;
+  text-align: center;
+}
+.page-subtitle {
+  font-size: 1.25rem;
+  color: #fff;
+  font-weight: 400;
+  margin-bottom: 1.2em;
+  text-align: center;
+  opacity: 0.88;
 }
 .modality-onboarding-title {
   color: #fff;

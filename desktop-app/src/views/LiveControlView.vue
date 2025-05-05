@@ -1,5 +1,7 @@
 <template>
   <div class="live-full-bg">
+    <h1 class="page-title">Contrôler le flux</h1>
+    <div class="page-subtitle">Gérez le flux de la session</div>
     <Button class="live-back-btn" icon="pi pi-arrow-left" @click="goBack" aria-label="Retour" />
     <div v-if="obsConnected && videoAvailable">
       <video ref="obsVideo" :src="OBS_HLS_URL" controls autoplay class="live-full-video"></video>
@@ -120,6 +122,22 @@ const obsVideo = ref(null);
   background: linear-gradient(135deg, #1e335c 0%, #12294b 60%, #0B213F 100%);
   overflow: hidden;
   z-index: 0;
+}
+.page-title {
+  font-size: 2.7rem;
+  font-weight: 900;
+  color: #f3c300;
+  margin-bottom: 0.2em;
+  letter-spacing: 1px;
+  text-align: center;
+}
+.page-subtitle {
+  font-size: 1.25rem;
+  color: #fff;
+  font-weight: 400;
+  margin-bottom: 1.2em;
+  text-align: center;
+  opacity: 0.88;
 }
 .live-back-btn {
   position: absolute;

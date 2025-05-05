@@ -9,7 +9,7 @@
       </div>
       <div class="modality-number-color-wrapper" v-if="number !== undefined">
         <span class="modality-number">{{ number }}</span>
-        <span v-if="color" class="participant-color-dot" :style="{ backgroundColor: color }"></span>
+
       </div>
       <div class="modality-title">{{ name }}</div>
       <div class="modality-desc"><slot name="desc"></slot></div>

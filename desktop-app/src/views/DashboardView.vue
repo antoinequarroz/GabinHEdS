@@ -1,5 +1,9 @@
 <template>
   <div class="dashboard-bg min-h-screen">
+    <!-- Titre principal et sous-titre -->
+    <h1 class="page-title">Tableau de bord</h1>
+    <div class="page-subtitle">Retrouvez ici la synthèse de vos enregistrements et projets</div>
+
     <!-- Toolbar / Menubar -->
     <Menubar :model="toolbarItems" class="mb-6 shadow-md dashboard-menubar">
       <template #start>
@@ -341,5 +345,21 @@ onMounted(async () => {
 .panel {
   background: #12294b;
   color: #fff;
+}
+.page-title {
+  font-size: 2.7rem;
+  font-weight: 900;
+  color: #f3c300;
+  margin-bottom: 0.2em;
+  letter-spacing: 1px;
+  text-align: center;
+}
+.page-subtitle {
+  font-size: 1.25rem;
+  color: #fff;
+  font-weight: 400;
+  margin-bottom: 1.2em;
+  text-align: center;
+  opacity: 0.88;
 }
 </style>

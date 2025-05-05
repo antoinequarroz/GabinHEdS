@@ -1,7 +1,8 @@
 <template>
   <div class="participant-onboarding-bg">
     <div class="participant-onboarding-container">
-      <h2 class="participant-onboarding-title">Nombre d'intervenants</h2>
+      <h1 class="page-title">Sélectionner les intervenants</h1>
+      <div class="page-subtitle">Choisissez le nombre d'intervenants qui participeront à la session</div>
       <div class="participant-onboarding-grid">
         <ParticipantCard
           v-for="(p, idx) in participants"
@@ -123,6 +124,22 @@ function handleKeydown(e) {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+}
+.page-title {
+  font-size: 2.7rem;
+  font-weight: 900;
+  color: #f3c300;
+  margin-bottom: 0.2em;
+  letter-spacing: 1px;
+  text-align: center;
+}
+.page-subtitle {
+  font-size: 1.25rem;
+  color: #fff;
+  font-weight: 400;
+  margin-bottom: 1.2em;
+  text-align: center;
+  opacity: 0.88;
 }
 .participant-onboarding-title {
   color: #fff;

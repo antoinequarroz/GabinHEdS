@@ -1,7 +1,8 @@
 <template>
   <div class="camera-setup-bg camera-setup-fullscreen">
     <div class="camera-setup-container camera-setup-no-border">
-      <h2 class="camera-setup-title">Configuration des caméras</h2>
+      <h1 class="page-title">Configurer les caméras</h1>
+      <div class="page-subtitle">Vérifiez le cadrage et la qualité vidéo avant de commencer</div>
       <div class="camera-setup-grid" :class="`cameras-${cameraGridCount}`">
         <div v-for="n in cameraCount" :key="n" class="camera-setup-card" :class="{ 'camera-ready': videoStreams[n-1] }">
           <div class="camera-setup-card-inner">
@@ -239,6 +240,22 @@ watch(selectedHdmiDeviceId, (id) => {
   margin-bottom: 2.5rem;
   text-align: center;
   letter-spacing: 0.02em;
+}
+.page-title {
+  font-size: 2.7rem;
+  font-weight: 900;
+  color: #f3c300;
+  margin-bottom: 0.2em;
+  letter-spacing: 1px;
+  text-align: center;
+}
+.page-subtitle {
+  font-size: 1.25rem;
+  color: #fff;
+  font-weight: 400;
+  margin-bottom: 1.2em;
+  text-align: center;
+  opacity: 0.88;
 }
 .camera-setup-grid {
   display: flex;

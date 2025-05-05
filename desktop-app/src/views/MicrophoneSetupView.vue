@@ -1,6 +1,7 @@
 <template>
   <div class="micro-setup-bg">
-    <h2 class="micro-setup-title">Configuration des micros</h2>
+    <h1 class="page-title">Configurer le micro</h1>
+    <div class="page-subtitle">Testez et ajustez le volume sonore avant d'enregistrer</div>
     <div class="micro-setup-grid" :class="`micros-${microCount}`">
       <div v-for="n in microCount" :key="n" class="modality-card-beautiful micro-setup-card">
         <div class="modality-card-center">
@@ -64,6 +65,22 @@ function handleKeydown(e) {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+}
+.page-title {
+  font-size: 2.7rem;
+  font-weight: 900;
+  color: #f3c300;
+  margin-bottom: 0.2em;
+  letter-spacing: 1px;
+  text-align: center;
+}
+.page-subtitle {
+  font-size: 1.25rem;
+  color: #fff;
+  font-weight: 400;
+  margin-bottom: 1.2em;
+  text-align: center;
+  opacity: 0.88;
 }
 .micro-setup-title {
   color: #fff;
