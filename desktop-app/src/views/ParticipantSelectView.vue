@@ -1,7 +1,7 @@
 <template>
   <div class="participant-onboarding-bg">
     <div class="participant-onboarding-container">
-      <h2 class="participant-onboarding-title">Vos intervenants</h2>
+      <h2 class="participant-onboarding-title">Nombre d'intervenants</h2>
       <div class="participant-onboarding-grid">
         <ParticipantCard
           v-for="(p, idx) in participants"
@@ -10,6 +10,7 @@
           :image="p.image"
           :selected="selectedIdx === idx"
           :number="idx + 1"
+          :color="colors[idx]"
           @select="selectedIdx = idx"
         />
       </div>
@@ -22,7 +23,7 @@
         </button>
       </div>
       <div class="participant-onboarding-help">
-        Retirez des participants <i class="pi pi-user-minus"></i> ou continuez <i class="pi pi-arrow-right"></i>
+        Ensuite, continuez <i class="pi pi-arrow-right"></i>
       </div>
     </div>
     <transition name="fade-pop">
@@ -42,11 +43,17 @@ import { useRouter } from 'vue-router'
 import ParticipantCard from '../components/ParticipantCard.vue'
 const router = useRouter()
 const participants = ref([
-  { name: 'Intervenant', image: import.meta.env.BASE_URL + 'img/men1.png' },
-  { name: 'Intervenant', image: import.meta.env.BASE_URL + 'img/woman1.png' },
-  { name: 'Intervenant', image: import.meta.env.BASE_URL + 'img/men2.png' },
-  { name: 'Intervenant', image: import.meta.env.BASE_URL + 'img/woman2.png' },
+  { name: 'Intervenant', image: import.meta.env.BASE_URL + 'img/1intervenantsImg.png' },
+  { name: 'Intervenants', image: import.meta.env.BASE_URL + 'img/2intervenantsImg.png' },
+  { name: 'Intervenants', image: import.meta.env.BASE_URL + 'img/3intervenantsImg.png' },
+  { name: 'Intervenants', image: import.meta.env.BASE_URL + 'img/4intervenantsImg.png' },
 ])
+const colors = [
+  '#E53935', // Rouge
+  '#1E88E5', // Bleu
+  '#43A047', // Vert
+  '#F3C300'  // Jaune
+]
 const selectedIdx = ref(null)
 const showConfirmation = ref(false)
 
@@ -59,12 +66,15 @@ function confirmSelection() {
   showConfirmation.value = true
   setTimeout(() => {
     showConfirmation.value = false
-    if (isPodcast.value) {
-      router.push({ name: 'MicrophoneSetup', query: { count: selectedIdx.value + 1 } })
-    } else {
-      router.push({ name: 'CameraSetup', query: { count: selectedIdx.value + 1 } })
-    }
-  }, 2000)
+    // Redirige vers la vue de positionnement après la sélection
+    router.push({
+      name: 'ParticipantPosition',
+      query: {
+        ...router.currentRoute.value.query,
+        count: selectedIdx.value + 1
+      }
+    })
+  }, 1000)
 }
 function goBack() {
   router.back()

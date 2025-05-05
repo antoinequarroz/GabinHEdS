@@ -7,8 +7,11 @@
       <div v-else class="modality-icon-wrapper">
         <i class="pi pi-user participant-avatar"></i>
       </div>
+      <div class="modality-number-color-wrapper" v-if="number !== undefined">
+        <span class="modality-number">{{ number }}</span>
+        <span v-if="color" class="participant-color-dot" :style="{ backgroundColor: color }"></span>
+      </div>
       <div class="modality-title">{{ name }}</div>
-      <div class="modality-number" v-if="number !== undefined">{{ number }}</div>
       <div class="modality-desc"><slot name="desc"></slot></div>
     </div>
     <transition name="fade-pop">
@@ -24,7 +27,8 @@ defineProps({
   name: String,
   image: String,
   selected: Boolean,
-  number: Number
+  number: Number,
+  color: String
 })
 </script>
 
@@ -76,23 +80,20 @@ defineProps({
 }
 .modality-image-wrapper {
   width: 100%;
-  height: 210px;
+  height: 220px;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 2.8rem;
-  background: none;
-  box-shadow: none;
-  border-radius: 0;
-  overflow: visible;
+  margin-bottom: 14px;
+  box-sizing: border-box;
 }
 .modality-image {
-  width: 200px;
-  height: 200px;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 18px;
 }
 .modality-icon-wrapper {
   background: #fff3;
@@ -115,13 +116,27 @@ defineProps({
   word-break: break-word;
   white-space: normal;
 }
+.modality-number-color-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  justify-content: center;
+}
 .modality-number {
   font-size: 3.2rem;
   font-weight: 900;
   color: #fff;
-  margin-top: 0.2rem;
-  margin-bottom: 0.4rem;
   text-shadow: 0 2px 8px #000c;
+}
+.participant-color-dot {
+  display: inline-block;
+  width: 22px;
+  height: 22px;
+  border-radius: 8px;
+  vertical-align: middle;
+  box-shadow: 0 2px 8px #0002;
+  border: 2px solid #fff5;
 }
 .modality-desc {
   font-size: 1.9rem;
