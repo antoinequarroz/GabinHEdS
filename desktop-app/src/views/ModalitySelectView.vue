@@ -62,8 +62,11 @@ function confirmSelection() {
   showConfirmation.value = true
   setTimeout(() => {
     showConfirmation.value = false
-    // Passe la modalité dans la query string
-    router.push({ name: 'ParticipantSelect', query: { modality: selected.value } })
+    if (selected.value === 'powerpoint') {
+      router.push({ name: 'CameraOptionSelect', query: { modality: selected.value } })
+    } else {
+      router.push({ name: 'ParticipantSelect', query: { modality: selected.value } })
+    }
   }, 2000)
 }
 

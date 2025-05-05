@@ -7,6 +7,7 @@ import ParticipantPositionView from '../views/ParticipantPositionView.vue';
 import CameraSetupView from '../views/CameraSetupView.vue';
 import MicrophoneSetupView from '../views/MicrophoneSetupView.vue';
 import LiveControlView from '../views/LiveControlView.vue';
+import CameraOptionSelectView from '../views/CameraOptionSelectView.vue';
 
 export default createRouter({
   history: createWebHashHistory(),
@@ -14,6 +15,7 @@ export default createRouter({
     { path: '/', name: 'modality', component: ModalitySelectView },
     { path: '/dashboard', name: 'dashboard', component: DashboardView },
     { path: '/tv', component: TvView },
+    { path: '/camera-option', name: 'CameraOptionSelect', component: CameraOptionSelectView },
     { path: '/participants', name: 'ParticipantSelect', component: ParticipantSelectView },
     { path: '/participant-position', name: 'ParticipantPosition', component: ParticipantPositionView },
     { path: '/camera-setup', name: 'CameraSetup', component: CameraSetupView },
