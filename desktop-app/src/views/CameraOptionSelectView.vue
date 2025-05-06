@@ -69,14 +69,25 @@ function selectOption(val) {
 
 function goNext() {
   if (selected.value === null) return
-  router.push({
-    name: 'ParticipantSelect',
-    query: {
-      ...route.query,
-      withCamera: selected.value === 1 ? '1' : '0',
-      modality: 'powerpoint'
-    }
-  })
+  if (selected.value === 1) {
+    router.push({
+      name: 'ParticipantSelect',
+      query: {
+        ...route.query,
+        withCamera: '1',
+        modality: 'powerpoint'
+      }
+    })
+  } else {
+    router.push({
+      name: 'ParticipantSelect',
+      query: {
+        ...route.query,
+        withCamera: '0',
+        modality: 'powerpoint'
+      }
+    })
+  }
 }
 
 function goBack() {

@@ -8,6 +8,7 @@ import CameraSetupView from '../views/CameraSetupView.vue';
 import MicrophoneSetupView from '../views/MicrophoneSetupView.vue';
 import LiveControlView from '../views/LiveControlView.vue';
 import CameraOptionSelectView from '../views/CameraOptionSelectView.vue';
+import HdmiSetupView from '../views/HdmiSetupView.vue';
 
 export default createRouter({
   history: createWebHashHistory(),
@@ -21,6 +22,7 @@ export default createRouter({
     { path: '/camera-setup', name: 'CameraSetup', component: CameraSetupView },
     { path: '/microphone-setup', name: 'MicrophoneSetup', component: MicrophoneSetupView },
     { path: '/live-control', name: 'LiveControl', component: LiveControlView },
+    { path: '/hdmi-setup', name: 'HdmiSetup', component: () => import('../views/HdmiSetupView.vue') },
     { path: '/podcast', name: 'Podcast', component: () => import('../views/PodcastView.vue') }
   ]
 });

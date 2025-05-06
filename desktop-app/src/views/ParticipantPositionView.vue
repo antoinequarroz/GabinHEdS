@@ -41,10 +41,13 @@ const positionImage = computed(() => {
 })
 
 function goNext() {
-  // Redirige selon la modalité
+  // Redirige selon la modalité et le choix caméra
   const modality = router.currentRoute.value.query.modality
+  const withCamera = router.currentRoute.value.query.withCamera
   if (modality === 'podcast') {
     router.push({ name: 'MicrophoneSetup', query: router.currentRoute.value.query })
+  } else if (modality === 'powerpoint' && withCamera === '0') {
+    router.push({ name: 'HdmiSetup', query: router.currentRoute.value.query })
   } else {
     router.push({ name: 'CameraSetup', query: router.currentRoute.value.query })
   }
