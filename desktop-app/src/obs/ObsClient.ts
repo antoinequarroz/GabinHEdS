@@ -1,6 +1,5 @@
 import { BehaviorSubject } from 'rxjs'
-import { ObsServer } from '../obs/ObsServer'
-
+import { ObsServer } from '@/obs/ObsServer'
 export class ObsClient {
     scenes$: BehaviorSubject<any[]>
     mainScene$: BehaviorSubject<string | undefined>
@@ -61,4 +60,28 @@ export class ObsClient {
     resumeRecording() {
         this.obs.resumeRecording()
     }
+
+    /**
+     * Passe automatiquement sur la scène "Table Ronde" dans OBS.
+     * Optionnel : démarre l'enregistrement si demandé.
+     */
+    async setTableRondeScene({ startRecording = false } = {}) {
+        await this.obs.setScene('Table Ronde')
+        this.mainScene$.next('Table Ronde')
+        if (startRecording) {
+            await this.obs.startRecording()
+        }
+    }
+
+    /**
+     * Active ou désactive une caméra (source) dans la scène courante OBS.
+     * @param sourceName Nom exact de la source OBS (caméra)
+     * @param enabled true = visible, false = caché
+     */
+    async setCameraEnabled(sourceName: string, enabled: boolean) {
+        await this.obs.setCameraEnabled(sourceName, enabled)
+    }
 }
+
+// Singleton export explicite pour import { obsClient } from '@/obs/ObsClient'
+export const obsClient = new ObsClient()

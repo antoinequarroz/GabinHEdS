@@ -98,6 +98,31 @@ export class ObsServer {
         }
     }
 
+    /**
+     * Active ou désactive une source (caméra) dans la scène courante.
+     * @param sourceName Nom exact de la source OBS (caméra)
+     * @param enabled true = visible, false = caché
+     */
+    async setCameraEnabled(sourceName: string, enabled: boolean) {
+        try {
+            // Récupère la scène courante
+            const { currentProgramSceneName } = await this.websocket.call('GetCurrentProgramScene')
+            // Récupère tous les items de la scène
+            const { sceneItems } = await this.websocket.call('GetSceneItemList', { sceneName: currentProgramSceneName })
+            // Trouve l'item correspondant à la source
+            const item = sceneItems.find((i: any) => i.sourceName === sourceName)
+            if (!item) throw new Error('Source non trouvée: ' + sourceName)
+            // Active/désactive la source
+            await this.websocket.call('SetSceneItemEnabled', {
+                sceneName: currentProgramSceneName,
+                sceneItemId: item.sceneItemId,
+                sceneItemEnabled: enabled
+            })
+        } catch (e) {
+            console.error('Erreur setCameraEnabled OBS:', e)
+        }
+    }
+
     clean() {
         try {
             // ...nettoyage, déconnexion, etc.

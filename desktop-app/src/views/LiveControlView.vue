@@ -3,8 +3,21 @@
     <h1 class="page-title">Contrôler le flux</h1>
     <div class="page-subtitle">Gérez le flux de la session</div>
     <Button class="live-back-btn" icon="pi pi-arrow-left" @click="goBack" aria-label="Retour" />
+    <div class="auto-regie-status">
+      <div class="auto-current" v-if="autoCurrent">
+        <span>Auto-régie : </span><b>{{ autoCurrent }}</b>
+      </div>
+      <div class="auto-log" v-if="autoLog.length">
+        <div class="auto-log-title">Historique auto-régie</div>
+        <ul>
+          <li v-for="item in autoLog" :key="item.time + item.event">
+            <span class="auto-log-time">[{{ item.time }}]</span> {{ item.event }}
+          </li>
+        </ul>
+      </div>
+    </div>
     <div v-if="obsConnected && videoAvailable">
-      <video ref="obsVideo" :src="OBS_HLS_URL" controls autoplay class="live-full-video"></video>
+      <video ref="videoRef" controls autoplay class="live-full-video" style="width:100%;"></video>
     </div>
     <div v-else class="no-video-placeholder">
       <i class="pi pi-video-off" style="font-size: 6rem; color: #f3c300;" />
@@ -35,16 +48,25 @@
         <span class="audio-status-label">{{ audioOk ? 'Son OK' : 'Problème audio' }}</span>
       </div>
     </div>
+    <div class="camera-switch-panel">
+      <div v-for="(name, idx) in cameraSources" :key="name" style="margin-bottom: 8px;">
+        <Button :label="cameraStates[idx] ? `Masquer ${name}` : `Afficher ${name}`" @click="toggleCamera(idx)" />
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { ref, onMounted, onBeforeUnmount } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
 import Button from 'primevue/button';
 import { obsClient } from '@/obs'
+import { autocamClient } from '@/obs/AutocamClient'
+import Hls from 'hls.js'
 
 const router = useRouter();
+const route = useRoute();
+
 function goBack() {
   router.back();
 }
@@ -59,11 +81,51 @@ const obsConnected = ref(false)
 const videoAvailable = ref(true)
 const OBS_HLS_URL = 'http://localhost:8081/hls/test.m3u8'
 
-onMounted(() => {
+const cameraSources = ref([])
+
+const cameraStates = ref(cameraSources.value.map(() => true)) // true = visible
+
+function toggleCamera(idx) {
+  const sourceName = cameraSources.value[idx]
+  const newState = !cameraStates.value[idx]
+  cameraStates.value[idx] = newState
+  obsClient.setCameraEnabled(sourceName, newState)
+}
+
+const autoLog = ref([])
+const autoCurrent = ref('')
+
+// Simule un flux d'événements auto-régie (à remplacer par une vraie source si backend)
+function pushAutoEvent(event) {
+  autoCurrent.value = event
+  autoLog.value.unshift({ event, time: new Date().toLocaleTimeString() })
+  if (autoLog.value.length > 10) autoLog.value.length = 10
+}
+
+const videoRef = ref(null)
+let hls
+
+onMounted(async () => {
   obsClient.connect()
+
+  if (route.query.modality === 'tableronde' || route.query.modality === 'roundtable') {
+    // Passe automatiquement sur la scène Table Ronde (sans démarrer l'enregistrement)
+    await obsClient.setTableRondeScene({ startRecording: false })
+  }
+
+  if (videoRef.value) {
+    if (Hls.isSupported()) {
+      hls = new Hls()
+      hls.loadSource(OBS_HLS_URL)
+      hls.attachMedia(videoRef.value)
+    } else if (videoRef.value.canPlayType('application/vnd.apple.mpegurl')) {
+      videoRef.value.src = OBS_HLS_URL
+    }
+  }
 
   const sub1 = obsClient.activeScene$.subscribe(scene => {
     currentScene.value = scene
+    if (scene) pushAutoEvent(`Scène auto-sélectionnée : ${scene}`)
   })
   const sub2 = obsClient.scenes$.subscribe(list => {
     scenes.value = list.map(s => ({ ...s, active: s.name === currentScene.value }))
@@ -78,13 +140,17 @@ onMounted(() => {
     obsConnected.value = val
   })
 
-  onUnmounted(() => {
+  onBeforeUnmount(() => {
     sub1.unsubscribe()
     sub2.unsubscribe()
     sub3.unsubscribe()
     sub4.unsubscribe()
     sub5.unsubscribe()
   })
+})
+
+onBeforeUnmount(() => {
+  if (hls) hls.destroy()
 })
 
 function handleKeydown(e) {
@@ -109,8 +175,6 @@ function onStopRec() {
 function switchScene(sceneName) {
   obsClient.setScene(sceneName)
 }
-
-const obsVideo = ref(null);
 </script>
 
 <style scoped>
@@ -320,6 +384,48 @@ const obsVideo = ref(null);
   border-radius: 24px;
   margin: 2rem;
   font-size: 2rem;
+}
+.camera-switch-panel {
+  position: absolute;
+  bottom: 10vw;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+  z-index: 10;
+  background: rgba(24,38,75,0.80);
+  border-radius: 16px;
+  padding: 0.7rem 1.1rem;
+  box-shadow: 0 2px 24px #0008;
+  backdrop-filter: blur(3px);
+}
+.auto-regie-status {
+  background: #232c4b;
+  color: #ffd600;
+  border-radius: 10px;
+  padding: 1rem 1.5rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 2px 12px #0005;
+  max-width: 500px;
+}
+.auto-current {
+  font-size: 1.1rem;
+  margin-bottom: 0.7rem;
+}
+.auto-log-title {
+  font-size: 0.95rem;
+  font-weight: bold;
+  margin-bottom: 0.3rem;
+}
+.auto-log-time {
+  color: #fff;
+  font-size: 0.92em;
+  margin-right: 0.4em;
+}
+.auto-log {
+  max-height: 180px;
+  overflow-y: auto;
 }
 @media (max-width: 800px) {
   .live-overlay-controls {

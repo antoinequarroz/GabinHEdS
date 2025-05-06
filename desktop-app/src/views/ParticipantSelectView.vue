@@ -12,8 +12,12 @@
           :selected="selectedIdx === idx"
           :number="idx + 1"
           :color="colors[idx]"
-          @select="selectedIdx = idx"
-        />
+          @select="() => selectParticipant(idx)"
+        >
+          <template #footer>
+            <div v-if="!profileForKey(p.profileKey)" class="participant-disabled">(bientôt disponible)</div>
+          </template>
+        </ParticipantCard>
       </div>
       <div class="participant-onboarding-actions">
         <button class="participant-onboarding-back" @click="goBack">
@@ -42,25 +46,33 @@
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import ParticipantCard from '../components/ParticipantCard.vue'
+import { profiles, applyProfile } from '@/profiles'
+
 const router = useRouter()
 const participants = ref([
-  { name: 'Intervenant', image: import.meta.env.BASE_URL + 'img/1intervenantsImg.png' },
-  { name: 'Intervenants', image: import.meta.env.BASE_URL + 'img/2intervenantsImg.png' },
-  { name: 'Intervenants', image: import.meta.env.BASE_URL + 'img/3intervenantsImg.png' },
-  { name: 'Intervenants', image: import.meta.env.BASE_URL + 'img/4intervenantsImg.png' },
+  { name: 'Intervenant', image: import.meta.env.BASE_URL + 'img/1intervenantsImg.png', profileKey: '1 Intervenant' },
+  { name: 'Intervenants', image: import.meta.env.BASE_URL + 'img/2intervenantsImg.png', profileKey: '2 Intervenants' },
+  { name: 'Intervenants', image: import.meta.env.BASE_URL + 'img/3intervenantsImg.png', profileKey: '3 Intervenants' },
+  { name: 'Intervenants', image: import.meta.env.BASE_URL + 'img/4intervenantsImg.png', profileKey: '4 Intervenants' }
 ])
+
 const colors = [
   '#E53935', // Rouge
   '#1E88E5', // Bleu
   '#43A047', // Vert
-  '#F3C300'  // Jaune
+  '#FDD835', // Jaune
 ]
 const selectedIdx = ref(null)
 const showConfirmation = ref(false)
 
-const isPodcast = computed(() => {
-  return (router.currentRoute.value.query.modality === 'podcast')
-})
+const profileForKey = key => profiles.find(p => p.name.includes(key))
+
+function selectParticipant(idx) {
+  selectedIdx.value = idx
+  const participant = participants.value[idx]
+  const profile = profileForKey(participant.profileKey)
+  if (profile) applyProfile(profile)
+}
 
 function confirmSelection() {
   if (selectedIdx.value === null) return
@@ -77,6 +89,7 @@ function confirmSelection() {
     })
   }, 1000)
 }
+
 function goBack() {
   router.back()
 }
@@ -93,7 +106,7 @@ function handleKeydown(e) {
   if (e.key.toLowerCase() === 'r') goBack()
   if (['1','2','3','4'].includes(e.key)) {
     const idx = parseInt(e.key, 10) - 1
-    if (participants.value[idx]) selectedIdx.value = idx
+    if (participants.value[idx]) selectParticipant(idx)
   }
 }
 </script>
@@ -140,14 +153,6 @@ function handleKeydown(e) {
   margin-bottom: 1.2em;
   text-align: center;
   opacity: 0.88;
-}
-.participant-onboarding-title {
-  color: #fff;
-  font-size: 2.3rem;
-  font-weight: 700;
-  margin-bottom: 2.5rem;
-  text-align: center;
-  letter-spacing: 0.02em;
 }
 .participant-onboarding-grid {
   display: flex;
@@ -245,6 +250,13 @@ function handleKeydown(e) {
 .fade-pop-enter-from, .fade-pop-leave-to {
   opacity: 0;
   transform: scale(0.8);
+}
+.participant-disabled {
+  color: #ffd600;
+  font-size: 0.9rem;
+  margin-top: 0.5rem;
+  opacity: 0.7;
+  text-align: center;
 }
 @media (max-width: 900px) {
   .participant-onboarding-grid {
