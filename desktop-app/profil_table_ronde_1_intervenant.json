@@ -1,0 +1,18 @@
+{
+  "name": "Table Ronde 1 Intervenant",
+  "scenes": [
+    {
+      "name": "Table Ronde",
+      "cameras": [
+        { "name": "Caméra 1", "weight": 100 }
+      ],
+      "audio": {
+        "device": "Scarlett 2i2",
+        "threshold": -35
+      }
+    }
+  ],
+  "recording": true,
+  "overlays": ["Logo"],
+  "autostart": false
+}

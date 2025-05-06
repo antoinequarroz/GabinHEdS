@@ -1,0 +1,18 @@
+{
+  "name": "Podcast 1 Intervenant",
+  "scenes": [
+    {
+      "name": "Podcast",
+      "cameras": [
+        { "name": "Podcast Cam", "weight": 100 }
+      ],
+      "audio": {
+        "device": "Rode NT-USB Mini",
+        "threshold": -30
+      }
+    }
+  ],
+  "recording": true,
+  "overlays": ["Logo", "Titre Episode"],
+  "autostart": true
+}

@@ -1,0 +1,32 @@
+{
+  "name": "TableRonde_3",
+  "participants": 3,
+  "settings": {
+    "autocam": [
+      {
+        "name": "Studio",
+        "containers": [
+          {
+            "name": "HEdS Studio",
+            "sources": [
+              { "name": "Caméra 1", "options": { "id": 9 } },
+              { "name": "Caméra 2", "options": { "id": 10 } },
+              { "name": "Caméra 3", "options": { "id": 11 } }
+            ],
+            "mics": [
+              {
+                "id": "",
+                "cams": [
+                  { "source": { "name": "Caméra 1", "options": { "id": 9 } }, "weight": 40 },
+                  { "source": { "name": "Caméra 2", "options": { "id": 10 } }, "weight": 30 },
+                  { "source": { "name": "Caméra 3", "options": { "id": 11 } }, "weight": 30 }
+                ]
+              }
+            ],
+            "durations": { "min": 3, "max": 12 }
+          }
+        ]
+      }
+    ]
+  }
+}

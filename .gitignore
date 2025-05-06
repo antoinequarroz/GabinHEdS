@@ -1,0 +1,132 @@
+rm -rf dist/win-unpacked/# Node modules
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Electron build output
+*.log
+*.tsbuildinfo
+*.DS_Store
+*.env
+.env.*
+
+# OS junk
+Thumbs.db
+.DS_Store
+
+# VSCode settings
+.vscode/
+
+# Electron packaged app and cache
+*.asar
+*.exe
+*.dll
+*.pak
+*.bin
+*.blockmap
+*.yml
+*.yaml
+*.map
+*.app
+*.dmg
+*.deb
+*.rpm
+*.snap
+*.zip
+*.tar.gz
+*.7z
+*.tgz
+*.gz
+*.bz2
+*.xz
+*.swp
+*.swo
+*.bak
+*.old
+*.tmp
+*.cache
+
+# Electron dist folders
+/desktop-app/dist/
+/desktop-app/win-unpacked/
+/desktop-app/out/
+/desktop-app/release/
+
+# Ignore large files
+/desktop-app/dist/oneclick-hub-desktop Setup*.exe
+/desktop-app/dist/win-unpacked/
+/desktop-app/node_modules/
+/desktop-app/dist/*.exe
+/desktop-app/dist/*.asar
+/desktop-app/dist/*.dll
+/desktop-app/dist/*.pak
+/desktop-app/dist/*.bin
+/desktop-app/dist/*.blockmap
+/desktop-app/dist/*.yml
+/desktop-app/dist/*.yaml
+/desktop-app/dist/*.map
+/desktop-app/dist/*.dmg
+/desktop-app/dist/*.deb
+/desktop-app/dist/*.rpm
+/desktop-app/dist/*.snap
+/desktop-app/dist/*.zip
+/desktop-app/dist/*.tar.gz
+/desktop-app/dist/*.7z
+/desktop-app/dist/*.tgz
+/desktop-app/dist/*.gz
+/desktop-app/dist/*.bz2
+/desktop-app/dist/*.xz
+
+# Ignore Electron binaries
+/desktop-app/node_modules/electron/dist/
+/desktop-app/node_modules/.cache/
+
+# Ignore local dev files
+*.local.js
+*.local.json
+
+# Ignore VSCode launch configs
+/.vscode/launch.json
+
+# Ignore OBS debug files
+obs_debug.log
+obs-studio/logs/
+
+# Ignore audio/video recordings
+*.mp3
+*.wav
+*.webm
+*.m4a
+*.ogg
+*.flac
+*.aac
+*.avi
+*.mov
+*.mp4
+*.mkv
+
+# Ignore backups
+*~
+*.bak
+*.tmp
+*.swp
+*.swo
+
+# Editor directories and files
+.idea/
+*.iml
+
+# Ignore test coverage
+coverage/
+
+# Ignore environment files
+.env
+.env.*
+
+# Ignore PrimeVue build artifacts
+/desktop-app/dist/assets/
+
+# Ignore public build images
+/desktop-app/dist/img/
