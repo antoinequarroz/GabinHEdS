@@ -134,3 +134,7 @@ coverage/
 # Reviewed configuration for the new Nino studio and its CI workflow
 !/.github/workflows/*.yml
 !/studio/config/mediamtx.yml
+
+# Local Python guide-generation cache
+__pycache__/
+*.pyc

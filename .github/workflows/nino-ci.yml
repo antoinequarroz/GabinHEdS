@@ -166,7 +166,7 @@ jobs:
             'apps/web/package.json', 'apps/web/tsconfig.json', 'apps/web/vite.config.ts',
             'apps/web/index.html', 'apps/web/src', 'apps/web/public', 'apps/web/dist',
             'packages/shared/package.json', 'packages/shared/src', 'tests',
-            'scripts/media-runtime.mjs', 'scripts/setup-media.mjs', 'scripts/start-media.mjs',
+            'scripts/media-runtime.mjs', 'scripts/setup-media.mjs', 'scripts/start-media.mjs', 'scripts/generate-guides.py',
             'config/mediamtx.yml',
           ];
           const permitted = source => {
@@ -192,7 +192,7 @@ jobs:
             'est expliqué dans README.md ; sur le Mac de développement, utiliser Portly.',
             'Conserver toutes les dépendances : tsx est requis au démarrage.',
             'Cette archive ne contient ni configuration privée, ni vidéos, ni base de données.',
-            'Le guide PDF lié depuis README.md reste disponible dans le dépôt source.',
+            'Les trois guides PDF installation, tests et utilisateur sont dans docs/guides/.',
             '',
           ].join('\n'));
           NODE

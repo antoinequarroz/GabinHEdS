@@ -10,9 +10,10 @@ import ScenePreview from '../components/ScenePreview.vue';
 import AudioMeter from '../components/AudioMeter.vue';
 import ProjectMedia from '../components/ProjectMedia.vue';
 import TakePlayer from '../components/TakePlayer.vue';
+import AutoDirection from '../components/AutoDirection.vue';
 const props = defineProps<{ project: Project }>();
 const emit = defineEmits<{ navigate: [path: string] }>();
-const { state, live, canEdit, busy, preparation, control, downloadTake, exportProject } = useStudio();
+const { state, live, canEdit, busy, preparation, control, downloadTake, exportProject, exportResolve, cancelResolveExport } = useStudio();
 const step = ref<'prepare' | 'record' | 'takes'>('prepare');
 const editing = ref(false);
 const checks = ref<Preparation>();
@@ -149,6 +150,7 @@ function bytes(value: number | null): string { return value === null ? 'Non mesu
               <button v-else-if="canEdit" class="button regie-live-trigger" aria-label="Diffuser en direct" :disabled="!canStartLive" @click="confirm = 'liveStart'"><span class="regie-action-icon"><Icon name="broadcast" /></span><span>Diffuser en direct</span></button>
               <details class="regie-help"><summary>À propos du direct</summary><p>Vérifiez la réception sur la plateforme. Le direct et la prise sont indépendants.</p></details>
             </section>
+            <AutoDirection :project="project" />
             <section class="regie-audio">
               <header class="regie-section-heading"><div><Icon name="mic" /><h2>Micros des participants</h2></div><span class="regie-input-count">{{ eligibleInputs.length }}</span></header>
               <p v-if="!eligibleInputs.length" class="empty-inline">{{ obs?.connected ? 'Associez les micros dans les paramètres de la production.' : 'Connectez OBS pour retrouver les micros de la production.' }}</p>
@@ -179,9 +181,10 @@ function bytes(value: number | null): string { return value === null ? 'Non mesu
       </template>
 
       <section v-else class="takes-library">
-        <header class="takes-heading"><div><h2>Les prises de cette production</h2><p>Relisez les vidéos ici ou récupérez une copie complète sur cet appareil.</p></div><div class="takes-heading-actions"><button v-if="takes.some(take => take.status === 'completed' && take.outputPath)" class="button primary" :disabled="busy[`export:${project.id}`] || exportBlocked" @click="exportProject(project.id)"><Icon name="download" />{{ busy[`export:${project.id}`] ? 'Préparation du dossier…' : 'Récupérer le dossier complet' }}</button><button v-if="canEdit" class="button" :disabled="!!obs?.recording" @click="step = 'prepare'"><Icon name="plus" />Nouvelle prise</button></div></header>
+        <header class="takes-heading"><div><h2>Les prises de cette production</h2><p>Relisez les vidéos ici ou récupérez une copie complète sur cet appareil.</p></div><div class="takes-heading-actions"><template v-if="takes.some(take => take.status === 'completed' && take.outputPath)"><button class="button primary" :disabled="busy[`export:${project.id}`] || exportBlocked" @click="exportProject(project.id)"><Icon name="download" />{{ busy[`export:${project.id}`] ? 'Préparation du dossier…' : 'Récupérer le dossier complet' }}</button><button class="button" :disabled="busy[`resolve-export:${project.id}`] || exportBlocked" @click="exportResolve(project.id)"><Icon name="movie" />{{ busy[`resolve-export:${project.id}`] ? 'Préparation pour DaVinci Resolve…' : 'Télécharger pour DaVinci Resolve' }}</button><button v-if="busy[`resolve-export:${project.id}`]" class="text-button" @click="cancelResolveExport(project.id)">Annuler l’attente</button></template><button v-if="canEdit" class="button" :disabled="!!obs?.recording" @click="step = 'prepare'"><Icon name="plus" />Nouvelle prise</button></div></header>
         <p v-if="exportBlocked" class="hint">Terminez la prise et le direct avant de récupérer le dossier.</p>
         <p v-if="takes.some(take => take.status === 'completed' && take.outputPath)" class="takes-export-note">Le dossier ZIP rassemble les vidéos originales terminées, les médias associés et les repères de montage. La préparation peut prendre du temps sur le PC.</p>
+        <p v-if="takes.some(take => take.status === 'completed' && take.outputPath)" class="takes-export-note">Pour DaVinci Resolve : décompressez le dossier, puis choisissez Fichier → Importer → Timeline et une timeline .otio. Les changements de caméra sont déjà dans le programme enregistré ; les repères permettent de les retrouver. Les angles caméra séparés ne sont pas enregistrés.</p>
         <div v-if="!takes.length" class="takes-empty"><Icon name="movie" /><h3>Aucune prise enregistrée</h3><p>Préparez la salle, puis démarrez votre premier enregistrement.</p><button class="button primary" @click="step = 'prepare'">Configurer la première prise<Icon name="arrow" /></button></div>
         <template v-else>
           <div class="takes-list-heading" aria-hidden="true"><span>Prise</span><span>Fichier et informations</span><span>Récupération</span></div>
