@@ -1,4 +1,17 @@
-# Gabin Desktop App
+# Nino — studio vidéo local
+
+## Nouvelle version du studio
+
+La nouvelle application **Nino** est développée dans [`studio/`](studio/README.md) :
+projets sauvegardés, préparation de la salle, contrôle OBS, enregistrement et
+diffusion live, avec une API commune pour le PC, l'iPad et le Stream Deck.
+
+Consulter le [guide de développement et de livraison](studio/docs/development.md)
+pour les tests et le workflow GitHub Actions. Node.js 24 ou supérieur est requis
+pour cette version. Les vidéos et la base de la salle restent locales.
+
+Les sections ci-dessous décrivent l'ancienne version dans `desktop-app/` et
+`gabinOneclick/`.
 
 Application de gestion d'enregistrements audio/vidéo multi-modalités (podcast, interview, PowerPoint sonorisé, etc.)
 

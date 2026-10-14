@@ -1,0 +1,9 @@
+node_modules/
+.data/
+apps/api/.data/
+apps/web/dist/
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+test-results/

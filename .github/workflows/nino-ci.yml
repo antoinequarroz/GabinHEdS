@@ -1,0 +1,210 @@
+name: Nino CI
+
+on:
+  push:
+    paths:
+      - 'studio/**'
+      - '.github/workflows/nino-ci.yml'
+  pull_request:
+    paths:
+      - 'studio/**'
+      - '.github/workflows/nino-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nino-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+    working-directory: studio
+
+env:
+  CI: 'true'
+  PLAYWRIGHT_VERSION: '1.64.0'
+
+jobs:
+  checks:
+    name: Types, build et tests API / OBS
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Node.js 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: studio/package-lock.json
+      - name: Installer les dépendances verrouillées
+        run: npm ci
+      - name: Installer FFmpeg pour les tests d’affiches vidéo
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+      - name: Vérifier les types, construire et tester
+        run: npm run check
+
+  browsers:
+    name: Parcours PC / iPad · ${{ matrix.browser }}
+    needs: checks
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - browser: chromium
+            os: ubuntu-24.04
+            install-browser: chrome
+            chromium-channel: chrome
+          - browser: webkit
+            os: macos-15
+            install-browser: webkit
+            chromium-channel: ''
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      GABIN_TEST_BROWSER: ${{ matrix.browser }}
+      GABIN_CHROMIUM_CHANNEL: ${{ matrix.chromium-channel }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Node.js 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: studio/package-lock.json
+      - name: Installer les dépendances verrouillées
+        run: npm ci
+      - name: Construire l’interface testée
+        run: npm run build
+      - name: Installer FFmpeg sur Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+      - name: Installer FFmpeg sur macOS
+        if: runner.os == 'macOS'
+        run: |
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            brew install ffmpeg
+          fi
+      - name: Installer MediaMTX vérifié
+        timeout-minutes: 5
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: npm run setup:media
+      - name: Installer Playwright isolé et le navigateur
+        timeout-minutes: 10
+        env:
+          NINO_BROWSER_INSTALL: ${{ matrix.install-browser }}
+        run: |
+          npm install --prefix "$RUNNER_TEMP/nino-playwright" --no-save --package-lock=false "playwright@$PLAYWRIGHT_VERSION"
+          node "$RUNNER_TEMP/nino-playwright/node_modules/playwright/cli.js" install --with-deps "$NINO_BROWSER_INSTALL"
+      - name: Tester le parcours complet
+        timeout-minutes: 10
+        env:
+          GABIN_PLAYWRIGHT_MODULE: ${{ runner.temp }}/nino-playwright/node_modules/playwright
+          GABIN_SCREENSHOT_DIR: ${{ runner.temp }}/nino-artifacts/${{ matrix.browser }}
+        run: |
+          mkdir -p "$GABIN_SCREENSHOT_DIR"
+          npm run test:browser 2>&1 | tee "$GABIN_SCREENSHOT_DIR/browser.log"
+      - name: Conserver les captures et le journal du test
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nino-browser-${{ matrix.browser }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/nino-artifacts/${{ matrix.browser }}/*.png
+            ${{ runner.temp }}/nino-artifacts/${{ matrix.browser }}/browser.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  package:
+    name: Archive locale validée
+    if: github.event_name != 'pull_request'
+    needs: [checks, browsers]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Node.js 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: studio/package-lock.json
+      - name: Installer les dépendances et construire
+        run: |
+          npm ci
+          npm run build
+      - name: Préparer une archive depuis une liste de fichiers autorisés
+        env:
+          NINO_RELEASE_DIR: ${{ runner.temp }}/nino-release
+          NINO_SOURCE_REVISION: ${{ github.sha }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { cp, mkdir, writeFile } from 'node:fs/promises';
+          import { basename, join } from 'node:path';
+          const destination = join(process.env.NINO_RELEASE_DIR, 'nino-studio');
+          await mkdir(destination, { recursive: true });
+          const files = [
+            'package.json', 'package-lock.json', 'tsconfig.base.json', 'README.md', 'docs',
+            'apps/api/package.json', 'apps/api/tsconfig.json', 'apps/api/src', 'apps/api/test',
+            'apps/web/package.json', 'apps/web/tsconfig.json', 'apps/web/vite.config.ts',
+            'apps/web/index.html', 'apps/web/src', 'apps/web/public', 'apps/web/dist',
+            'packages/shared/package.json', 'packages/shared/src', 'tests',
+            'scripts/media-runtime.mjs', 'scripts/setup-media.mjs', 'scripts/start-media.mjs',
+            'config/mediamtx.yml',
+          ];
+          const permitted = source => {
+            const name = basename(source);
+            return !['.data', 'node_modules', 'test-results'].includes(name)
+              && !name.startsWith('.env')
+              && !/\.(sqlite(?:-wal|-shm)?|db|log|mp4|mkv|mov|webm|mp3|wav|m4a|aac)$/i.test(name);
+          };
+          for (const file of files) {
+            await mkdir(join(destination, file, '..'), { recursive: true });
+            await cp(file, join(destination, file), { recursive: true, filter: permitted });
+          }
+          await writeFile(join(destination, 'release.json'), JSON.stringify({
+            product: 'Nino', revision: process.env.NINO_SOURCE_REVISION,
+            node: '24', builtAt: new Date().toISOString(),
+          }, null, 2) + '\n');
+          await writeFile(join(destination, 'INSTALLATION.txt'), [
+            'Nino — archive locale validée',
+            '',
+            'Installer Node.js 24+, OBS Studio et FFmpeg sur le PC de la salle.',
+            'Dans ce dossier : npm ci, puis npm run setup:media.',
+            'Le démarrage de Nino (npm start) et MediaMTX (npm run start:media)',
+            'est expliqué dans README.md ; sur le Mac de développement, utiliser Portly.',
+            'Conserver toutes les dépendances : tsx est requis au démarrage.',
+            'Cette archive ne contient ni configuration privée, ni vidéos, ni base de données.',
+            'Le guide PDF lié depuis README.md reste disponible dans le dépôt source.',
+            '',
+          ].join('\n'));
+          NODE
+          cd "$NINO_RELEASE_DIR"
+          zip -qr "nino-studio-$NINO_SOURCE_REVISION.zip" nino-studio
+          sha256sum "nino-studio-$NINO_SOURCE_REVISION.zip" > "nino-studio-$NINO_SOURCE_REVISION.zip.sha256"
+      - name: Livrer le code et l’interface compilée
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nino-local-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/nino-release/*.zip
+            ${{ runner.temp }}/nino-release/*.sha256
+          if-no-files-found: error
+          retention-days: 14
