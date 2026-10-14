@@ -15,6 +15,9 @@ export async function startTestMedia(directory: string) {
   const ffmpegPath = process.env.GABIN_FFMPEG_PATH ?? (existsSync('/opt/homebrew/bin/ffmpeg') ? '/opt/homebrew/bin/ffmpeg' : 'ffmpeg');
   const [apiPort, hlsPort, rtspPort, rtmpPort] = await Promise.all([freePort(), freePort(), freePort(), freePort()]);
   const configuration = join(directory, 'mediamtx-test.yml');
+  // One automation process alternates between two simulated devices. Retain a
+  // minute of real segments so a background native player can resume after a
+  // proof capture without requesting a segment evicted during that capture.
   await writeFile(configuration, `logLevel: warn
 logDestinations: [stdout]
 authMethod: internal
@@ -36,7 +39,7 @@ hls: true
 hlsAddress: 127.0.0.1:${hlsPort}
 hlsAlwaysRemux: true
 hlsVariant: mpegts
-hlsSegmentCount: 7
+hlsSegmentCount: 60
 hlsSegmentDuration: 1s
 webrtc: false
 srt: false
