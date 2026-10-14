@@ -39,9 +39,40 @@ export async function decodedImagePreviews(page: any, selector: string, expected
   await page.locator(selector).evaluateAll((images: HTMLImageElement[]) => Promise.all(images.map(image => image.decode())));
 }
 
-export async function proofScreenshot(page: any, path: string): Promise<void> {
+export async function proofScreenshot(page: any, path: string, viewportOnly = false): Promise<string[]> {
   await renderedLayout(page);
-  await page.screenshot({ path, fullPage: true, animations: 'disabled', timeout: 45_000 });
+  if (!viewportOnly) {
+    await page.screenshot({ path, fullPage: true, animations: 'disabled', timeout: 45_000 });
+    return [path];
+  }
+  // WebKit's fullPage path snapshots an offscreen document rectangle. Capture
+  // actual painted viewports instead, with overlap for fixed studio controls.
+  const viewport = page.viewportSize();
+  assert(viewport, 'A viewport is required for WebKit proof captures');
+  assert(path.endsWith('.png'), 'Proof captures use PNG');
+  const original = await page.evaluate(() => ({ x: scrollX, y: scrollY }));
+  const height = await page.evaluate(() => Math.max(document.body.scrollHeight, document.documentElement.scrollHeight));
+  const lastOffset = Math.max(0, height - viewport.height);
+  const offsets = [0];
+  const stride = Math.max(1, Math.floor(viewport.height / 2));
+  for (let offset = stride; offset < lastOffset; offset += stride) offsets.push(offset);
+  if (lastOffset > 0) offsets.push(lastOffset);
+  const paths: string[] = [];
+  try {
+    for (const [index, offset] of offsets.entries()) {
+      await page.evaluate((top: number) => window.scrollTo({ top, left: 0, behavior: 'instant' }), offset);
+      await renderedLayout(page);
+      const destination = index === 0 ? path : path.replace(/\.png$/, `-part-${index + 1}.png`);
+      const png = await page.screenshot({ path: destination, fullPage: false, scale: 'css', animations: 'disabled', timeout: 45_000 });
+      assert.equal(png.readUInt32BE(16), viewport.width, 'The captured viewport has the requested width');
+      assert.equal(png.readUInt32BE(20), viewport.height, 'The captured viewport has the requested height');
+      paths.push(destination);
+    }
+  } finally {
+    // A closed/failed page must not replace the original capture error.
+    await page.evaluate(({ x, y }: { x: number; y: number }) => window.scrollTo({ left: x, top: y, behavior: 'instant' }), original).catch(() => undefined);
+  }
+  return paths;
 }
 
 // These guards fail if a change accidentally hides a real layout/image failure.

@@ -92,8 +92,8 @@ async function noOverflow(page: any, label: string): Promise<void> {
 }
 async function proofScreenshot(page: any, filename: string): Promise<void> {
   const started = Date.now();
-  await captureProof(page, join(screenshotDir, filename));
-  console.info(`Capture confirmée : ${filename} (${Date.now() - started} ms)`);
+  const captures = await captureProof(page, join(screenshotDir, filename), browserEngine === 'webkit');
+  console.info(`Capture confirmée : ${filename}, ${captures.length} vue(s) (${Date.now() - started} ms)`);
 }
 async function decodedProgramme(page: any, label: string): Promise<void> {
   await page.locator('video').waitFor();
@@ -429,7 +429,7 @@ try {
       await proofScreenshot(mobile, `nino-library-${width}.png`);
     } catch (error) {
       const [mobile] = context.pages();
-      if (mobile) await captureProof(mobile, join(screenshotDir, `nino-mobile-failure-${width}.png`)).catch(() => undefined);
+      if (mobile) await captureProof(mobile, join(screenshotDir, `nino-mobile-failure-${width}.png`), browserEngine === 'webkit').catch(() => undefined);
       throw error;
     } finally {
       await context.close();
@@ -459,8 +459,8 @@ try {
   console.log(JSON.stringify({ passed: true, steps, pageErrors, failedApi, screenshots: [join(screenshotDir, 'gabin-studio-pc.png'), join(screenshotDir, 'gabin-studio-ipad.png')] }, null, 2));
 } catch (error) {
   await mkdir(screenshotDir, { recursive: true });
-  if (pc) await pc.screenshot({ path: join(screenshotDir, 'gabin-studio-failure-pc.png'), fullPage: true, animations: 'disabled', timeout: 45_000 }).catch(() => undefined);
-  if (ipad) await ipad.screenshot({ path: join(screenshotDir, 'gabin-studio-failure-ipad.png'), fullPage: true, animations: 'disabled', timeout: 45_000 }).catch(() => undefined);
+  if (pc) await captureProof(pc, join(screenshotDir, 'gabin-studio-failure-pc.png'), browserEngine === 'webkit').catch(() => undefined);
+  if (ipad) await captureProof(ipad, join(screenshotDir, 'gabin-studio-failure-ipad.png'), browserEngine === 'webkit').catch(() => undefined);
   const videoStates = await Promise.all([pc, ipad].map(page => page?.locator('video').evaluateAll((videos: HTMLVideoElement[]) => videos.map(video => ({
     readyState: video.readyState, width: video.videoWidth, height: video.videoHeight, time: video.currentTime,
     paused: video.paused, muted: video.muted, error: video.error?.code ?? null,
