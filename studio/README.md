@@ -6,7 +6,7 @@ Domaine prévu pour l’identité publique de Nino : **ninostudio.ch**.
 
 Cette version constitue une première chaîne utilisable : création d’un projet nommé, préparation de la salle, retour vidéo et son, changement de plan, enregistrement OBS, diffusion live, pause/reprise, repères et récupération de la prise complète. Aucun enregistrement n’est annoncé comme réussi sans retour d’OBS.
 
-Le [guide de recette en salle (PDF)](../output/pdf/guide-recette-salle-gabinheds.pdf) propose un parcours pas à pas avec OBS, le live, l’iPad et le Stream Deck jusqu’au téléchargement et à la relecture du fichier. Il contient les commandes Companion, les résultats attendus et une fiche de validation à remplir.
+Trois guides illustrés accompagnent la salle : [installation (PDF)](docs/guides/nino-installation.pdf), [tests complets (PDF)](docs/guides/nino-guide-tests.pdf) et [tutoriel utilisateur (PDF)](docs/guides/nino-guide-utilisateur.pdf). Ils expliquent la préparation, chaque format, le live, l’iPad, le Stream Deck et la récupération jusqu’à DaVinci Resolve.
 
 ## Périmètre livré
 
@@ -20,12 +20,16 @@ Le [guide de recette en salle (PDF)](../output/pdf/guide-recette-salle-gabinheds
 - Bibliothèque locale d’images, vidéos, sons et PDF, import depuis PC/iPad, noms, archivage et association aux productions.
 - Lecture des médias dans OBS depuis la régie et l’API Stream Deck, avec confirmation de leur état.
 - Lecture des prises terminées sur PC/iPad et récupération d’un ZIP contenant les originaux, les médias associés et les repères de montage.
+- Réalisation automatique locale : sélection du plan à partir des micros distincts, confirmation de parole, durée minimale des plans, retour au plan large après silence ou voix simultanées, reprise manuelle prioritaire.
+- Journal des plans confirmés par OBS avec les positions réelles dans les prises ; export portable pour DaVinci Resolve, vidéo et son liés, timeline OTIO par prise, repères et originaux conservés.
 - Interface tactile responsive pour iPad, code d’association temporaire et révocation des appareils.
 - Accès opérateur pour Stream Deck via HTTP ; voir [le guide Stream Deck](docs/stream-deck.md).
 
 La captation des caméras et micros se configure encore dans OBS. Les modes correspondent aux profils de production ; un podcast utilise également la sortie d’enregistrement OBS configurée. Cette version ne crée pas automatiquement des pistes audio ou des captures séparées de chaque caméra.
 
-Le retour vidéo WebRTC à plus faible latence, les deux invités à distance, le conducteur, la sauvegarde NAS, le prémontage DaVinci Resolve et le montage IA restent des étapes suivantes. Les repères et les prises constituent déjà les données de départ de ces évolutions. Le [guide médias et récupération](docs/media-library.md) explique la bibliothèque et le dossier complet.
+Le retour vidéo WebRTC à plus faible latence, les deux invités à distance, le conducteur, la sauvegarde NAS, les angles caméra séparés et le montage éditorial IA restent des étapes suivantes. La réalisation automatique actuelle utilise les niveaux audio OBS localement ; elle ne transcrit ni ne reconnaît les personnes avec un service IA. Le [guide médias et récupération](docs/media-library.md) explique la bibliothèque et les exports.
+
+Pour l’automatique, chaque participant possède une entrée micro et un plan distincts. Les micros doivent rester actifs dans toutes les scènes. Dans la régie, choisir le **Plan large**, ajuster la détection puis **Activer l’automatique**. Une commande manuelle, un média plein écran, une perte OBS ou une révocation suspend le mode ; sa reprise est explicite. Une mesure périmée ou manquante bloque les changements. Après redémarrage, les réglages sont conservés mais le mode reste manuel. Le même contrôle est disponible sur iPad et via les commandes Stream Deck `auto.start` / `auto.stop`.
 
 ## Prérequis
 

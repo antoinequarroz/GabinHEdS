@@ -3,12 +3,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { access, mkdir, open, statfs, unlink } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import type { AudioFrame, ControlCommand, Marker, MediaPlayback, ObsState, Preparation, PreparationCheck, Project, ProjectInput, RoomConfigInput, StudioState, Take } from '@gabin/shared';
+import type { AudioFrame, AutoDirectionState, ControlCommand, Marker, MediaPlayback, ObsState, Preparation, PreparationCheck, Project, ProjectInput, RoomConfigInput, SceneChange, StudioState, Take } from '@gabin/shared';
 import { ObsFeedConflict, ObsMediaFailure, type ObsEvent, type ObsGateway, timecodeMs } from './obs.js';
 import { emptyMediaState, type MediaGateway } from './media.js';
 import { Store } from './store.js';
-import { ApiFailure } from './validation.js';
+import { ApiFailure, autoDirectionInput } from './validation.js';
 import { libraryFile } from './library.js';
+import { AUDIO_STALE_MS, AutoDirection } from './auto-direction.js';
 
 const slug = (name: string): string => name.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 70) || 'production';
 
@@ -22,8 +23,17 @@ export class Studio {
   private liveProjectId: string | null = null;
   private closing = false;
   private mediaPlayback: MediaPlayback | null = null;
+  private autoDirection: AutoDirectionState = { enabled: false, status: 'off', projectId: null, participantId: null, lastAudioAt: null, lastSwitchAt: null, message: 'Réalisation manuelle.' };
+  private autoEngine: AutoDirection | null = null;
+  private autoOwnerId: string | null = null;
+  private latestAudio: AudioFrame | null = null;
+  private autoTimer: ReturnType<typeof setInterval> | null = null;
+  private autoTickQueued = false;
+  private lastObservedScene: string | null = null;
+  private readonly now: () => number;
 
-  constructor(readonly store: Store, readonly obs: ObsGateway, readonly media?: MediaGateway) {
+  constructor(readonly store: Store, readonly obs: ObsGateway, readonly media?: MediaGateway, options: { now?: () => number; autoIntervalMs?: number } = {}) {
+    this.now = options.now ?? Date.now;
     if (!store.room()) store.saveRoom({ name: 'Studio Nino', obsUrl: 'ws://127.0.0.1:4455', obsPassword: '', obsPasswordConfigured: false,
       recordingRoot: path.join(os.homedir(), 'Videos', 'Nino'), defaultScenes: { podcast: 'Podcast', roundtable: 'Table ronde', slides: 'PowerPoint' },
       liveDestination: { name: '', server: '', keyConfigured: false }, liveKey: '' });
@@ -44,8 +54,10 @@ export class Studio {
       this.setProjectStatus(project.id, latest?.status === 'completed' ? 'completed' : 'draft');
     }
     this.store.setSetting('pendingTake', null);
+    this.lastObservedScene = obs.getState().connected ? obs.getState().currentScene : null;
     this.unsubscribe = obs.subscribe((event) => {
       if (event.type === 'audio') {
+        this.latestAudio = structuredClone(event.frame);
         if (!this.closing) for (const listener of this.audioListeners) listener(event.frame);
         return; // Real meters are ephemeral; never increment revision or write SQLite.
       }
@@ -61,6 +73,14 @@ export class Studio {
         this.changed();
       }
     }) ?? (() => undefined);
+    if ((options.autoIntervalMs ?? 250) > 0) {
+      this.autoTimer = setInterval(() => {
+        if (this.closing || !this.autoDirection.enabled || this.autoTickQueued) return;
+        this.autoTickQueued = true;
+        void this.serial(() => this.tickAutoDirection()).catch(() => undefined).finally(() => { this.autoTickQueued = false; });
+      }, options.autoIntervalMs ?? 250);
+      this.autoTimer.unref();
+    }
   }
   subscribe(listener: (state: StudioState) => void): () => void {
     this.listeners.add(listener);
@@ -72,6 +92,8 @@ export class Studio {
   }
   async close(): Promise<void> {
     this.closing = true;
+    if (this.autoTimer) clearInterval(this.autoTimer);
+    this.disableAuto('off', 'Réalisation manuelle.');
     this.unsubscribe();
     this.unsubscribeMedia();
     await this.queue.catch(() => undefined);
@@ -88,9 +110,107 @@ export class Studio {
   state(): StudioState {
     return { revision: this.revision, room: this.store.publicRoom(), obs: this.obs.getState(), media: this.media?.getState() ?? emptyMediaState(), liveProjectId: this.liveProjectId, projects: this.store.projects(),
       takes: this.store.takes(), activeTake: this.activeTake(), markers: this.store.markers(), library: this.store.library(),
-      projectMedia: this.store.projectMedia(), mediaPlayback: this.obs.getMediaPlayback?.() ?? this.mediaPlayback };
+      projectMedia: this.store.projectMedia(), mediaPlayback: this.obs.getMediaPlayback?.() ?? this.mediaPlayback,
+      autoDirection: structuredClone(this.autoDirection), autoDirectionSettings: this.store.autoDirectionSettings(), sceneChanges: this.store.sceneChanges() };
   }
   libraryChanged(): StudioState { return this.changed(); }
+  private setAutoState(update: Partial<AutoDirectionState>): void {
+    const next = { ...this.autoDirection, ...update };
+    if (JSON.stringify(next) !== JSON.stringify(this.autoDirection)) { this.autoDirection = next; this.changed(); }
+  }
+  private disableAuto(status: 'off' | 'suspended' | 'error', message: string): void {
+    this.autoEngine = null;
+    this.autoOwnerId = null;
+    this.setAutoState({ enabled: false, status, participantId: null, message });
+  }
+  /** A revoked device cannot leave an autonomous controller running behind it. */
+  revokeAutoDevice(deviceId: string): void {
+    if (this.autoOwnerId === deviceId) this.disableAuto('suspended', 'L’appareil qui a activé l’automatique n’est plus autorisé. Reprenez depuis un appareil connecté.');
+  }
+  private autoOwnerValid(): boolean {
+    const device = this.autoOwnerId && this.store.device(this.autoOwnerId);
+    return Boolean(device && device.role !== 'viewer');
+  }
+  private fullscreenProtected(obs: ObsState): boolean {
+    const playback = this.obs.getMediaPlayback?.() ?? this.mediaPlayback;
+    return Boolean(playback?.mode === 'fullscreen' && (playback.sceneName === obs.currentScene || playback.status !== 'stopped'));
+  }
+  private autoProjectConflict(projectId: string, obs: ObsState): boolean {
+    const take = this.activeTake();
+    return Boolean(this.store.setting('pendingTake') || take && (!obs.recording || take.projectId !== projectId)
+      || obs.recording && !take || this.liveActive() && this.liveProjectId !== projectId || this.project(projectId).status === 'archived');
+  }
+  private journalScene(obs: ObsState, reason: SceneChange['reason'], participantId: string | null = null, projectId?: string | null, initial = false,
+    reanchor?: { previousSceneName: string | null }): void {
+    if (!obs.connected || obs.error || !obs.currentScene) return;
+    const previousSceneName = reanchor ? reanchor.previousSceneName : this.lastObservedScene;
+    this.lastObservedScene = obs.currentScene;
+    if (!initial && !reanchor && (previousSceneName === obs.currentScene || previousSceneName === null)) return;
+    const take = this.activeTake();
+    const productionId = take?.projectId ?? this.liveProjectId ?? projectId ?? (this.autoDirection.enabled ? this.autoDirection.projectId : null);
+    if (!productionId) return;
+    // During a paused take OBS timecode is frozen. Such a cut is observable but
+    // must never be turned into a made-up edit point in a file that omits pauses.
+    const offsetMs = take && obs.recording && !obs.paused ? initial ? 0 : timecodeMs(obs.timecode) : null;
+    this.store.put<SceneChange>('sceneChange', { id: randomUUID(), projectId: productionId, takeId: take?.id ?? null,
+      sceneName: obs.currentScene, previousSceneName, offsetMs, reason, participantId, createdAt: new Date(this.now()).toISOString() });
+  }
+  private journalResumedScene(obs: ObsState, take: Take): void {
+    const lastRecordedCut = this.store.sceneChanges().filter(change => change.takeId === take.id && change.offsetMs !== null).at(-1);
+    // A pause has no file duration. Anchor the resumed image using OBS time,
+    // whether the operator resumed in Nino or directly in OBS.
+    if (lastRecordedCut && lastRecordedCut.sceneName !== obs.currentScene) this.journalScene(obs, 'manual', null, take.projectId, false,
+      { previousSceneName: lastRecordedCut.sceneName });
+  }
+  /** Internal watchdog, always invoked through the same queue as PC/iPad/Deck. */
+  async tickAutoDirection(): Promise<void> {
+    const engine = this.autoEngine;
+    const projectId = this.autoDirection.projectId;
+    if (!this.autoDirection.enabled || !engine || !projectId || this.closing) return;
+    if (!this.autoOwnerValid()) { this.disableAuto('suspended', 'L’appareil de contrôle a expiré ou a été révoqué. Reprenez depuis un appareil connecté.'); return; }
+    const before = this.obs.getState();
+    if (!before.connected || before.error) { this.disableAuto('suspended', 'Connexion OBS perdue. Vérifiez le programme puis reprenez l’automatique.'); return; }
+    if (this.autoProjectConflict(projectId, before)) { this.disableAuto('suspended', 'La production active ne correspond plus au projet. Vérifiez la prise et le direct.'); return; }
+    if (before.currentScene !== engine.expectedScene) { this.journalScene(before, 'manual'); this.disableAuto('suspended', 'Le plan a été changé dans OBS. Reprenez l’automatique quand vous le souhaitez.'); return; }
+    if (this.fullscreenProtected(before)) { this.disableAuto('suspended', 'Un média occupe le programme. Revenez au plan précédent puis reprenez l’automatique.'); return; }
+    const observation = engine.observe(this.latestAudio, before, this.now());
+    this.setAutoState({ status: observation.status, participantId: observation.participantId, lastAudioAt: observation.audioAt, message: observation.message });
+    if (!observation.decision) return;
+    // A fresh OBS snapshot checks mute/program/project immediately before the
+    // cut, never the deferred HLS monitor. Authorization is checked again after
+    // the await so expiry cannot issue a queued action.
+    const confirmedBefore = await this.obs.refresh(true).catch(() => null);
+    if (!this.autoDirection.enabled || this.autoEngine !== engine || !this.autoOwnerValid()) return;
+    if (!confirmedBefore?.connected || confirmedBefore.error) { this.disableAuto('suspended', 'OBS ne confirme plus le programme. Vérifiez puis reprenez l’automatique.'); return; }
+    if (confirmedBefore.currentScene !== engine.expectedScene) { this.journalScene(confirmedBefore, 'manual'); this.disableAuto('suspended', 'Le plan a été changé dans OBS. L’automatique est suspendue.'); return; }
+    if (this.autoProjectConflict(projectId, confirmedBefore) || this.fullscreenProtected(confirmedBefore)) { this.disableAuto('suspended', 'La production ou le média actif a changé. Vérifiez avant de reprendre.'); return; }
+    const frameAt = this.latestAudio && Date.parse(this.latestAudio.capturedAt);
+    if (frameAt === null || !Number.isFinite(frameAt) || this.now() - frameAt > AUDIO_STALE_MS || frameAt - this.now() > 250
+      || engine.participants.some(person => !confirmedBefore.inputs.some(input => input.name === person.micInput && input.muted === false))) {
+      engine.reset(); this.setAutoState({ status: 'waiting', participantId: null, message: 'Signal audio absent, périmé ou micro coupé : aucun changement automatique.' }); return;
+    }
+    // If new audio arrived while OBS refreshed, reconsider it rather than cut
+    // for a speaker who already stopped. A changed/unconfirmed target cancels.
+    if (this.latestAudio!.capturedAt !== observation.audioAt) {
+      const newest = engine.observe(this.latestAudio, confirmedBefore, this.now());
+      if (!newest.decision || newest.decision.sceneName !== observation.decision.sceneName) return;
+    }
+    try {
+      await this.obs.setScene(observation.decision.sceneName);
+      const after = await this.confirmObsState(state => state.currentScene === observation.decision!.sceneName);
+      if (!after.connected || after.error || after.currentScene !== observation.decision.sceneName) throw new Error('unconfirmed');
+      engine.confirmScene(after.currentScene, this.now());
+      this.journalScene(after, observation.decision.reason, observation.decision.participantId, projectId);
+      // Revocation can happen while the OBS request is awaiting confirmation.
+      // Keep the confirmed cut in the journal, but never revive its controller.
+      if (!this.autoDirection.enabled || this.autoEngine !== engine) return;
+      if (!this.autoOwnerValid()) { this.disableAuto('suspended', 'L’appareil de contrôle a expiré ou a été révoqué. Reprenez depuis un appareil connecté.'); return; }
+      this.setAutoState({ status: 'listening', lastSwitchAt: new Date(this.now()).toISOString(), participantId: observation.decision.participantId,
+        message: `Plan confirmé par OBS : ${after.currentScene}.` });
+    } catch {
+      if (this.autoDirection.enabled && this.autoEngine === engine) this.disableAuto('error', 'OBS n’a pas confirmé le changement de plan. Vérifiez le programme ; aucune commande ne sera rejouée.');
+    }
+  }
   private changed(): StudioState {
     this.revision++;
     const state = this.state();
@@ -118,6 +238,7 @@ export class Studio {
     const current = this.project(id);
     if (this.activeTake()?.projectId === id || this.liveProjectId === id) throw new ApiFailure(409, 'La préparation du projet ne peut pas changer pendant une prise ou un direct.', 'PRODUCTION_ACTIVE');
     if (status !== undefined && status !== 'archived' && status !== 'draft') throw new ApiFailure(400, 'Seuls les états brouillon et archivé peuvent être définis manuellement.');
+    if (this.autoDirection.enabled && this.autoDirection.projectId === id) this.disableAuto('suspended', 'La préparation du projet a changé. Vérifiez les micros et les plans puis reprenez l’automatique.');
     const project: Project = { ...current, ...input, status: status as Project['status'] ?? (current.status === 'archived' ? 'archived' : 'draft'), updatedAt: new Date().toISOString() };
     this.store.put('project', project);
     this.changed();
@@ -128,6 +249,7 @@ export class Studio {
       throw new ApiFailure(409, 'Terminez ou vérifiez la prise, le retour et le direct avant de changer la configuration de la salle.', 'PRODUCTION_ACTIVE');
     }
     const { liveDestination, ...other } = input;
+    if (this.autoDirection.enabled) this.disableAuto('suspended', 'La configuration de la salle a changé. Vérifiez OBS puis reprenez l’automatique.');
     const room = { ...this.store.room()!, ...other };
     if (liveDestination) {
       if (liveDestination.key !== undefined) room.liveKey = liveDestination.key;
@@ -191,9 +313,11 @@ export class Studio {
     if (previous) this.interrupt(previous);
     this.store.setSetting('pendingTake', null);
     await this.obs.connect(config.obsUrl, config.obsPassword);
+    this.lastObservedScene = this.obs.getState().currentScene;
     return this.changed();
   }
   async disconnect(): Promise<StudioState> {
+    if (this.autoDirection.enabled) this.disableAuto('suspended', 'OBS a été déconnecté. Vérifiez puis reprenez l’automatique.');
     const previous = this.activeTake();
     await this.obs.disconnect();
     if (previous) this.interrupt(previous);
@@ -214,6 +338,7 @@ export class Studio {
       const take = this.activeTake();
       if (take && take.id === takeIdAtReception) this.finishTake(take, event.outputPath, Math.max(take.durationMs, event.durationMs));
     } else if (event.type === 'disconnected') {
+      if (this.autoDirection.enabled) this.disableAuto('suspended', 'Connexion OBS perdue. Vérifiez le programme puis reprenez l’automatique.');
       const take = this.activeTake();
       if (take && take.id === takeIdAtReception) this.interrupt(take);
       if (this.mediaPlayback) this.mediaPlayback = { ...this.mediaPlayback, status: 'unknown', error: 'OBS est déconnecté. Vérifiez la lecture sur le PC.' };
@@ -221,10 +346,19 @@ export class Studio {
       // Events may have waited behind a command. Read current state rather than
       // applying an old pre-start/pre-pause snapshot to a newly saved take.
       const latest = this.obs.getState();
+      if (latest.connected && !latest.error) {
+        this.journalScene(latest, 'manual');
+        if (this.autoDirection.enabled && this.autoEngine && latest.currentScene !== this.autoEngine.expectedScene) {
+          this.disableAuto('suspended', 'Le plan a été changé dans OBS. Reprenez l’automatique quand vous le souhaitez.');
+        }
+      }
       const take = this.activeTake();
       if (latest.connected && !latest.error && take && latest.recording) {
         if (latest.recordingDirectory && path.resolve(latest.recordingDirectory) !== path.resolve(take.recordingDirectory)) this.interrupt(take);
-        else this.store.put('take', { ...take, status: latest.paused ? 'paused' : 'recording', durationMs: Math.max(take.durationMs, timecodeMs(latest.timecode)) });
+        else {
+          this.store.put('take', { ...take, status: latest.paused ? 'paused' : 'recording', durationMs: Math.max(take.durationMs, timecodeMs(latest.timecode)) });
+          if (take.status === 'paused' && !latest.paused) this.journalResumedScene(latest, take);
+        }
       } else if (latest.connected && !latest.error && take && !latest.recording) {
         // The final STOPPED event carries outputPath and may arrive after an
         // inactive status poll. Keep its candidate instead of clearing it early.
@@ -240,6 +374,7 @@ export class Studio {
     this.store.setSetting('activeTakeId', null);
     this.store.setSetting('pendingTake', null);
     this.setProjectStatus(take.projectId, inside ? 'completed' : 'draft');
+    if (this.autoDirection.enabled && !this.liveActive()) this.disableAuto('off', 'Prise terminée : réalisation manuelle.');
   }
   async preparation(projectId: string): Promise<Preparation> {
     const project = this.project(projectId);
@@ -287,7 +422,19 @@ export class Studio {
     }
     return { projectId, sceneName, recordingDirectory, freeBytes, checks, canStart: checks.every((check) => check.status !== 'blocked') };
   }
-  async control(command: ControlCommand): Promise<StudioState> {
+  async control(command: ControlCommand, actor?: { deviceId: string }): Promise<StudioState> {
+    if (command.action === 'auto.stop') {
+      this.disableAuto('off', 'Réalisation manuelle.');
+      return this.changed();
+    }
+    if (command.action === 'auto.configure') {
+      const project = this.project(command.projectId);
+      if (project.status === 'archived') throw new ApiFailure(409, 'Restaurez la production avant de configurer l’automatique.', 'PROJECT_ARCHIVED');
+      const settings = autoDirectionInput(command.settings);
+      if (this.autoDirection.enabled && this.autoDirection.projectId === project.id) this.disableAuto('suspended', 'Les réglages ont changé. Reprenez l’automatique pour les appliquer.');
+      this.store.put('autoDirectionConfig', { id: project.id, settings });
+      return this.changed();
+    }
     // The relay must remain stoppable even if OBS is disconnected or uncertain.
     if (command.action === 'stream.stop') {
       await this.requireMedia().stopLive();
@@ -298,7 +445,30 @@ export class Studio {
     const before = this.obs.getState();
     if (!before.connected || before.error) throw new ApiFailure(409, 'Reconnectez OBS pour vérifier l’état avant une commande.', 'OBS_UNAVAILABLE');
     const current = this.activeTake();
+    const directionProjectId = this.autoDirection.enabled ? this.autoDirection.projectId : null;
+    if (this.lastObservedScene === null) this.lastObservedScene = before.currentScene;
     switch (command.action) {
+      case 'auto.start': {
+        const project = this.project(command.projectId);
+        const device = actor && this.store.device(actor.deviceId);
+        if (!device || device.role === 'viewer') throw new ApiFailure(403, 'Un appareil de contrôle autorisé doit activer l’automatique.', 'AUTO_AUTH_REQUIRED');
+        if (this.autoProjectConflict(project.id, before)) throw new ApiFailure(409, 'La prise ou le direct concerne un autre projet ou reste à vérifier.', 'PROJECT_CONFLICT');
+        if (this.fullscreenProtected(before)) throw new ApiFailure(409, 'Revenez au plan précédent avant de reprendre l’automatique.', 'AUTO_MEDIA_ACTIVE');
+        const saved = this.store.autoDirectionSettings()[project.id];
+        if (!saved) throw new ApiFailure(409, 'Choisissez le plan large et les réglages de réalisation automatique.', 'AUTO_NOT_CONFIGURED');
+        const settings = autoDirectionInput(saved);
+        if (!project.participants.length || project.participants.some(person => !person.micInput || !person.sceneName
+          || !before.inputs.some(input => input.name === person.micInput && input.muted === false) || !before.scenes.includes(person.sceneName))
+          || !before.scenes.includes(settings.wideScene)) throw new ApiFailure(409, 'Chaque participant doit avoir un micro actif et un plan OBS disponible, ainsi qu’un plan large.', 'AUTO_SETUP_REQUIRED');
+        if (new Set(project.participants.map(person => person.micInput)).size !== project.participants.length) throw new ApiFailure(409, 'La réalisation automatique nécessite une entrée micro distincte par participant.', 'AUTO_DISTINCT_MICS');
+        if (new Set(project.participants.map(person => person.sceneName)).size !== project.participants.length
+          || new Set([settings.wideScene, ...project.participants.map(person => person.sceneName)]).size < 2) throw new ApiFailure(409, 'Choisissez un plan distinct par participant et un plan large permettant un changement de caméra.', 'AUTO_DISTINCT_SCENES');
+        this.autoOwnerId = device.id;
+        this.autoEngine = new AutoDirection(structuredClone(project.participants), settings, before.currentScene, this.now());
+        this.setAutoState({ enabled: true, status: 'waiting', projectId: project.id, participantId: null, lastAudioAt: null, lastSwitchAt: null,
+          message: 'Automatique activée : en attente de mesures OBS récentes sur chaque micro.' });
+        break;
+      }
       case 'media.play': {
         if (!this.obs.playMedia) throw new ApiFailure(503, 'Cet adaptateur OBS ne permet pas encore de piloter les médias.', 'MEDIA_CONTROL_UNAVAILABLE');
         const projectId = command.projectId ?? current?.projectId ?? this.liveProjectId;
@@ -314,6 +484,7 @@ export class Studio {
         if (asset.kind === 'document') throw new ApiFailure(400, 'Préparez le PDF ou le PowerPoint comme source dans OBS. Ce document peut être conservé et récupéré avec la production.', 'MEDIA_DOCUMENT_ONLY');
         const mode = command.mode ?? (asset.kind === 'audio' ? 'audio' : 'fullscreen');
         if (asset.kind === 'audio' && mode !== 'audio' || asset.kind !== 'audio' && mode === 'audio') throw new ApiFailure(400, 'Le mode choisi ne correspond pas à ce média.', 'MEDIA_MODE_INVALID');
+        if (mode === 'fullscreen' && this.autoDirection.enabled) this.disableAuto('suspended', 'Média plein écran : l’automatique est suspendue. Revenez au plan précédent puis reprenez-la.');
         let ownerId = this.store.setting<string>('libraryOwnerId');
         if (!ownerId) { ownerId = randomUUID(); this.store.setSetting('libraryOwnerId', ownerId); }
         const ownedFiles = Object.fromEntries(this.store.list<{ id: string; fileName: string }>('mediaAsset')
@@ -354,6 +525,7 @@ export class Studio {
         await media.refresh();
         if (this.liveActive()) throw new ApiFailure(409, 'Un direct est déjà actif ou en transition.', 'LIVE_ACTIVE');
         const project = this.project(command.projectId);
+        if (this.autoDirection.enabled && this.autoDirection.projectId !== project.id) this.disableAuto('suspended', 'Le direct concerne un autre projet. L’automatique est suspendue.');
         if (this.store.setting('pendingTake') || current && (!before.recording || current.projectId !== project.id)
           || before.recording && !current) throw new ApiFailure(409, 'La prise actuelle concerne un autre projet, provient d’OBS ou reste à vérifier. Vérifiez-la avant de diffuser.', 'PROJECT_CONFLICT');
         const prep = await this.preparation(project.id);
@@ -375,9 +547,12 @@ export class Studio {
           this.liveProjectId = null;
           throw new ApiFailure(503, 'Le relais n’a pas confirmé le départ du direct.', 'LIVE_NOT_STARTED');
         }
+        this.autoEngine?.confirmScene(this.obs.getState().currentScene, this.now());
+        this.journalScene(this.obs.getState(), 'start', null, project.id);
         break;
       }
       case 'record.start': {
+        if (this.autoDirection.enabled && this.autoDirection.projectId !== command.projectId) this.disableAuto('suspended', 'L’enregistrement concerne un autre projet. L’automatique est suspendue.');
         if (this.liveActive() && this.liveProjectId !== command.projectId) throw new ApiFailure(409, 'Le direct concerne un autre projet. Terminez-le avant de changer de production.', 'PROJECT_CONFLICT');
         const prep = await this.preparation(command.projectId);
         if (!prep.canStart) throw new ApiFailure(409, prep.checks.filter((check) => check.status === 'blocked').map((check) => check.detail).join(' '), 'PREPARATION_BLOCKED');
@@ -414,6 +589,8 @@ export class Studio {
         this.store.setSetting('activeTakeId', take.id);
         this.store.setSetting('pendingTake', null);
         this.setProjectStatus(project.id, 'recording');
+        this.autoEngine?.confirmScene(result.currentScene, this.now());
+        this.journalScene(result, 'start', null, project.id, true);
         break;
       }
       case 'record.stop': {
@@ -440,13 +617,15 @@ export class Studio {
         const after = await this.confirmObsState(state => !state.recording || state.paused === paused);
         if (!after.connected || after.error || !after.recording || after.paused !== paused) throw new ApiFailure(503, 'OBS n’a pas confirmé l’état demandé.', 'OBS_CONFIRMATION_LOST');
         this.store.put('take', { ...current, status: paused ? 'paused' : 'recording', durationMs: timecodeMs(after.timecode) });
+        if (!paused && before.paused) this.journalResumedScene(after, current);
         break;
       }
       case 'scene.set': {
         if (!before.scenes.includes(command.sceneName)) throw new ApiFailure(400, 'Ce plan n’existe pas dans OBS.');
+        if (this.autoDirection.enabled) this.disableAuto('suspended', 'Vous avez choisi un plan manuellement. Reprenez l’automatique quand vous le souhaitez.');
         await this.obs.setScene(command.sceneName);
         await this.obs.refresh(true);
-        if (this.obs.getState().currentScene !== command.sceneName) throw new ApiFailure(503, 'OBS n’a pas confirmé le plan demandé.', 'OBS_CONFIRMATION_LOST');
+        if (!this.obs.getState().connected || this.obs.getState().error || this.obs.getState().currentScene !== command.sceneName) throw new ApiFailure(503, 'OBS n’a pas confirmé le plan demandé.', 'OBS_CONFIRMATION_LOST');
         break;
       }
       case 'input.mute': {
@@ -463,6 +642,8 @@ export class Studio {
         break;
       }
     }
+    if (command.action.startsWith('media.')) this.journalScene(this.obs.getState(), 'media', null, directionProjectId);
+    if (command.action === 'scene.set') this.journalScene(this.obs.getState(), 'manual', null, directionProjectId);
     return this.changed();
   }
 }

@@ -1,5 +1,5 @@
 import path from 'node:path';
-import type { ControlCommand, MediaMode, Participant, ProductionFormat, ProjectInput, ProjectMediaLink, RoomConfigInput } from '@gabin/shared';
+import type { AutoDirectionSettings, ControlCommand, MediaMode, Participant, ProductionFormat, ProjectInput, ProjectMediaLink, RoomConfigInput } from '@gabin/shared';
 
 export class ApiFailure extends Error {
   constructor(public statusCode: number, message: string, public code = 'INVALID_REQUEST') { super(message); }
@@ -87,6 +87,9 @@ export function controlInput(value: unknown): ControlCommand {
   const data = object(value);
   const requestId = data.requestId === undefined ? undefined : string(data.requestId, 'identifiant de commande', 128);
   switch (data.action) {
+    case 'auto.configure': return { action: data.action, projectId: string(data.projectId, 'projet', 100), settings: autoDirectionInput(data.settings), requestId };
+    case 'auto.start': return { action: data.action, projectId: string(data.projectId, 'projet', 100), requestId };
+    case 'auto.stop': return { action: data.action, requestId };
     case 'media.play': return { action: data.action, assetId: string(data.assetId, 'média', 100),
       projectId: data.projectId === undefined ? undefined : string(data.projectId, 'projet', 100),
       mode: data.mode === undefined ? undefined : choice<MediaMode>(data.mode, ['fullscreen', 'overlay', 'audio'], 'mode du média'), requestId };
@@ -102,6 +105,19 @@ export function controlInput(value: unknown): ControlCommand {
     case 'marker.add': return { action: data.action, label: string(data.label, 'marqueur', 160), requestId };
     default: throw new ApiFailure(400, 'Commande non reconnue.');
   }
+}
+
+export function autoDirectionInput(value: unknown): AutoDirectionSettings {
+  const data = object(value);
+  const fields = ['wideScene', 'thresholdDb', 'dominanceDb', 'confirmationMs', 'minShotMs', 'silenceMs', 'overlapMs'];
+  if (Object.keys(data).some(key => !fields.includes(key))) throw new ApiFailure(400, 'Réglage automatique non reconnu.');
+  const bounded = (name: string, min: number, max: number): number => {
+    const n = data[name];
+    if (typeof n !== 'number' || !Number.isFinite(n) || n < min || n > max || !Number.isInteger(n)) throw new ApiFailure(400, `Réglage « ${name} » : un entier de ${min} à ${max} est requis.`);
+    return n;
+  };
+  return { wideScene: string(data.wideScene, 'plan large', 200), thresholdDb: bounded('thresholdDb', -60, -10), dominanceDb: bounded('dominanceDb', 3, 20),
+    confirmationMs: bounded('confirmationMs', 300, 3000), minShotMs: bounded('minShotMs', 1000, 15000), silenceMs: bounded('silenceMs', 1500, 15000), overlapMs: bounded('overlapMs', 300, 5000) };
 }
 
 export function projectMediaInput(value: unknown): ProjectMediaLink[] {

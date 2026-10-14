@@ -117,7 +117,7 @@ export async function buildApp(options: AppOptions) {
     if (!sameOrigin(request)) throw new ApiFailure(403, 'Origine de la requête non autorisée.', 'ORIGIN_REJECTED');
     const route = request.url.split('?')[0];
     if (['/api/auth/local', '/api/auth/pair', '/api/events'].includes(route) || /^\/api\/downloads\/[a-zA-Z0-9_-]{43}$/.test(route)
-      || /^\/api\/(?:library-files|playback-files|production-exports)\/[a-zA-Z0-9_-]{43}$/.test(route)
+      || /^\/api\/(?:library-files|playback-files|production-exports|resolve-exports)\/[a-zA-Z0-9_-]{43}$/.test(route)
       || /^\/api\/monitor\/[a-zA-Z0-9_-]{43}\/[a-zA-Z0-9_.-]+$/.test(route)) return;
     const authorization = request.headers.authorization;
     if (!authorization?.startsWith('Bearer ') || authorization.length > 512) throw new ApiFailure(401, 'Connectez cet appareil à la salle.', 'UNAUTHENTICATED');
@@ -166,6 +166,7 @@ export async function buildApp(options: AppOptions) {
   app.delete<{ Params: { id: string } }>('/api/devices/:id', async (request, reply) => {
     requireRole(request, 'technician');
     if (!store.revoke(request.params.id)) throw new ApiFailure(404, 'Appareil introuvable.', 'NOT_FOUND');
+    studio.revokeAutoDevice(request.params.id);
     for (const [socket, device] of clients) if (device.id === request.params.id) socket.close(4001, 'Accès révoqué');
     return reply.code(204).send();
   });
@@ -223,7 +224,7 @@ export async function buildApp(options: AppOptions) {
         if (previous.fingerprint !== fingerprint) throw new ApiFailure(409, 'Cet identifiant de commande a déjà servi pour une autre action.', 'IDEMPOTENCY_CONFLICT');
         return;
       }
-      await studio.control(command);
+      await studio.control(command, { deviceId: device.id });
       store.rememberCommand(device.id, requestId, fingerprint, { ok: true });
     });
     return state();

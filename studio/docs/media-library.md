@@ -25,7 +25,13 @@ Archiver un média le retire des nouvelles sélections. Son fichier et ses assoc
 4. Télécharger l’original pour le montage ou choisir **Récupérer le dossier complet**.
 5. Attendre la fin du téléchargement dans le navigateur. Sur iPad, retrouver le ZIP dans **Fichiers → Téléchargements**, puis le décompresser.
 
-Le ZIP regroupe les prises terminées originales, les médias associés, les métadonnées de la production et les repères. Les fichiers JSON/CSV servent à préparer un montage ; cette version ne crée pas encore une timeline DaVinci Resolve ni un montage IA.
+Le ZIP regroupe les prises terminées originales, les médias associés, les métadonnées de la production, les repères et le journal `scene-changes.json` des plans confirmés par OBS.
+
+Le bouton **Télécharger pour DaVinci Resolve** prépare un second paquet avec les mêmes originaux et médias, des copies MP4 compatibles dans `resolve-media/`, et une timeline `.otio` par prise. Une vidéo terminée suffit : le mode automatique n’est pas requis. Le paquet contient la vidéo du programme et son audio liés, les repères et les changements de plans dont la position a été confirmée pendant l’enregistrement. Les originaux restent inchangés.
+
+Décompresser tout le ZIP puis, dans Resolve, choisir **Fichier → Importer → Timeline**, sélectionner une timeline `.otio` à la racine du paquet et indiquer `resolve-media/` si le logiciel demande les fichiers. Le script Python fourni constitue une méthode optionnelle pour créer un nouveau projet et importer toutes les timelines. L’import et le déplacement du paquet ont été vérifiés dans DaVinci Resolve Studio 21.1 avec un média de test.
+
+Les changements de caméra sont déjà présents dans l’image du programme enregistré. Le journal sert à les retrouver ; il ne recrée pas des angles caméra séparés qui n’ont pas été capturés. Les changements pendant une pause n’ont pas de position vidéo inventée : le plan à la reprise est ancré sur le timecode OBS réel.
 
 Un fichier original déplacé ou supprimé bloque l’export complet avec une erreur. Les prises interrompues sont signalées dans les métadonnées ; elles ne sont pas présentées comme des vidéos terminées. Terminer l’enregistrement et le live de la production avant de l’exporter.
 

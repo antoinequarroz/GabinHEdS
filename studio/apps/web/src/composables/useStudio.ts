@@ -2,7 +2,7 @@ import { computed, ref, shallowRef } from 'vue';
 import type {
   AudioFrame, AuthResult, ClientMessage, ControlCommand, Device, DownloadTicket, PairingCode, Preparation,
   PreviewSession, Project, ProjectInput, RoomConfig, RoomConfigInput, SceneThumbnail, ServerMessage, StudioState,
-  MediaAsset, ProjectMediaLink, FilePlaybackSession, TakePlaybackStatus,
+  MediaAsset, ProjectMediaLink, FilePlaybackSession, TakePlaybackStatus, ResolveExportStatus,
 } from '@gabin/shared';
 
 const tokenKey = 'gabin.studio.device';
@@ -22,6 +22,7 @@ let socket: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 let reconnectDelay = 1000;
 let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+const resolvePreparations = new Map<string, AbortController>();
 window.addEventListener('offline', () => { live.value = false; socket?.close(); });
 window.addEventListener('online', () => { if (token.value) connectEvents(); });
 
@@ -40,6 +41,9 @@ export function newId(): string {
 
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const abort = new AbortController();
+  const cancel = () => abort.abort();
+  init.signal?.addEventListener('abort', cancel, { once: true });
+  if (init.signal?.aborted) abort.abort();
   const timer = setTimeout(() => abort.abort(), 30000);
   let response: Response;
   try {
@@ -48,12 +52,13 @@ async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
       headers: { ...(init.body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(token.value ? { Authorization: `Bearer ${token.value}` } : {}), ...init.headers },
     });
   } catch {
+    if (init.signal?.aborted) throw new DOMException('Demande interrompue.', 'AbortError');
     live.value = false;
     socket?.close();
     throw new Error(path === '/control'
       ? 'La confirmation du studio n’est pas arrivée. Vérifiez l’état dans OBS avant de réessayer ; la commande a pu être reçue par le PC.'
       : 'Le PC de la salle ne répond pas. Vérifiez sa connexion et le serveur Nino.');
-  } finally { clearTimeout(timer); }
+  } finally { clearTimeout(timer); init.signal?.removeEventListener('abort', cancel); }
   if (!response.ok) {
     const body = await response.json().catch(() => ({})) as { error?: string };
     if (response.status === 401 && token.value) forgetDevice();
@@ -93,6 +98,7 @@ function stopEvents(): void {
 }
 
 function forgetDevice(): void {
+  for (const controller of resolvePreparations.values()) controller.abort();
   token.value = '';
   localStorage.removeItem(tokenKey);
   device.value = null;
@@ -333,6 +339,53 @@ async function exportProject(id: string): Promise<void> {
   });
 }
 
+function cancelResolveExport(id: string): void { resolvePreparations.get(id)?.abort(); }
+
+async function exportResolve(id: string): Promise<void> {
+  await run(`resolve-export:${id}`, async () => {
+    const controller = new AbortController();
+    resolvePreparations.set(id, controller);
+    const deadline = Date.now() + 30 * 60_000;
+    const timer = setTimeout(() => controller.abort(), 30 * 60_000);
+    try {
+      while (Date.now() < deadline) {
+        const result = await api<ResolveExportStatus>(`/projects/${encodeURIComponent(id)}/resolve-export-ticket`, { method: 'POST', body: '{}', signal: controller.signal });
+        if (result.status === 'failed') throw new Error(result.error ?? 'La préparation DaVinci Resolve a échoué.');
+        if (result.status === 'ready') {
+          if (!result.ticket) throw new Error('Le studio n’a pas transmis le dossier préparé.');
+          const ticket = safeSession(result.ticket, 'resolve-exports');
+          const headAbort = new AbortController();
+          const headTimer = setTimeout(() => headAbort.abort(), 30_000);
+          const cancelHead = () => headAbort.abort();
+          controller.signal.addEventListener('abort', cancelHead, { once: true });
+          try {
+            if (controller.signal.aborted) throw new DOMException('Demande interrompue.', 'AbortError');
+            const response = await fetch(ticket.url, { method: 'HEAD', signal: headAbort.signal });
+            if (!response.ok) throw new Error('Le dossier préparé n’est plus disponible. Réessayez depuis cette production.');
+          } finally { clearTimeout(headTimer); controller.signal.removeEventListener('abort', cancelHead); }
+          if (controller.signal.aborted) throw new DOMException('Demande interrompue.', 'AbortError');
+          const anchor = document.createElement('a');
+          anchor.href = ticket.url; anchor.download = ''; anchor.rel = 'noreferrer';
+          document.body.append(anchor); anchor.click(); anchor.remove();
+          notify('Le téléchargement pour DaVinci Resolve a été lancé. Décompressez le dossier puis importez une timeline .otio.');
+          return;
+        }
+        await new Promise<void>((resolve, reject) => {
+          const finish = () => { controller.signal.removeEventListener('abort', cancelWait); resolve(); };
+          const wait = setTimeout(finish, 1500);
+          const cancelWait = () => { clearTimeout(wait); controller.signal.removeEventListener('abort', cancelWait); reject(new DOMException('Demande interrompue.', 'AbortError')); };
+          controller.signal.addEventListener('abort', cancelWait, { once: true });
+          if (controller.signal.aborted) cancelWait();
+        });
+      }
+      throw new Error('La préparation est trop longue. Vérifiez le PC puis réessayez.');
+    } catch (failure) {
+      if (!controller.signal.aborted || failure instanceof ApiFailure) throw failure;
+      notify(Date.now() >= deadline ? 'La préparation est trop longue. Vérifiez le PC puis réessayez.' : 'Attente interrompue. Vous pourrez récupérer le dossier en relançant sa préparation.');
+    } finally { clearTimeout(timer); resolvePreparations.delete(id); }
+  });
+}
+
 // Optional images use the same device access as every studio request. An
 // unavailable thumbnail must never suspend recording or the control socket.
 async function thumbnailResponse(path: string): Promise<Response | null> {
@@ -374,7 +427,7 @@ export function useStudio() {
   return {
     device, state, initialized, live, audioFrame, audioReceivedAt, error, notice, busy, canEdit, technician,
     initialize, pair, forgetDevice, saveProject, preparation, control, connectObs, saveRoom, downloadTake, sceneThumbnail, takeThumbnail,
-    uploadMedia, updateMedia, saveProjectMedia, mediaFileSession, takePlaybackSession, exportProject, mediaThumbnail,
+    uploadMedia, updateMedia, saveProjectMedia, mediaFileSession, takePlaybackSession, exportProject, exportResolve, cancelResolveExport, mediaThumbnail,
     getDevices: () => run('devices', () => api<Device[]>('/devices')),
     createPairing: (role: Device['role'] = 'operator') => run('pairing', () => api<PairingCode>('/pairing', { method: 'POST', body: JSON.stringify({ role, kind: 'ipad' }) })),
     createStreamDeck: (name: string) => run('streamdeck', () => api<AuthResult>('/devices', { method: 'POST', body: JSON.stringify({ name, kind: 'streamdeck', role: 'operator' }) })),

@@ -9,11 +9,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { inflateRawSync } from 'node:zlib';
-import type { AuthResult, DownloadTicket, FilePlaybackSession, MediaAsset, Project, Take, TakePlaybackStatus } from '@gabin/shared';
+import type { AuthResult, DownloadTicket, FilePlaybackSession, MediaAsset, Project, ResolveExportStatus, Take, TakePlaybackStatus } from '@gabin/shared';
 import { buildApp } from '../src/app.js';
 import { Store } from '../src/store.js';
 import { emptyMediaState, type MediaGateway } from '../src/media.js';
 import { TakePlayback } from '../src/take-playback.js';
+import { resolveTimeline } from '../src/resolve-export.js';
 
 const ffmpeg = process.env.GABIN_FFMPEG_PATH ?? (existsSync('/opt/homebrew/bin/ffmpeg') ? '/opt/homebrew/bin/ffmpeg' : 'ffmpeg');
 const run = promisify(execFile);
@@ -76,7 +77,18 @@ async function fixture(t: TestContext) {
     }
     throw new Error('Playback preparation timeout');
   };
-  return { directory, dataDir, recordings, mkv, mp4, first, second, interrupted, project, asset, assetFile, png, store, app, technician, headers, viewer, viewerHeaders, ready };
+  const readyResolve = async (): Promise<DownloadTicket> => {
+    for (let attempt = 0; attempt < 150; attempt++) {
+      const response = await app.inject({ method: 'POST', url: `/api/projects/${project.id}/resolve-export-ticket`, headers: viewerHeaders });
+      assert.ok([200, 202].includes(response.statusCode), response.body);
+      const result = response.json<ResolveExportStatus>();
+      assert.notEqual(result.status, 'failed', result.error);
+      if (result.status === 'ready') return result.ticket!;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    throw new Error('Resolve export preparation timeout');
+  };
+  return { directory, dataDir, recordings, mkv, mp4, first, second, interrupted, project, asset, assetFile, png, store, app, technician, headers, viewer, viewerHeaders, ready, readyResolve };
 }
 
 /** Tiny ZIP64 reader for these test fixtures, with no runtime ZIP dependency. */
@@ -191,6 +203,116 @@ test('production ZIP64 contains every completed original, linked archived media,
   assert.equal((await app.inject({ url: ticket.url, headers: { origin: 'https://evil.example' } })).statusCode, 403);
   await app.inject({ method: 'DELETE', url: `/api/devices/${viewer.device.id}`, headers });
   assert.equal((await app.inject({ url: ticket.url })).statusCode, 401);
+});
+
+test('Resolve export preserves originals, prepares MP4 on the shared worker, and imports complete timelines with exact confirmed markers', { timeout: 30_000 }, async t => {
+  const { app, store, first, second, project, mkv, mp4, viewerHeaders, viewer, directory } = await fixture(t);
+  store.put('sceneChange', { id: randomUUID(), projectId: project.id, takeId: first.id, sceneName: 'Alice <Caméra>', previousSceneName: 'Plan large',
+    offsetMs: 0, reason: 'start', participantId: 'alice', createdAt: new Date().toISOString() });
+  store.put('sceneChange', { id: randomUUID(), projectId: project.id, takeId: first.id, sceneName: 'Plan large', previousSceneName: 'Alice <Caméra>',
+    offsetMs: 600, reason: 'silence', participantId: null, createdAt: new Date().toISOString() });
+  store.put('sceneChange', { id: randomUUID(), projectId: project.id, takeId: first.id, sceneName: 'Pendant la pause', previousSceneName: 'Plan large',
+    offsetMs: null, reason: 'manual', participantId: null, createdAt: new Date().toISOString() });
+  store.put('sceneChange', { id: randomUUID(), projectId: randomUUID(), takeId: second.id, sceneName: 'AUTRE PRODUCTION PRIVÉE', previousSceneName: null,
+    offsetMs: 0, reason: 'start', participantId: null, createdAt: new Date().toISOString() });
+  const route = `/api/projects/${project.id}/resolve-export-ticket`;
+  assert.equal((await app.inject({ method: 'POST', url: route })).statusCode, 401);
+  let state: ResolveExportStatus = { status: 'preparing' };
+  for (let attempt = 0; attempt < 150 && state.status === 'preparing'; attempt++) {
+    const response = await app.inject({ method: 'POST', url: route, headers: viewerHeaders });
+    assert.ok([200, 202].includes(response.statusCode), response.body);
+    state = response.json<ResolveExportStatus>();
+    if (state.status === 'preparing') await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  assert.equal(state.status, 'ready', state.error);
+  assert.match(state.ticket!.url, /^\/api\/resolve-exports\/[A-Za-z0-9_-]{43}$/);
+  const head = await app.inject({ method: 'HEAD', url: state.ticket!.url });
+  assert.equal(head.statusCode, 200); assert.equal(head.body, '');
+  const response = await app.inject({ url: state.ticket!.url });
+  assert.equal(response.statusCode, 200, response.body);
+  const files = unzip(response.rawPayload);
+  const config = JSON.parse(files.get('resolve-project.json')!.toString());
+  const manifest = JSON.parse(files.get('manifest.json')!.toString());
+  assert.equal(config.isolatedCameras, false);
+  assert.equal(config.timelines.length, 2);
+  const firstTimeline = config.timelines.find((value: { takeId: string }) => value.takeId === first.id);
+  const otio = JSON.parse(files.get(firstTimeline.file)!.toString());
+  assert.equal(otio.OTIO_SCHEMA, 'Timeline.1');
+  assert.equal(otio.global_start_time.rate, 12);
+  assert.equal(firstTimeline.frames, 12);
+  assert.equal(otio.tracks.children.length, 2, 'Programme includes linked video and audio');
+  assert.deepEqual(otio.tracks.markers.map((value: { marked_range: { start_time: { value: number } } }) => value.marked_range.start_time.value), [0, 4, 7]);
+  assert.equal(otio.tracks.markers.some((value: { name: string }) => value.name === 'Pendant la pause'), false);
+  assert.equal(otio.tracks.children[0].children.length, 1, 'Full programme is never cut or shortened');
+  for (const track of otio.tracks.children) {
+    const clip = track.children[0];
+    assert.equal(clip.source_range.start_time.value, 0); assert.equal(clip.source_range.duration.value, 12);
+    assert.equal(clip.media_references.DEFAULT_MEDIA.target_url, firstTimeline.mediaFile);
+    assert.equal(clip.metadata.Resolve_OTIO['Link Group ID'], 1);
+  }
+  assert.ok(files.get(firstTimeline.mediaFile)!.subarray(0, 32).includes(Buffer.from('ftyp')));
+  for (const file of manifest.files) assert.equal(file.sha256, checksum(files.get(file.path)!));
+  assert.deepEqual(new Set(manifest.files.filter((value: { type: string }) => value.type === 'take').map((value: { path: string }) => checksum(files.get(value.path)!))),
+    new Set([checksum(await readFile(mkv)), checksum(await readFile(mp4))]));
+  assert.equal(JSON.parse(files.get('scene-changes.json')!.toString()).changes.length, 3);
+  const metadata = [...files].filter(([name]) => !name.startsWith('takes/') && !name.startsWith('resolve-media/') && !name.startsWith('media/')).map(([, data]) => data.toString()).join('\n');
+  for (const secret of [directory, 'PRIVATE-OBS-SECRET', 'PRIVATE-LIVE-SECRET', viewer.token, 'AUTRE PRODUCTION PRIVÉE']) assert.equal(metadata.includes(secret), false, secret);
+  const script = files.get('import-nino-resolve.py')!.toString();
+  assert.match(script, /pm.CreateProject\(name\)/);
+  assert.equal(script.includes('LoadProject('), false, 'Importer never loads or modifies an existing user project');
+  const scriptPath = path.join(directory, 'import-nino-resolve.py'); await writeFile(scriptPath, script);
+  await run(process.platform === 'win32' ? 'python' : 'python3', ['-c', 'import ast,sys; ast.parse(open(sys.argv[1], encoding="utf-8").read())', scriptPath], { timeout: 10_000 });
+  assert.equal((await app.inject({ url: state.ticket!.url, headers: { origin: 'https://evil.example' } })).statusCode, 403);
+  store.setSetting('pendingTake', { ...first, status: 'recording' });
+  assert.equal((await app.inject({ url: state.ticket!.url })).statusCode, 409);
+  store.setSetting('pendingTake', null);
+  store.revoke(viewer.device.id);
+  assert.equal((await app.inject({ url: state.ticket!.url })).statusCode, 401);
+});
+
+test('Resolve timeline handles fractional rates, marker collisions and invalid offsets without moving notes onto unrelated footage', () => {
+  const take = { id: 'take', title: 'Programme', durationMs: 5000 } as Take;
+  const info = { frameRate: 30000 / 1001, frames: 150, durationMs: 5005, width: 1920, height: 1080, audioChannels: 0 };
+  const marker = (id: string, offsetMs: number) => ({ id, takeId: take.id, label: id, offsetMs, createdAt: new Date().toISOString() });
+  const change = { id: 'scene', projectId: 'project', takeId: take.id, sceneName: 'Caméra', previousSceneName: null,
+    offsetMs: 1000, reason: 'speaker' as const, participantId: 'alice', createdAt: new Date().toISOString() };
+  const document = resolveTimeline(take, 'resolve-media/programme.mp4', info,
+    [marker('Note simultanée', 1000), marker('Négatif', -1), marker('Trop tard', 6000), marker('Fin', 5000)], [change]) as {
+      tracks: { children: unknown[]; markers: { name: string; marked_range: { start_time: { value: number } }; metadata: { Resolve_OTIO: { Note: string } } }[] } };
+  assert.equal(document.tracks.children.length, 1, 'Silent programme never receives an invented audio track');
+  assert.equal(document.tracks.markers.length, 2);
+  assert.equal(document.tracks.markers[0]!.marked_range.start_time.value, 30);
+  assert.match(document.tracks.markers[0]!.name, /Note simultanée/); assert.match(document.tracks.markers[0]!.name, /Caméra/);
+  assert.match(document.tracks.markers[0]!.metadata.Resolve_OTIO.Note, /Scène OBS confirmée/);
+  assert.equal(document.tracks.markers[1]!.marked_range.start_time.value, 149);
+});
+
+test('Resolve leases are released on expired tickets, changed originals and compatibility files are never silently substituted', { timeout: 30_000 }, async t => {
+  const { app, project, dataDir, mkv, readyResolve, viewerHeaders } = await fixture(t);
+  const pinned = new Map<string, number>();
+  const originalPin = TakePlayback.prototype.pin, originalUnpin = TakePlayback.prototype.unpin;
+  t.mock.method(TakePlayback.prototype, 'pin', function(this: TakePlayback, file: string) { pinned.set(file, (pinned.get(file) ?? 0) + 1); originalPin.call(this, file); });
+  t.mock.method(TakePlayback.prototype, 'unpin', function(this: TakePlayback, file: string) { pinned.set(file, (pinned.get(file) ?? 0) - 1); originalUnpin.call(this, file); });
+  const ticket = await readyResolve();
+  assert.equal([...pinned.values()].reduce((a, b) => a + b, 0), 2, 'Each compatible media has a ticket lease');
+  const cache = (await readdir(path.join(dataDir, 'playback'))).find(file => /^[a-f0-9]{64}\.mp4$/.test(file))!;
+  const cachedFile = path.join(dataDir, 'playback', cache);
+  await rename(cachedFile, `${cachedFile}.held`);
+  assert.equal((await app.inject({ method: 'HEAD', url: ticket.url })).statusCode, 404);
+  await rename(`${cachedFile}.held`, cachedFile);
+  const now = Date.now();
+  t.mock.method(Date, 'now', () => now + 6 * 60_000);
+  assert.equal((await app.inject({ method: 'HEAD', url: ticket.url })).statusCode, 401);
+  const replacement = await readyResolve(); // Trims the expired ticket and establishes fresh leases.
+  assert.equal([...pinned.values()].reduce((a, b) => a + b, 0), 2, 'Expired ticket never keeps additional cache pins');
+  t.mock.restoreAll();
+  await rename(mkv, `${mkv}.held`);
+  const missing = await app.inject({ method: 'POST', url: `/api/projects/${project.id}/resolve-export-ticket`, headers: viewerHeaders });
+  assert.equal(missing.statusCode, 409); assert.equal(missing.json().code, 'MISSING_PRODUCTION_FILE');
+  assert.equal((await app.inject({ url: replacement.url })).statusCode, 409);
+  await rename(`${mkv}.held`, mkv);
+  const original = await readFile(mkv); await writeFile(mkv, original);
+  assert.equal((await app.inject({ method: 'HEAD', url: replacement.url })).statusCode, 409, 'Changed file identity requires a fresh export');
 });
 
 test('complete exports reject missing files, malicious links, symlink escape and active production, including after ticket issuance', { timeout: 30_000 }, async t => {
@@ -308,16 +430,17 @@ test('conversion is stopped against the remaining cache budget while existing pl
 });
 
 test('server shutdown cancels held native video and streaming ZIP connections before request drainage', { timeout: 30_000 }, async t => {
-  const { app, mp4, second, project, viewerHeaders, ready } = await fixture(t);
+  const { app, mp4, second, project, viewerHeaders, ready, readyResolve } = await fixture(t);
   await truncate(mp4, 64 * 1024 * 1024); // A sparse tail keeps the fixture cheap while holding network backpressure.
   const session = await ready(second.id);
   const ticket = (await app.inject({ method: 'POST', url: `/api/projects/${project.id}/export-ticket`, headers: viewerHeaders })).json<DownloadTicket>();
+  const resolveTicket = await readyResolve();
   await app.listen({ host: '127.0.0.1', port: 0 });
   const address = app.server.address();
   assert.ok(address && typeof address !== 'string');
   const connections: { request: ClientRequest; response: IncomingMessage }[] = [];
   t.after(() => { for (const connection of connections) { connection.response.destroy(); connection.request.destroy(); } });
-  for (const route of [session.url, ticket.url]) await new Promise<void>((resolve, reject) => {
+  for (const route of [session.url, ticket.url, resolveTicket.url]) await new Promise<void>((resolve, reject) => {
     const request = get(`http://127.0.0.1:${address.port}${route}`, response => {
       response.on('error', () => undefined); response.pause();
       assert.equal(response.statusCode, 200);

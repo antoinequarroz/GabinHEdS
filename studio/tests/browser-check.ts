@@ -48,6 +48,8 @@ let app: Awaited<ReturnType<typeof buildApp>> | undefined;
 let browser: any;
 let pc: any;
 let ipad: any;
+let meterTimer: ReturnType<typeof setInterval> | undefined;
+let meterLevels: [number, number] = [-65, -65];
 const steps: string[] = [];
 const pageErrors: string[] = [];
 const failedApi: string[] = [];
@@ -58,7 +60,7 @@ const track = (page: any) => {
   page.on('pageerror', (error: Error) => pageErrors.push(error.message));
   page.on('response', async (response: any) => {
     if (response.url().includes('/api/') && response.status() >= 400) {
-      const pathname = new URL(response.url()).pathname.replace(/\/(monitor|library-files|playback-files|production-exports|downloads)\/[^/]+/, '/$1/<session>');
+      const pathname = new URL(response.url()).pathname.replace(/\/(monitor|library-files|playback-files|production-exports|resolve-exports|downloads)\/[^/]+/, '/$1/<session>');
       failedApi.push(`${response.status()} ${pathname} ${(await response.text().catch(() => '')).slice(0, 500)}`);
     }
   });
@@ -135,8 +137,15 @@ try {
   const testMedia = await startTestMedia(temp);
   mediaServer = testMedia;
   fixture = await startFakeObs({ recordDirectory: join(temp, 'initial-obs'),
+    meters: false,
     recordingFixture: encodedFixture.mkv,
     onStreamStart: service => testMedia.startSource(service), onStreamStop: () => testMedia.stopSource() });
+  // Publish OBS5 InputVolumeMeters events at real intervals with deliberately
+  // separate microphone levels. Automatic cuts must cross the actual gateway,
+  // queue and authenticated API; no Studio state is forged by this test.
+  meterTimer = setInterval(() => fixture!.emitMeters(meterLevels.map((db, index) => ({ inputName: `Micro ${index + 1}`,
+    inputLevelsMul: [[10 ** (db / 20), 10 ** ((db + 2) / 20), 10 ** ((db + 2) / 20)]] }))), 125);
+  meterTimer.unref();
   app = await buildApp({ dataDir: join(temp, 'data'), media: new RealMediaGateway(testMedia.options), logger: process.env.GABIN_TEST_LOGGER === '1' });
   await app.listen({ host: browserEngine === 'webkit' ? '0.0.0.0' : '127.0.0.1', port: 0 });
   const address = app.server.address();
@@ -153,12 +162,13 @@ try {
   track(pc);
   await pc.goto(baseUrl);
   await pc.getByRole('heading', { name: 'Vos productions', exact: true }).waitFor();
+  console.info(`Interface compilée chargée : ${await pc.locator('script[type="module"][src]').getAttribute('src')}`);
   token = await pc.evaluate(() => localStorage.getItem('gabin.studio.device'));
   assert(token, 'Jeton technicien créé sur le PC');
   steps.push('PC : connexion locale technicien, interface compilée et WebSocket');
 
   await pc.locator('.sidebar').getByRole('button', { name: 'Salle et OBS', exact: true }).click();
-  await pc.getByLabel('Nom de la salle', { exact: true }).fill('Salle de test Gabin');
+  await pc.getByLabel('Nom de la salle', { exact: true }).fill('Salle de test Nino');
   await pc.getByLabel('Adresse du serveur OBS').fill(fixture.url);
   await pc.getByLabel('Dossier des productions sur le PC').fill(join(temp, 'recordings'));
   await pc.getByLabel('Nom de la plateforme', { exact: true }).fill(mediaServer.destination.name);
@@ -184,7 +194,7 @@ try {
   await participants.nth(0).getByLabel('Micro').selectOption('Micro 1');
   await participants.nth(1).getByLabel('Micro').selectOption('Micro 2');
   await participants.nth(0).getByLabel('Plan caméra').selectOption('Caméra 1');
-  await participants.nth(1).getByLabel('Plan caméra').selectOption('Plan large');
+  await participants.nth(1).getByLabel('Plan caméra').selectOption('Caméra 2');
   await pc.getByRole('button', { name: 'Créer le projet', exact: true }).click();
   await pc.getByRole('heading', { name: 'Métiers de la santé · épisode 01', exact: true }).waitFor();
   const created = await untilState(state => state.projects.length === 1, 'projet persistant');
@@ -256,6 +266,23 @@ try {
   await ipad.getByRole('heading', { name: 'Métiers de la santé · épisode 01', exact: true }).waitFor();
   await ipad.getByRole('button', { name: 'Enregistrer et diffuser', exact: true }).click();
   await pc.getByRole('button', { name: 'Ouvrir la régie', exact: true }).click();
+  const pcAutomatic = pc.getByRole('region', { name: 'Réalisation automatique', exact: true });
+  const ipadAutomatic = ipad.getByRole('region', { name: 'Réalisation automatique', exact: true });
+  await pcAutomatic.getByLabel('Plan large', { exact: true }).selectOption('Plan large');
+  await pcAutomatic.getByText('Réglages de détection', { exact: true }).click();
+  await pcAutomatic.getByLabel('Confirmation de parole (ms)', { exact: true }).fill('300');
+  await pcAutomatic.getByLabel('Durée minimale d’un plan (ms)', { exact: true }).fill('1000');
+  await pcAutomatic.getByLabel('Retour au plan large après silence (ms)', { exact: true }).fill('1500');
+  await pcAutomatic.getByLabel('Confirmation des voix simultanées (ms)', { exact: true }).fill('500');
+  await pcAutomatic.getByRole('button', { name: 'Enregistrer la détection', exact: true }).click();
+  const configuredAutomatic = await untilState(state => state.autoDirectionSettings?.[projectId]?.minShotMs === 1000, 'réglages automatiques sauvegardés depuis PC');
+  assert.equal(configuredAutomatic.autoDirection?.enabled, false, 'La configuration seule ne lance pas la réalisation');
+  await proofScreenshot(pc, 'nino-auto-settings-pc.png');
+  await pcAutomatic.getByText('Réglages de détection', { exact: true }).click();
+  await pcAutomatic.getByRole('button', { name: 'Activer l’automatique', exact: true }).click();
+  const armedAutomatic = await untilState(state => !!state.autoDirection?.enabled && state.autoDirection.projectId === projectId, 'activation automatique PC');
+  assert(!armedAutomatic.obs.recording && !armedAutomatic.obs.streaming, 'Activer l’automatique ne démarre aucun enregistrement ni diffusion');
+  steps.push('Automatique PC : association micros/plans distincts et plan large, réglages bornés via formulaire, activation sans démarrage des sorties');
   await pc.getByRole('button', { name: 'Démarrer la prise', exact: true }).click();
   await pc.getByRole('dialog').getByRole('button', { name: 'Démarrer dans OBS', exact: true }).click();
   await untilState(state => state.obs.recording && !!state.activeTake, 'prise démarrée');
@@ -265,6 +292,66 @@ try {
   steps.push('Enregistrement : démarrage depuis PC, confirmation OBS et régie visible sur iPad');
 
   const deck = await api<AuthResult>('/devices', { name: 'Stream Deck de recette', kind: 'streamdeck', role: 'operator' });
+  meterLevels = [-20, -65];
+  const directed = await untilState(state => state.obs.currentScene === 'Caméra 1' && state.autoDirection?.status === 'listening'
+    && state.sceneChanges?.some(change => change.takeId === state.activeTake?.id && change.reason === 'speaker'), 'Alice choisit Caméra 1 via ses vraies mesures OBS');
+  const firstSpeakerCut = directed.sceneChanges!.find(change => change.takeId === directed.activeTake!.id && change.reason === 'speaker')!;
+  assert.equal(firstSpeakerCut.participantId, created.projects[0]!.participants[0]!.id);
+  assert(firstSpeakerCut.offsetMs !== null && firstSpeakerCut.offsetMs > 0, 'Journal de changement confirmé au temps réel de la prise');
+  assert(fixture.requests.some(request => request.requestType === 'SetCurrentProgramScene' && request.requestData.sceneName === 'Caméra 1'), 'Le changement automatique est envoyé sur le protocole OBS');
+  await pc.locator('.program-header').getByText('Caméra 1', { exact: true }).waitFor();
+  await ipadAutomatic.getByRole('button', { name: 'Revenir en manuel', exact: true }).waitFor();
+  await noOverflow(pc, 'Réalisation automatique PC');
+  await noOverflow(ipad, 'Réalisation automatique iPad');
+  await pc.bringToFront();
+  await pcAutomatic.getByRole('heading', { name: 'Réalisation automatique', exact: true }).scrollIntoViewIfNeeded();
+  await pc.locator('.toast').waitFor({ state: 'hidden', timeout: 10_000 });
+  await proofScreenshot(pc, 'nino-auto-pc.png');
+  await pcAutomatic.screenshot({ path: join(screenshotDir, 'nino-auto-pc-detail.png'), animations: 'disabled', timeout: 45_000 });
+  await ipad.bringToFront();
+  await ipadAutomatic.getByRole('heading', { name: 'Réalisation automatique', exact: true }).scrollIntoViewIfNeeded();
+  await ipad.locator('.toast').waitFor({ state: 'hidden', timeout: 10_000 });
+  await proofScreenshot(ipad, 'nino-auto-ipad.png');
+  // A second static tablet posture gives the guide a complete painted card,
+  // including the manual override button. Do not resize the tested iPad view
+  // or hide the actual fixed transport to make a screenshot look complete.
+  const portraitContext = await browser.newContext({ viewport: { width: 1024, height: 1366 }, isMobile: true, hasTouch: true,
+    storageState: await ipadContext.storageState() });
+  try {
+    const portrait = await portraitContext.newPage();
+    portrait.setDefaultTimeout(15_000); track(portrait);
+    await portrait.goto(new URL(`/#project/${projectId}`, ipad.url()).href);
+    await portrait.getByRole('heading', { name: 'Métiers de la santé · épisode 01', exact: true }).waitFor();
+    const portraitAutomatic = portrait.getByRole('region', { name: 'Réalisation automatique', exact: true });
+    await portraitAutomatic.getByRole('button', { name: 'Revenir en manuel', exact: true }).waitFor();
+    await portraitAutomatic.getByRole('heading', { name: 'Réalisation automatique', exact: true }).scrollIntoViewIfNeeded();
+    await noOverflow(portrait, 'Réalisation automatique iPad portrait');
+    await proofScreenshot(portrait, 'nino-auto-ipad-portrait.png');
+    await portraitAutomatic.screenshot({ path: join(screenshotDir, 'nino-auto-ipad-detail.png'), animations: 'disabled', timeout: 45_000 });
+  } finally { await portraitContext.close(); }
+  await ipad.getByRole('button', { name: 'Caméra 2', exact: true }).click();
+  await untilState(state => state.obs.currentScene === 'Caméra 2' && state.autoDirection?.status === 'suspended' && !state.autoDirection.enabled, 'choix manuel iPad suspend l’automatique');
+  await pc.waitForTimeout(1300);
+  assert.equal((await api<StudioState>('/state')).obs.currentScene, 'Caméra 2', 'Les micros ne combattent pas le plan choisi manuellement');
+  await pcAutomatic.getByRole('button', { name: 'Reprendre l’automatique', exact: true }).click();
+  await untilState(state => state.obs.currentScene === 'Caméra 1' && !!state.autoDirection?.enabled, 'reprise explicite depuis PC');
+  await ipadAutomatic.getByRole('button', { name: 'Revenir en manuel', exact: true }).click();
+  await untilState(state => state.autoDirection?.status === 'off' && !state.autoDirection.enabled, 'arrêt automatique depuis iPad');
+  const automaticSettings = { ...configuredAutomatic.autoDirectionSettings![projectId]!, thresholdDb: -36 };
+  await deckControl(deck.token, { action: 'auto.configure', projectId, settings: automaticSettings });
+  meterLevels = [-65, -20];
+  const automaticDeckStart = { action: 'auto.start', projectId, requestId: crypto.randomUUID() };
+  await Promise.all([deckControl(deck.token, automaticDeckStart), deckControl(deck.token, automaticDeckStart)]);
+  await untilState(state => state.obs.currentScene === 'Caméra 2' && state.autoDirection?.participantId === created.projects[0]!.participants[1]!.id,
+    'Benoît choisit Caméra 2 après activation Stream Deck dédupliquée');
+  await deckControl(deck.token, { action: 'auto.stop' });
+  await untilState(state => state.autoDirection?.status === 'off' && !state.autoDirection.enabled, 'retour manuel Stream Deck');
+  assert.equal(fixture.requests.filter(request => request.requestType === 'StartRecord').length, 1, 'La régie automatique n’a pas relancé la prise');
+  assert.equal(fixture.requests.filter(request => request.requestType === 'StartStream').length, 0, 'La régie automatique n’a pas démarré de diffusion');
+  await pc.getByRole('button', { name: 'Table ronde', exact: true }).click();
+  await untilState(state => state.obs.currentScene === 'Table ronde', 'retour au plan initial après recette automatique');
+  meterLevels = [-65, -65];
+  steps.push('Automatique PC/iPad/Stream Deck : voix OBS -> plan confirmé et journal de prise ; priorité au choix manuel, reprise explicite, configuration/activation/arrêt authentifiés et réessai dédupliqué');
   await pc.getByRole('button', { name: `Lancer ${videoAsset.title}`, exact: true }).click();
   await untilState(state => state.mediaPlayback?.assetId === videoAsset.id && state.mediaPlayback.status === 'playing', 'intro confirmée par OBS');
   await ipad.getByRole('button', { name: 'Mettre le média en pause', exact: true }).click();
@@ -377,6 +464,8 @@ try {
   steps.push('Lecture des prises : original MKV converti/remuxé pour lecture MP4 décodée sur PC et iPad');
   await proofScreenshot(pc, 'nino-production-files-pc.png');
   await proofScreenshot(ipad, 'nino-production-files-ipad.png');
+  await proofScreenshot(pc, 'nino-resolve-pc.png');
+  await proofScreenshot(ipad, 'nino-resolve-ipad.png');
   if (process.env.GABIN_SKIP_DOWNLOAD !== '1') {
     const pendingArchive = pc.waitForEvent('download');
     await pc.getByRole('button', { name: 'Récupérer le dossier complet', exact: true }).click();
@@ -396,6 +485,59 @@ try {
     }
     assert(!names.some(name => /sqlite|\.env|token/i.test(name)), 'Aucun fichier privé dans l’archive');
     steps.push('Dossier complet : ZIP navigateur contenant prises originales, médias associés, projet et repères, octets identiques');
+
+    const pendingResolve = pc.waitForEvent('download', { timeout: 45_000 });
+    await pc.getByRole('button', { name: 'Télécharger pour DaVinci Resolve', exact: true }).click();
+    const resolveDownload = await pendingResolve;
+    assert.equal(await resolveDownload.failure(), null, 'Le téléchargement Resolve aboutit réellement dans le navigateur');
+    const resolveZip = join(temp, 'resolve.zip');
+    await resolveDownload.saveAs(resolveZip);
+    const { stdout: resolveNamesText } = await execute('unzip', ['-Z1', resolveZip], { timeout: 10_000 });
+    const resolveNames = resolveNamesText.trim().split('\n');
+    const readResolveEntry = async (name: string): Promise<Buffer> => {
+      assert(resolveNames.includes(name), `Entrée Resolve présente : ${name}`);
+      return (await execute('unzip', ['-p', resolveZip, name], { encoding: 'buffer', timeout: 10_000, maxBuffer: 2 * 1024 * 1024 })).stdout;
+    };
+    const resolveConfig = JSON.parse((await readResolveEntry('resolve-project.json')).toString());
+    assert.equal(resolveConfig.projectId, projectId);
+    assert.equal(resolveConfig.isolatedCameras, false, 'L’export ne promet pas d’angles caméra séparés');
+    assert.equal(resolveConfig.timelines.length, 1);
+    const resolveEntry = resolveConfig.timelines[0];
+    assert.equal(resolveEntry.takeId, ended.takes[0]!.id);
+    assert.equal(resolveEntry.frameRate, 25);
+    assert.equal(resolveEntry.frames, 100, 'Timeline de la vidéo complète de mire 4s/25fps');
+    const timeline = JSON.parse((await readResolveEntry(resolveEntry.file)).toString());
+    assert.equal(timeline.OTIO_SCHEMA, 'Timeline.1');
+    assert.equal(timeline.metadata.Nino.sceneChanges, 'markers_only');
+    assert.equal(timeline.tracks.children.length, 2, 'Vidéo entière et son lié inclus');
+    for (const track of timeline.tracks.children) {
+      assert.equal(track.children.length, 1, 'Aucun passage de la prise n’est supprimé');
+      const clip = track.children[0];
+      assert.equal(clip.source_range.start_time.value, 0);
+      assert.equal(clip.source_range.duration.value, 100);
+      assert.equal(clip.metadata.Resolve_OTIO['Link Group ID'], 1);
+      assert.equal(clip.media_references.DEFAULT_MEDIA.target_url, resolveEntry.mediaFile);
+    }
+    const programMp4 = await readResolveEntry(resolveEntry.mediaFile);
+    assert(programMp4.subarray(0, 32).includes(Buffer.from('ftyp')), 'Programme MP4 préparé réellement présent');
+    const exportedJournal = JSON.parse((await readResolveEntry('scene-changes.json')).toString()).changes;
+    const finalState = await api<StudioState>('/state');
+    assert.deepEqual(exportedJournal, finalState.sceneChanges!.filter(change => change.projectId === projectId), 'Journal réel de tous les changements de la production conservé');
+    assert(exportedJournal.some((change: any) => change.reason === 'speaker' && change.participantId === firstSpeakerCut.participantId), 'Repères de réalisation automatique conservés dans le dossier');
+    const durationMs = resolveEntry.frames / resolveEntry.frameRate * 1000;
+    const validOffsets = [...exportedJournal.filter((change: any) => change.takeId === ended.takes[0]!.id).map((change: any) => change.offsetMs),
+      ...finalState.markers.filter(marker => marker.takeId === ended.takes[0]!.id).map(marker => marker.offsetMs)]
+      .filter((offset: unknown): offset is number => typeof offset === 'number' && Number.isFinite(offset) && offset >= 0 && offset < durationMs);
+    const expectedFrames = [...new Set(validOffsets.map(offset => Math.min(resolveEntry.frames - 1, Math.round(offset / 1000 * resolveEntry.frameRate))))].sort((a, b) => a - b);
+    assert.deepEqual(timeline.tracks.markers.map((marker: any) => marker.marked_range.start_time.value), expectedFrames,
+      'Les timecodes valides deviennent exactement les repères OTIO ; hors prise, pauses ou au-delà du fichier restent exclus');
+    assert(timeline.tracks.markers.some((marker: any) => marker.color === 'GREEN'), 'Scène initiale confirmée représentée dans Resolve');
+    const originalTakeEntry = resolveNames.find(name => name.startsWith('takes/') && name.endsWith('.mkv'))!;
+    assert.deepEqual(await readResolveEntry(originalTakeEntry), await readFile(encodedFixture.mkv), 'Original OBS inchangé également récupéré avec l’export Resolve');
+    assert(resolveNames.includes('IMPORTER_DANS_RESOLVE.txt') && resolveNames.includes('import-nino-resolve.py'), 'Instructions et script portable fournis');
+    const safeMetadata = JSON.stringify({ config: resolveConfig, timeline, changes: exportedJournal });
+    for (const secret of [temp, token, deck.token]) assert.equal(safeMetadata.includes(secret), false, 'Aucun chemin local ni jeton dans les métadonnées portables');
+    steps.push('DaVinci Resolve : téléchargement ZIP réel depuis UI, original inchangé, MP4 préparé, timeline OTIO complète vidéo+son liés, journal et repères exacts sans angles caméra inventés');
   }
 
   await noOverflow(ipad, 'Prises iPad 1024');
@@ -456,7 +598,9 @@ try {
   const rejectedHls = await fetch(`${baseUrl}${preview.url}`);
   assert.equal(rejectedHls.status, 401, 'La révocation invalide aussi une session HLS déjà émise');
   steps.push('Retour vidéo : HLS proxifié avec session authentifiée ; Stream Deck révocable');
-  console.log(JSON.stringify({ passed: true, steps, pageErrors, failedApi, screenshots: [join(screenshotDir, 'gabin-studio-pc.png'), join(screenshotDir, 'gabin-studio-ipad.png')] }, null, 2));
+  console.log(JSON.stringify({ passed: true, steps, pageErrors, failedApi, screenshots: ['gabin-studio-pc.png', 'gabin-studio-ipad.png',
+    'nino-auto-settings-pc.png', 'nino-auto-pc.png', 'nino-auto-ipad.png', 'nino-auto-ipad-portrait.png', 'nino-auto-pc-detail.png', 'nino-auto-ipad-detail.png',
+    'nino-resolve-pc.png', 'nino-resolve-ipad.png'].map(name => join(screenshotDir, name)) }, null, 2));
 } catch (error) {
   await mkdir(screenshotDir, { recursive: true });
   if (pc) await captureProof(pc, join(screenshotDir, 'gabin-studio-failure-pc.png'), browserEngine === 'webkit').catch(() => undefined);
@@ -469,6 +613,7 @@ try {
   console.error(JSON.stringify({ passed: false, steps, pageErrors, failedApi, videoStates, error: error instanceof Error ? error.stack : String(error) }, null, 2));
   process.exitCode = 1;
 } finally {
+  if (meterTimer) clearInterval(meterTimer);
   // A failed browser/service startup still releases every test-owned child and
   // database. One failing cleanup must not skip the subsequent resources.
   const closeResource = async (close: () => Promise<unknown> | undefined) => {

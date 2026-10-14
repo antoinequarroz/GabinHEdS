@@ -121,6 +121,38 @@ export interface Marker {
   createdAt: string;
 }
 
+/** Confirmed program cuts. Null offsets are observations outside usable recording time. */
+export interface SceneChange {
+  id: string;
+  projectId: string;
+  takeId: string | null;
+  sceneName: string;
+  previousSceneName: string | null;
+  offsetMs: number | null;
+  reason: 'manual' | 'speaker' | 'silence' | 'overlap' | 'media' | 'start';
+  participantId: string | null;
+  createdAt: string;
+}
+
+export interface AutoDirectionSettings {
+  wideScene: string;
+  thresholdDb: number;
+  dominanceDb: number;
+  confirmationMs: number;
+  minShotMs: number;
+  silenceMs: number;
+  overlapMs: number;
+}
+export interface AutoDirectionState {
+  enabled: boolean;
+  status: 'off' | 'listening' | 'waiting' | 'suspended' | 'error';
+  projectId: string | null;
+  participantId: string | null;
+  lastAudioAt: string | null;
+  lastSwitchAt: string | null;
+  message: string;
+}
+
 export type MediaKind = 'image' | 'video' | 'audio' | 'document';
 export type MediaRole = 'intro' | 'logo' | 'presentation' | 'outro' | 'music' | 'other';
 export interface MediaAsset {
@@ -166,6 +198,9 @@ export interface StudioState {
   library?: MediaAsset[];
   projectMedia?: Record<string, ProjectMediaLink[]>;
   mediaPlayback?: MediaPlayback | null;
+  autoDirection?: AutoDirectionState;
+  autoDirectionSettings?: Record<string, AutoDirectionSettings>;
+  sceneChanges?: SceneChange[];
 }
 
 export interface PreparationCheck {
@@ -209,8 +244,12 @@ export interface DownloadTicket {
   url: string;
   expiresAt: string;
 }
+export interface ResolveExportStatus { status: 'preparing' | 'ready' | 'failed'; ticket?: DownloadTicket; error?: string; }
 
 export type ControlCommand =
+  | { action: 'auto.configure'; projectId: string; settings: AutoDirectionSettings; requestId?: string }
+  | { action: 'auto.start'; projectId: string; requestId?: string }
+  | { action: 'auto.stop'; requestId?: string }
   | { action: 'record.start'; projectId: string; requestId?: string }
   | { action: 'record.stop' | 'record.pause' | 'record.resume'; requestId?: string }
   | { action: 'scene.set'; sceneName: string; requestId?: string }

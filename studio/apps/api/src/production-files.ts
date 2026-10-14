@@ -5,12 +5,13 @@ import { open, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { ZipFile } from 'yazl';
-import type { Device, DeviceRole, DownloadTicket, FilePlaybackSession, MediaAsset, Project, ProjectMediaLink, Take, TakePlaybackStatus } from '@gabin/shared';
+import type { Device, DeviceRole, DownloadTicket, FilePlaybackSession, MediaAsset, Project, ProjectMediaLink, ResolveExportStatus, Take, TakePlaybackStatus } from '@gabin/shared';
 import { libraryFile } from './library.js';
 import { hashSecret, type Store } from './store.js';
 import type { Studio } from './studio.js';
 import { ApiFailure, object } from './validation.js';
 import { sameFile, takeFileKey, TakePlayback, type PlaybackFile, type ResolvedTakeFile } from './take-playback.js';
+import { ResolveProbe, resolvePackage, type ResolvePackage } from './resolve-export.js';
 
 export interface ProductionFileRouteOptions {
   store: Store;
@@ -22,7 +23,8 @@ export interface ProductionFileRouteOptions {
 }
 interface PlaybackTicket { deviceId: string; takeId: string; preferMp4: boolean; sourceKey: string; playback: PlaybackFile; expiresAt: number; }
 interface ExportTicket { deviceId: string; projectId: string; expiresAt: number; }
-interface ArchiveFile { file: string; fileStat: Stats; archivePath: string; type: 'take' | 'media'; id: string; title: string; mimeType?: string; sha256?: string; }
+interface ResolveTicket extends ExportTicket { plan: ExportPlan; package: ResolvePackage; copies: Map<string, PlaybackFile>; originalKeys: Map<string, string>; }
+interface ArchiveFile { file: string; fileStat: Stats; archivePath: string; type: 'take' | 'media' | 'resolve'; id: string; title: string; mimeType?: string; sha256?: string; }
 interface ExportPlan { project: Project; takes: Take[]; links: ProjectMediaLink[]; assets: MediaAsset[]; files: ArchiveFile[]; }
 const tokenPattern = /^[A-Za-z0-9_-]{43}$/;
 const slug = (value: string): string => value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 65) || 'production';
@@ -37,18 +39,21 @@ export function registerProductionFileRoutes(app: FastifyInstance, options: Prod
   const { store, studio, requireRole, resolveTakeFile } = options;
   const resolveLibraryFile = options.resolveLibraryFile ?? libraryFile;
   const playback = new TakePlayback(store.dataDir, options.playback);
+  const resolveProbe = new ResolveProbe(options.playback?.ffprobePath);
   const playbackTickets = new Map<string, PlaybackTicket>();
   const exportTickets = new Map<string, ExportTicket>();
+  const resolveTickets = new Map<string, ResolveTicket>();
   const transfers = new Set<Readable>();
   let closing = false;
   const authorized = (id: string): boolean => { try { return !closing && !!store.device(id); } catch { return false; } };
   const assertDevice = (id: string): void => { if (!authorized(id)) throw new ApiFailure(401, 'L’accès de cet appareil a été révoqué ou a expiré.', 'UNAUTHENTICATED'); };
-  const trim = <T extends { expiresAt: number; deviceId: string }>(tickets: Map<string, T>, removed?: (ticket: T) => void): void => {
+  const trim = <T extends { expiresAt: number; deviceId: string }>(tickets: Map<string, T>, removed?: (ticket: T) => void, maximum = 512): void => {
     const remove = (key: string, ticket: T) => { tickets.delete(key); removed?.(ticket); };
     for (const [key, ticket] of tickets) if (ticket.expiresAt <= Date.now() || !authorized(ticket.deviceId)) remove(key, ticket);
-    while (tickets.size >= 512) { const [key, ticket] = tickets.entries().next().value!; remove(key, ticket); }
+    while (tickets.size >= maximum) { const [key, ticket] = tickets.entries().next().value!; remove(key, ticket); }
   };
-  const prune = setInterval(() => { trim(playbackTickets, ticket => playback.unpin(ticket.playback.file)); trim(exportTickets); }, 30_000);
+  const releaseResolve = (ticket: ResolveTicket) => { for (const copy of ticket.copies.values()) playback.unpin(copy.file); };
+  const prune = setInterval(() => { trim(playbackTickets, ticket => playback.unpin(ticket.playback.file)); trim(exportTickets); trim(resolveTickets, releaseResolve, 17); }, 30_000);
   prune.unref();
 
   const projectIdle = (id: string): void => {
@@ -172,13 +177,96 @@ export function registerProductionFileRoutes(app: FastifyInstance, options: Prod
     return reply.send(stream);
   } });
 
+  app.post<{ Params: { id: string } }>('/api/projects/:id/resolve-export-ticket', { config: { rateLimit: { max: 90, timeWindow: '1 minute' } } }, async (request, reply): Promise<ResolveExportStatus> => {
+    const device = requireRole(request, 'viewer');
+    const plan = await exportPlan(request.params.id);
+    assertDevice(device.id);
+    const copies = new Map<string, PlaybackFile>();
+    const originalKeys = new Map<string, string>();
+    let preparing = false;
+    for (const file of plan.files.filter(file => file.type === 'take')) {
+      const take = plan.takes.find(take => take.id === file.id)!;
+      const source: ResolvedTakeFile = { take, file: file.file, fileStat: file.fileStat };
+      const job = playback.request(source, true);
+      if (job.status === 'failed') return { status: 'failed', error: job.error };
+      if (job.status === 'preparing' || !job.result) { preparing = true; continue; }
+      try { await playback.verify(job.result, source); }
+      catch (error) {
+        if (!(error instanceof ApiFailure) || error.statusCode !== 404) throw error;
+        playback.forget(source, true); playback.request(source, true); preparing = true; continue;
+      }
+      copies.set(take.id, job.result); originalKeys.set(take.id, takeFileKey(source, true));
+    }
+    if (preparing) { reply.code(202); return { status: 'preparing' }; }
+    const sources = [];
+    // A five minute lease protects compatibility files against cache eviction.
+    // Pin before the asynchronous probes, and release on any failed admission.
+    for (const copy of copies.values()) playback.pin(copy.file);
+    let issued = false;
+    try {
+      for (const [index, take] of plan.takes.filter(take => take.status === 'completed').entries()) {
+        assertDevice(device.id); projectIdle(plan.project.id);
+        const copy = copies.get(take.id)!;
+        const info = await resolveProbe.inspect(copy);
+        const stem = `${String(index + 1).padStart(3, '0')}-${slug(take.title)}-${suffix(take.id)}`;
+        const mediaFile = `resolve-media/${stem}.mp4`;
+        plan.files.push({ file: copy.file, fileStat: copy.fileStat, archivePath: mediaFile,
+          type: 'resolve', id: take.id, title: take.title, mimeType: 'video/mp4' });
+        sources.push({ take, mediaFile, timelineFile: `${stem}.otio`, info });
+      }
+      assertDevice(device.id); projectIdle(plan.project.id);
+      const packageFiles = resolvePackage(plan.project, sources, store.markers(), store.sceneChanges().filter(change => change.projectId === plan.project.id));
+      // Resolve tickets retain timeline documents and cache leases, unlike the
+      // small download tickets. Keep their count bounded for the room's RAM.
+      trim(resolveTickets, releaseResolve, 16);
+      const token = randomBytes(32).toString('base64url');
+      const expiresAt = Date.now() + 5 * 60_000;
+      resolveTickets.set(hashSecret(token), { deviceId: device.id, projectId: plan.project.id, expiresAt, plan, package: packageFiles, copies, originalKeys });
+      issued = true;
+      return { status: 'ready', ticket: { url: `/api/resolve-exports/${token}`, expiresAt: new Date(expiresAt).toISOString() } };
+    } finally { if (!issued) for (const copy of copies.values()) playback.unpin(copy.file); }
+  });
+
+  app.route<{ Params: { token: string } }>({ method: ['GET', 'HEAD'], url: '/api/resolve-exports/:token', handler: async (request, reply) => {
+    const ticket = tokenPattern.test(request.params.token) ? resolveTickets.get(hashSecret(request.params.token)) : undefined;
+    if (!ticket || ticket.expiresAt <= Date.now()) throw new ApiFailure(401, 'Ce lien d’export a expiré.', 'DOWNLOAD_EXPIRED');
+    assertDevice(ticket.deviceId);
+    const current = await exportPlan(ticket.projectId);
+    const originals = ticket.plan.files.filter(file => file.type !== 'resolve');
+    if (current.files.length !== originals.length || current.files.some(file => {
+      const before = originals.find(value => value.id === file.id && value.type === file.type);
+      return !before || file.file !== before.file || !sameFile(file.fileStat, before.fileStat);
+    })) throw new ApiFailure(409, 'Les fichiers de cette production ont changé. Préparez un nouvel export Resolve.', 'RESOLVE_EXPORT_CHANGED');
+    for (const [id, copy] of ticket.copies) {
+      const source = await resolveTakeFile(id);
+      if (takeFileKey(source, true) !== ticket.originalKeys.get(id)) throw new ApiFailure(409, 'Une prise originale a changé. Préparez un nouvel export Resolve.', 'RESOLVE_EXPORT_CHANGED');
+      await playback.verify(copy, source);
+    }
+    assertDevice(ticket.deviceId);
+    reply.type('application/zip').header('Cache-Control', 'no-store')
+      .header('Content-Disposition', `attachment; filename="${slug(ticket.plan.project.title)}-Resolve.zip"; filename*=UTF-8''${encodeURIComponent(ticket.plan.project.title + ' - Resolve.zip')}`);
+    if (request.method === 'HEAD') return reply.send();
+    // Keep a pin for the actual transfer, even when its ticket expires midway.
+    for (const copy of ticket.copies.values()) playback.pin(copy.file);
+    let stream: Readable;
+    try {
+      stream = productionZip(ticket.plan, store, () => { assertDevice(ticket.deviceId); projectIdle(ticket.projectId); }, ticket.package);
+      monitorTransfer(stream, ticket.deviceId, () => projectIdle(ticket.projectId));
+    } catch (error) { for (const copy of ticket.copies.values()) playback.unpin(copy.file); throw error; }
+    let released = false;
+    const release = () => { if (!released) { released = true; for (const copy of ticket.copies.values()) playback.unpin(copy.file); } };
+    stream.once('end', release); stream.once('close', release);
+    return reply.send(stream);
+  } });
+
   app.addHook('preClose', async () => {
     closing = true;
     for (const stream of transfers) stream.destroy();
+    await resolveProbe.close();
     await playback.close();
   });
   app.addHook('onClose', async () => {
-    clearInterval(prune); playbackTickets.clear(); exportTickets.clear();
+    clearInterval(prune); playbackTickets.clear(); exportTickets.clear(); resolveTickets.clear();
   });
 }
 
@@ -213,7 +301,7 @@ async function sendVideo(playback: PlaybackFile, title: string, request: Fastify
   return reply.send(stream);
 }
 
-function productionZip(plan: ExportPlan, store: Store, valid: () => void): Readable {
+function productionZip(plan: ExportPlan, store: Store, valid: () => void, resolve?: ResolvePackage): Readable {
   const zip = new ZipFile();
   const output = zip.outputStream as Readable;
   const readers = new Set<Readable>();
@@ -228,6 +316,7 @@ function productionZip(plan: ExportPlan, store: Store, valid: () => void): Reada
     file: plan.files.find(file => file.type === 'take' && file.id === take.id)?.archivePath ?? null,
     ...(take.status === 'interrupted' ? { warning: 'Prise interrompue : fichier non validé, non inclus comme prise terminée.' } : {}) }));
   const markers = store.markers().filter(marker => plan.takes.some(take => take.id === marker.takeId));
+  const changes = store.sceneChanges().filter(change => change.projectId === plan.project.id);
   const csv = (value: string | number) => {
     let text = String(value);
     if (typeof value === 'string' && /^[=+\-@]/.test(text)) text = `'${text}`;
@@ -235,6 +324,8 @@ function productionZip(plan: ExportPlan, store: Store, valid: () => void): Reada
   };
   zip.addBuffer(json(project), 'project.json');
   zip.addBuffer(json({ markers }), 'markers.json');
+  zip.addBuffer(json({ changes }), 'scene-changes.json');
+  if (resolve) for (const [name, contents] of resolve.files) zip.addBuffer(contents, name);
   zip.addBuffer(Buffer.from(`take_id,take_title,offset_ms,label,created_at\r\n${markers.map(marker =>
     [marker.takeId, plan.takes.find(take => take.id === marker.takeId)?.title ?? '', marker.offsetMs, marker.label, marker.createdAt].map(csv).join(',')).join('\r\n')}\r\n`), 'markers.csv');
   zip.addBuffer(Buffer.from(`DOSSIER DE PRODUCTION NINO\n\nLes prises validées complètes sont dans takes/, dans leur format et qualité d’origine.\nLes médias associés sont dans media/. Aucun montage ni enregistrement n’a été remplacé.\nproject.json décrit la production ; markers.json et markers.csv contiennent les repères.\nmanifest.json liste les fichiers, leurs chemins relatifs et leurs empreintes SHA-256.\nLes prises interrompues y sont signalées et ne sont pas présentées comme terminées.\nLes copies temporaires de lecture navigateur ne sont pas incluses.\nLe dossier peut être déplacé sans dépendre des chemins du PC de la salle.\n`), 'README.txt');
@@ -268,7 +359,8 @@ function productionZip(plan: ExportPlan, store: Store, valid: () => void): Reada
       valid();
       callback(null, Readable.from(json({ schemaVersion: 1, exportedAt: new Date().toISOString(), projectId: plan.project.id,
         complete: plan.takes.every(take => take.status === 'completed'), filesVerified: true,
-        scope: 'completed_original_takes_and_linked_media', completedTakeCount: completedIds.size, takes,
+        scope: resolve ? 'resolve_timelines_original_takes_compatible_copies_and_linked_media' : 'completed_original_takes_and_linked_media', completedTakeCount: completedIds.size, takes,
+        ...(resolve ? { resolve: { isolatedCameras: false, sceneChanges: 'markers_only', timelines: resolve.timelines } } : {}),
         media: plan.assets.map(asset => ({ id: asset.id, title: asset.title, originalName: safeOriginalName(asset.originalName),
           kind: asset.kind, mimeType: asset.mimeType, sizeBytes: asset.sizeBytes, archivedAt: asset.archivedAt,
           file: plan.files.find(file => file.type === 'media' && file.id === asset.id)?.archivePath })),

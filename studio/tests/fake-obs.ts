@@ -57,7 +57,7 @@ export async function startFakeObs(options: FakeObsOptions = {}) {
     startTimers.add(timer);
   };
   const identifications: number[] = [];
-  const scenes = ['Podcast', 'Table ronde', 'PowerPoint', 'Plan large', 'Caméra 1'];
+  const scenes = ['Podcast', 'Table ronde', 'PowerPoint', 'Plan large', 'Caméra 1', 'Caméra 2'];
   const mutes = new Map([['Micro 1', false], ['Micro 2', false], ['HDMI', false]]);
   const mediaInputs = new Map<string, { kind: string; settings: Record<string, unknown>; state: string }>();
   const sceneItems = new Map<string, { sceneItemId: number; sourceName: string; sceneItemEnabled: boolean }[]>();

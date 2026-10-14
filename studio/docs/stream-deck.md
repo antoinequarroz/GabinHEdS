@@ -44,6 +44,8 @@ La réponse `AuthResult` contient `{ "token": "…", "device": { "id": "…", "n
 | Arrêter le retour vidéo | `{"action":"preview.stop"}` |
 | Démarrer le live | `{"action":"stream.start","projectId":"ID_DU_PROJET"}` |
 | Arrêter le live | `{"action":"stream.stop"}` |
+| Activer / reprendre l’automatique | `{"action":"auto.start","projectId":"ID_DU_PROJET"}` |
+| Revenir en manuel | `{"action":"auto.stop"}` |
 | Lancer une intro | `{"action":"media.play","assetId":"ID_DU_MEDIA","projectId":"ID_DU_PROJET","mode":"fullscreen"}` |
 | Afficher un logo | `{"action":"media.play","assetId":"ID_DU_MEDIA","projectId":"ID_DU_PROJET","mode":"overlay"}` |
 | Lancer un son | `{"action":"media.play","assetId":"ID_DU_MEDIA","projectId":"ID_DU_PROJET","mode":"audio"}` |
@@ -57,6 +59,8 @@ La réponse `AuthResult` contient `{ "token": "…", "device": { "id": "…", "n
 
 Les boutons live sont indépendants des boutons d’enregistrement : **Arrêter le live** conserve la prise locale et le retour vidéo. **Arrêter la prise** conserve la diffusion. **Arrêter le retour vidéo** est refusé tant qu’un live l’utilise. Le technicien configure le serveur et la clé de diffusion dans Nino ; aucun bouton ne doit contenir cette clé.
 
+Configurer d’abord les micros distincts, leurs plans et le plan large dans la production et la régie PC/iPad. L’automatique ne démarre ni prise ni direct. Une touche de sélection de plan ou un média plein écran suspend le mode ; appuyer explicitement sur la touche d’activation pour le reprendre. Révoquer l’appareil qui l’a activé suspend immédiatement l’automatique. Après redémarrage de Nino, les réglages sont conservés mais l’activation reste éteinte.
+
 ## Lire le retour réel du studio
 
 Créer une action GET `/api/state` avec le même en-tête Bearer. Elle renvoie `StudioState`, dont les informations utiles sont :
@@ -67,6 +71,8 @@ Créer une action GET `/api/state` avec le même en-tête Bearer. Elle renvoie `
 | `obs.recording` | Enregistrement confirmé par OBS |
 | `obs.paused` | Pause confirmée par OBS |
 | `obs.currentScene` | Scène réellement sélectionnée |
+| `autoDirection.enabled`, `autoDirection.status`, `autoDirection.message` | Activation et état de détection ; `waiting` indique une attente de signal valide |
+| `autoDirection.projectId`, `autoDirection.participantId` | Production pilotée et micro dominant confirmé |
 | `obs.timecode` | Compteur retourné par OBS |
 | `activeTake.projectId` | Projet de la prise en cours, si présent |
 | `liveProjectId` | Projet du direct en cours ; nul sans direct |
