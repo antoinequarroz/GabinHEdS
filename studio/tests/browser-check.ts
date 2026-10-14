@@ -84,10 +84,35 @@ async function untilState(predicate: (state: StudioState) => boolean, descriptio
   }
   throw new Error(`État non confirmé : ${description}`);
 }
+async function renderedLayout(page: any): Promise<void> {
+  const viewport = page.viewportSize();
+  await page.waitForFunction((expected: { width: number; height: number } | null) =>
+    document.readyState !== 'loading' && document.fonts.status === 'loaded'
+      && (!expected || (innerWidth === expected.width && innerHeight === expected.height)),
+  viewport, { timeout: 10_000, polling: 'raf' });
+  // On mobile WebKit a newly navigated document can report the previous
+  // viewport's scrollWidth before its first paint. Observe actual render frames.
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+}
 async function noOverflow(page: any, label: string): Promise<void> {
-  const dimensions = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));
-  assert(dimensions.scroll <= dimensions.width + 1, `${label}: ${dimensions.scroll}px pour ${dimensions.width}px`);
+  await renderedLayout(page);
+  await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth + 1,
+    null, { timeout: 5_000, polling: 'raf' }).catch(() => undefined);
+  const dimensions = await page.evaluate(() => ({
+    width: innerWidth, scroll: document.documentElement.scrollWidth,
+    ...(document.documentElement.scrollWidth > innerWidth + 1 ? {
+      overflowing: [...document.querySelectorAll<HTMLElement>('body *')].map(element => {
+        const rect = element.getBoundingClientRect();
+        return { tag: element.tagName, class: element.className, left: rect.left, right: rect.right, width: rect.width };
+      }).filter(rect => rect.right > innerWidth + 1).slice(0, 12),
+    } : {}),
+  }));
+  assert(dimensions.scroll <= dimensions.width + 1, `${label}: ${dimensions.scroll}px pour ${dimensions.width}px ${JSON.stringify(dimensions)}`);
   steps.push(`${label} : aucun débordement horizontal`);
+}
+async function proofScreenshot(page: any, filename: string): Promise<void> {
+  await renderedLayout(page);
+  await page.screenshot({ path: join(screenshotDir, filename), fullPage: true, animations: 'disabled', timeout: 45_000 });
 }
 async function decodedProgramme(page: any, label: string): Promise<void> {
   await page.locator('video').waitFor();
@@ -228,8 +253,8 @@ try {
   await noOverflow(ipad, 'Bibliothèque iPad');
   await mkdir(screenshotDir, { recursive: true });
   await pc.waitForFunction(() => [...document.querySelectorAll('.media-asset-card img')].filter(image => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0).length >= 2);
-  await pc.screenshot({ path: join(screenshotDir, 'nino-library-pc.png'), fullPage: true });
-  await ipad.screenshot({ path: join(screenshotDir, 'nino-library-ipad.png'), fullPage: true });
+  await proofScreenshot(pc, 'nino-library-pc.png');
+  await proofScreenshot(ipad, 'nino-library-ipad.png');
   steps.push('Bibliothèque : vrais imports MP4 sur PC et PNG sur iPad, métadonnées vérifiées et catalogue partagé');
 
   await pc.goto(`${baseUrl}/#project/${projectId}`);
@@ -326,8 +351,8 @@ try {
     (document.activeElement as HTMLElement | null)?.blur();
     window.scrollTo(0, 0);
   });
-  await pc.screenshot({ path: join(screenshotDir, 'gabin-studio-pc.png'), fullPage: true });
-  await ipad.screenshot({ path: join(screenshotDir, 'gabin-studio-ipad.png'), fullPage: true });
+  await proofScreenshot(pc, 'gabin-studio-pc.png');
+  await proofScreenshot(ipad, 'gabin-studio-ipad.png');
 
   await ipad.getByRole('button', { name: 'Terminer la prise', exact: true }).click();
   await ipad.getByRole('dialog').getByRole('button', { name: 'Terminer et conserver la prise', exact: true }).click();
@@ -363,8 +388,8 @@ try {
   await ipad.locator('.take-player video').evaluate((video: HTMLVideoElement) => { video.muted = true; return video.play(); });
   await ipad.waitForFunction(() => { const video = document.querySelector('.take-player video') as HTMLVideoElement | null; return video && video.videoWidth === 640 && video.currentTime > 0.2; });
   steps.push('Lecture des prises : original MKV converti/remuxé pour lecture MP4 décodée sur PC et iPad');
-  await pc.screenshot({ path: join(screenshotDir, 'nino-production-files-pc.png'), fullPage: true });
-  await ipad.screenshot({ path: join(screenshotDir, 'nino-production-files-ipad.png'), fullPage: true });
+  await proofScreenshot(pc, 'nino-production-files-pc.png');
+  await proofScreenshot(ipad, 'nino-production-files-ipad.png');
   if (process.env.GABIN_SKIP_DOWNLOAD !== '1') {
     const pendingArchive = pc.waitForEvent('download');
     await pc.getByRole('button', { name: 'Récupérer le dossier complet', exact: true }).click();
@@ -411,8 +436,12 @@ try {
   assert.match(await playlist.text(), /^#EXTM3U/);
   const anonymous = await fetch(`${baseUrl}/api/monitor/session`, { method: 'POST' });
   assert.equal(anonymous.status, 401, 'La session vidéo exige un appareil autorisé');
-  const revoked = await fetch(`${baseUrl}/api/devices/${deck.device.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
-  assert.equal(revoked.status, 204);
+  await pc.goto(`${baseUrl}/#devices`);
+  const deckRow = pc.locator('.device-row').filter({ hasText: 'Stream Deck de recette' });
+  await deckRow.getByRole('button', { name: 'Révoquer', exact: true }).click();
+  await pc.getByRole('dialog').getByRole('button', { name: 'Révoquer l’accès', exact: true }).click();
+  await pc.getByRole('dialog').waitFor({ state: 'hidden' });
+  assert.deepEqual(failedApi, [], 'La révocation depuis l’interface utilise une requête valide');
   const rejected = await fetch(`${baseUrl}/api/state`, { headers: { Authorization: `Bearer ${deck.token}` } });
   assert.equal(rejected.status, 401, 'La révocation du Stream Deck s’applique aux commandes et états');
   const rejectedHls = await fetch(`${baseUrl}${preview.url}`);
@@ -421,8 +450,8 @@ try {
   console.log(JSON.stringify({ passed: true, steps, pageErrors, failedApi, screenshots: [join(screenshotDir, 'gabin-studio-pc.png'), join(screenshotDir, 'gabin-studio-ipad.png')] }, null, 2));
 } catch (error) {
   await mkdir(screenshotDir, { recursive: true });
-  if (pc) await pc.screenshot({ path: join(screenshotDir, 'gabin-studio-failure-pc.png'), fullPage: true }).catch(() => undefined);
-  if (ipad) await ipad.screenshot({ path: join(screenshotDir, 'gabin-studio-failure-ipad.png'), fullPage: true }).catch(() => undefined);
+  if (pc) await pc.screenshot({ path: join(screenshotDir, 'gabin-studio-failure-pc.png'), fullPage: true, animations: 'disabled', timeout: 45_000 }).catch(() => undefined);
+  if (ipad) await ipad.screenshot({ path: join(screenshotDir, 'gabin-studio-failure-ipad.png'), fullPage: true, animations: 'disabled', timeout: 45_000 }).catch(() => undefined);
   const videoStates = await Promise.all([pc, ipad].map(page => page?.locator('video').evaluateAll((videos: HTMLVideoElement[]) => videos.map(video => ({
     readyState: video.readyState, width: video.videoWidth, height: video.videoHeight, time: video.currentTime,
     paused: video.paused, muted: video.muted, error: video.error?.code ?? null,

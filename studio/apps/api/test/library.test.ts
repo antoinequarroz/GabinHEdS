@@ -170,6 +170,34 @@ test('an operator-modified Nino source is never disabled or overwritten by a lat
   assert.equal((await client.call('GetInputSettings', { inputName })).inputSettings.file, userFile);
 });
 
+test('replaying an ended fullscreen clip retains its original return plan and refreshes the command snapshot', async t => {
+  const { app, headers, fixture, upload, videoBytes } = await setup(t, true);
+  const video = await upload(videoBytes, 'clip.mp4');
+  const control = (payload: object) => app.inject({ method: 'POST', url: '/api/control', headers, payload });
+  assert.equal((await control({ action: 'scene.set', sceneName: 'Caméra 1' })).statusCode, 200);
+  const first = await control({ action: 'media.play', assetId: video.id, mode: 'fullscreen' });
+  assert.equal(first.statusCode, 200, first.body);
+  assert.equal(first.json<StudioState>().mediaPlayback?.status, 'playing');
+  assert.equal(first.json<StudioState>().obs.currentScene, 'Nino · Médias', 'The command response already contains the confirmed programme scene');
+  fixture.finishMedia();
+  const ended = await app.inject({ method: 'POST', url: '/api/obs/connect', headers });
+  assert.equal(ended.json<StudioState>().mediaPlayback?.status, 'stopped');
+  assert.equal(ended.json<StudioState>().obs.currentScene, 'Nino · Médias');
+  const replay = await control({ action: 'media.play', assetId: video.id, mode: 'fullscreen' });
+  assert.equal(replay.statusCode, 200, replay.body);
+  assert.equal(replay.json<StudioState>().mediaPlayback?.status, 'playing');
+  assert.equal(replay.json<StudioState>().obs.currentScene, 'Nino · Médias');
+  const stopped = await control({ action: 'media.stop' });
+  assert.equal(stopped.statusCode, 200, stopped.body);
+  assert.equal(stopped.json<StudioState>().mediaPlayback?.status, 'stopped');
+  assert.equal(stopped.json<StudioState>().obs.currentScene, 'Caméra 1', 'Replay must not replace the return destination with Nino · Médias');
+  assert.equal((await control({ action: 'media.play', assetId: video.id, mode: 'fullscreen' })).statusCode, 200);
+  fixture.finishMedia();
+  assert.equal((await control({ action: 'scene.set', sceneName: 'Plan large' })).statusCode, 200);
+  assert.equal((await control({ action: 'media.play', assetId: video.id, mode: 'fullscreen' })).statusCode, 200);
+  assert.equal((await control({ action: 'media.stop' })).json<StudioState>().obs.currentScene, 'Plan large', 'A manually changed plan remains the next clip’s return destination');
+});
+
 test('OBS source and scene ownership reject collisions and modified private paths without replacing user sources', async t => {
   const ownerId = '01234567-0123-4123-8123-012345678901';
   const { app, headers, fixture, upload, imageBytes, dataDir } = await setup(t, true, ownerId);

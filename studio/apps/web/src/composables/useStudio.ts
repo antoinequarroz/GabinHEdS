@@ -45,7 +45,7 @@ async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   try {
     response = await fetch(`/api${path}`, {
       ...init, signal: abort.signal,
-      headers: { 'Content-Type': 'application/json', ...(token.value ? { Authorization: `Bearer ${token.value}` } : {}), ...init.headers },
+      headers: { ...(init.body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(token.value ? { Authorization: `Bearer ${token.value}` } : {}), ...init.headers },
     });
   } catch {
     live.value = false;

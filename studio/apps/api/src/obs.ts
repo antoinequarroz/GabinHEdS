@@ -329,7 +329,12 @@ export class RealObsGateway implements ObsGateway {
   async playMedia(options: ObsMediaOptions): Promise<MediaPlayback> {
     if (!this.state.connected || !path.isAbsolute(options.file) || /[\r\n\0]/.test(options.file)) throw new ObsMediaFailure('Reconnectez OBS avant de lancer ce média.');
     await this.refresh(true);
-    if (this.mediaSelection && this.mediaSelection.playback.status !== 'stopped') await this.mediaAction('stop');
+    if (this.mediaSelection && (this.mediaSelection.playback.status !== 'stopped'
+      || this.mediaSelection.mode === 'fullscreen' && this.state.currentScene === this.mediaSelection.sceneName)) {
+      // An ended clip may still leave the dedicated scene on programme. Restore
+      // its original plan before capturing the next clip's return destination.
+      await this.mediaAction('stop');
+    }
     const previousScene = this.state.currentScene;
     const sceneName = options.mode === 'fullscreen' ? 'Nino · Médias' : previousScene;
     if (!sceneName) throw new ObsMediaFailure('Choisissez d’abord un plan dans OBS.');
@@ -371,6 +376,8 @@ export class RealObsGateway implements ObsGateway {
       if (options.mode === 'fullscreen') await this.setScene(sceneName);
       if (options.kind !== 'image') await this.call('TriggerMediaInputAction', { inputName, mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_RESTART' });
       await this.confirmMedia(options.kind === 'image' ? 'shown' : 'playing');
+      const confirmed = await this.refresh(true);
+      if (!confirmed.connected || confirmed.error) throw new ObsMediaFailure('OBS ne confirme plus l’état du programme. Vérifiez le média sur le PC.');
       return this.getMediaPlayback()!;
     } catch (error) {
       this.mediaSelection.playback = { ...this.mediaSelection.playback, status: 'unknown', error: 'OBS n’a pas confirmé la lecture. Vérifiez le média sur le PC.' };
@@ -419,7 +426,11 @@ export class RealObsGateway implements ObsGateway {
       if (selected.mode === 'fullscreen' && scenes.currentProgramSceneName === selected.sceneName && selected.previousScene && selected.previousScene !== selected.sceneName
         && scenes.scenes.some(scene => scene.sceneName === selected.previousScene)) await this.setScene(selected.previousScene);
     }
-    try { await this.confirmMedia(action === 'pause' ? 'paused' : action === 'resume' ? 'playing' : 'stopped'); }
+    try {
+      await this.confirmMedia(action === 'pause' ? 'paused' : action === 'resume' ? 'playing' : 'stopped');
+      const confirmed = await this.refresh(true);
+      if (!confirmed.connected || confirmed.error) throw new ObsMediaFailure('OBS ne confirme plus l’état du programme. Vérifiez le média sur le PC.');
+    }
     catch (error) { selected.playback = { ...selected.playback, status: 'unknown', error: 'OBS n’a pas confirmé cette commande média.' }; throw error; }
     return this.getMediaPlayback()!;
   }

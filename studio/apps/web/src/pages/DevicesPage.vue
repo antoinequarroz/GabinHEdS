@@ -98,5 +98,5 @@ const expiry = (value: string) => new Intl.DateTimeFormat('fr-CH', { hour: '2-di
   </section>
 
   <p v-if="copied" class="banner" role="status">{{ copied }}</p>
-  <ConfirmDialog :open="!!revoke" title="Révoquer cet appareil ?" confirm-label="Révoquer l’accès" :busy="busy.revoke" dangerous @cancel="revoke = undefined" @confirm="confirmRevoke"><p>« {{ revoke?.name }} » ne pourra plus accéder au studio. Vous pourrez l’associer à nouveau si nécessaire.</p></ConfirmDialog>
+  <ConfirmDialog :open="!!revoke" title="Révoquer cet appareil ?" confirm-label="Révoquer l’accès" busy-label="Révocation de l’accès…" :busy="busy.revoke" dangerous @cancel="revoke = undefined" @confirm="confirmRevoke"><p>« {{ revoke?.name }} » ne pourra plus accéder au studio. Vous pourrez l’associer à nouveau si nécessaire.</p></ConfirmDialog>
 </template>
