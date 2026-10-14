@@ -8,9 +8,11 @@ import ConfirmDialog from '../components/ConfirmDialog.vue';
 import ProgramPreview from '../components/ProgramPreview.vue';
 import ScenePreview from '../components/ScenePreview.vue';
 import AudioMeter from '../components/AudioMeter.vue';
+import ProjectMedia from '../components/ProjectMedia.vue';
+import TakePlayer from '../components/TakePlayer.vue';
 const props = defineProps<{ project: Project }>();
 const emit = defineEmits<{ navigate: [path: string] }>();
-const { state, live, canEdit, busy, preparation, control, downloadTake } = useStudio();
+const { state, live, canEdit, busy, preparation, control, downloadTake, exportProject } = useStudio();
 const step = ref<'prepare' | 'record' | 'takes'>('prepare');
 const editing = ref(false);
 const checks = ref<Preparation>();
@@ -26,6 +28,7 @@ const relayControllable = computed(() => live.value && canEdit.value && !busy.va
 const media = computed(() => state.value?.media);
 const liveActive = computed(() => ['starting', 'live', 'stopping'].includes(media.value?.liveStatus ?? 'idle'));
 const ownLive = computed(() => liveActive.value && state.value?.liveProjectId === props.project.id);
+const exportBlocked = computed(() => !!ownActiveTake.value || state.value?.liveProjectId === props.project.id);
 const otherLiveId = computed(() => liveActive.value && state.value?.liveProjectId && state.value.liveProjectId !== props.project.id ? state.value.liveProjectId : null);
 const otherLiveProject = computed(() => state.value?.projects.find(project => project.id === otherLiveId.value));
 const canStart = computed(() => controllable.value && checks.value?.canStart && !obs.value?.recording && (!liveActive.value || ownLive.value));
@@ -116,6 +119,7 @@ function bytes(value: number | null): string { return value === null ? 'Non mesu
           <div class="prep-storage"><Icon name="projects" /><div><h2>Cette prise sera enregistrée ici</h2><div class="file-path">{{ checks?.recordingDirectory || 'Dossier à vérifier' }}</div></div><span class="prep-storage-space"><strong>{{ bytes(checks?.freeBytes ?? null) }}</strong><span>disponibles</span></span></div>
           <div class="prep-launch"><p>{{ checks?.canStart ? 'Vérifiez le cadrage et le son dans la régie avant de démarrer.' : 'Vous pouvez ouvrir la régie pour vérifier les retours et la connexion.' }}</p><button class="button primary" @click="step = 'record'">Ouvrir la régie<Icon name="arrow" /></button></div>
         </section>
+        <ProjectMedia :project-id="project.id" @library="emit('navigate', 'library')" />
       </div>
 
       <template v-else-if="step === 'record'">
@@ -157,6 +161,7 @@ function bytes(value: number | null): string { return value === null ? 'Non mesu
               </div>
               <details class="regie-help"><summary>Réglage des micros</summary><p>Les niveaux sont reçus d’OBS. Le gain se règle dans OBS.</p></details>
             </section>
+            <ProjectMedia :project-id="project.id" mode="regie" @prepare="step = 'prepare'" @library="emit('navigate', 'library')" />
           </aside>
         </div>
         <details v-if="ownActiveTake" class="regie-markers" open>
@@ -174,13 +179,15 @@ function bytes(value: number | null): string { return value === null ? 'Non mesu
       </template>
 
       <section v-else class="takes-library">
-        <header class="takes-heading"><div><h2>Les prises de cette production</h2><p>Les fichiers restent sur le PC. Téléchargez une copie complète sur cet appareil.</p></div><button v-if="canEdit" class="button" :disabled="!!obs?.recording" @click="step = 'prepare'"><Icon name="plus" />Nouvelle prise</button></header>
+        <header class="takes-heading"><div><h2>Les prises de cette production</h2><p>Relisez les vidéos ici ou récupérez une copie complète sur cet appareil.</p></div><div class="takes-heading-actions"><button v-if="takes.some(take => take.status === 'completed' && take.outputPath)" class="button primary" :disabled="busy[`export:${project.id}`] || exportBlocked" @click="exportProject(project.id)"><Icon name="download" />{{ busy[`export:${project.id}`] ? 'Préparation du dossier…' : 'Récupérer le dossier complet' }}</button><button v-if="canEdit" class="button" :disabled="!!obs?.recording" @click="step = 'prepare'"><Icon name="plus" />Nouvelle prise</button></div></header>
+        <p v-if="exportBlocked" class="hint">Terminez la prise et le direct avant de récupérer le dossier.</p>
+        <p v-if="takes.some(take => take.status === 'completed' && take.outputPath)" class="takes-export-note">Le dossier ZIP rassemble les vidéos originales terminées, les médias associés et les repères de montage. La préparation peut prendre du temps sur le PC.</p>
         <div v-if="!takes.length" class="takes-empty"><Icon name="movie" /><h3>Aucune prise enregistrée</h3><p>Préparez la salle, puis démarrez votre premier enregistrement.</p><button class="button primary" @click="step = 'prepare'">Configurer la première prise<Icon name="arrow" /></button></div>
         <template v-else>
           <div class="takes-list-heading" aria-hidden="true"><span>Prise</span><span>Fichier et informations</span><span>Récupération</span></div>
           <article v-for="take in takes" :key="take.id" class="takes-row">
             <div class="takes-index"><Icon name="movie" /><span>{{ String(take.sequence).padStart(2, '0') }}</span><small>PRISE</small></div>
-            <div class="takes-details"><div class="takes-title"><h3>{{ take.title }}</h3><span class="badge" :class="take.status === 'completed' ? '' : take.status === 'interrupted' ? 'warning' : 'recording'">{{ take.status === 'completed' ? 'Terminée' : take.status === 'interrupted' ? 'Interrompue' : take.status === 'paused' ? 'En pause' : 'En cours' }}</span></div><div class="takes-metadata"><span>{{ timestamp(take.startedAt) }}</span><span>{{ duration(take.durationMs) }}</span><span><Icon name="mark" />{{ state?.markers.filter(marker => marker.takeId === take.id).length ?? 0 }} repère(s) de montage</span></div><div class="file-path">{{ take.outputPath || (take.status === 'recording' || take.status === 'paused' ? 'Le chemin du fichier sera confirmé par OBS à la fin de la prise.' : 'Aucun fichier final confirmé. Vérifiez le dossier d’enregistrement dans OBS.') }}</div></div>
+            <div class="takes-details"><div class="takes-title"><h3>{{ take.title }}</h3><span class="badge" :class="take.status === 'completed' ? '' : take.status === 'interrupted' ? 'warning' : 'recording'">{{ take.status === 'completed' ? 'Terminée' : take.status === 'interrupted' ? 'Interrompue' : take.status === 'paused' ? 'En pause' : 'En cours' }}</span></div><div class="takes-metadata"><span>{{ timestamp(take.startedAt) }}</span><span>{{ duration(take.durationMs) }}</span><span><Icon name="mark" />{{ state?.markers.filter(marker => marker.takeId === take.id).length ?? 0 }} repère(s) de montage</span></div><div class="file-path">{{ take.outputPath || (take.status === 'recording' || take.status === 'paused' ? 'Le chemin du fichier sera confirmé par OBS à la fin de la prise.' : 'Aucun fichier final confirmé. Vérifiez le dossier d’enregistrement dans OBS.') }}</div><TakePlayer v-if="take.status === 'completed' && take.outputPath" :take="take" /></div>
             <div class="takes-delivery"><button v-if="take.status === 'completed' && take.outputPath" class="button primary" :disabled="busy[`download:${take.id}`]" @click="downloadTake(take.id)"><Icon name="download" />{{ busy[`download:${take.id}`] ? 'Préparation du téléchargement…' : 'Télécharger le fichier' }}</button><span v-else class="hint">{{ take.status === 'recording' || take.status === 'paused' ? 'Fichier en cours d’écriture' : 'Fichier final à vérifier' }}</span><small v-if="take.status === 'completed' && take.outputPath">Vidéo originale complète</small></div>
           </article>
         </template>

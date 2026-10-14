@@ -3,11 +3,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { access, mkdir, open, statfs, unlink } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import type { AudioFrame, ControlCommand, Marker, ObsState, Preparation, PreparationCheck, Project, ProjectInput, RoomConfigInput, StudioState, Take } from '@gabin/shared';
-import { ObsFeedConflict, type ObsEvent, type ObsGateway, timecodeMs } from './obs.js';
+import type { AudioFrame, ControlCommand, Marker, MediaPlayback, ObsState, Preparation, PreparationCheck, Project, ProjectInput, RoomConfigInput, StudioState, Take } from '@gabin/shared';
+import { ObsFeedConflict, ObsMediaFailure, type ObsEvent, type ObsGateway, timecodeMs } from './obs.js';
 import { emptyMediaState, type MediaGateway } from './media.js';
 import { Store } from './store.js';
 import { ApiFailure } from './validation.js';
+import { libraryFile } from './library.js';
 
 const slug = (name: string): string => name.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 70) || 'production';
 
@@ -20,6 +21,7 @@ export class Studio {
   private readonly audioListeners = new Set<(frame: AudioFrame) => void>();
   private liveProjectId: string | null = null;
   private closing = false;
+  private mediaPlayback: MediaPlayback | null = null;
 
   constructor(readonly store: Store, readonly obs: ObsGateway, readonly media?: MediaGateway) {
     if (!store.room()) store.saveRoom({ name: 'Studio Nino', obsUrl: 'ws://127.0.0.1:4455', obsPassword: '', obsPasswordConfigured: false,
@@ -85,8 +87,10 @@ export class Studio {
   }
   state(): StudioState {
     return { revision: this.revision, room: this.store.publicRoom(), obs: this.obs.getState(), media: this.media?.getState() ?? emptyMediaState(), liveProjectId: this.liveProjectId, projects: this.store.projects(),
-      takes: this.store.takes(), activeTake: this.activeTake(), markers: this.store.markers() };
+      takes: this.store.takes(), activeTake: this.activeTake(), markers: this.store.markers(), library: this.store.library(),
+      projectMedia: this.store.projectMedia(), mediaPlayback: this.obs.getMediaPlayback?.() ?? this.mediaPlayback };
   }
+  libraryChanged(): StudioState { return this.changed(); }
   private changed(): StudioState {
     this.revision++;
     const state = this.state();
@@ -212,6 +216,7 @@ export class Studio {
     } else if (event.type === 'disconnected') {
       const take = this.activeTake();
       if (take && take.id === takeIdAtReception) this.interrupt(take);
+      if (this.mediaPlayback) this.mediaPlayback = { ...this.mediaPlayback, status: 'unknown', error: 'OBS est déconnecté. Vérifiez la lecture sur le PC.' };
     } else if (event.type === 'state') {
       // Events may have waited behind a command. Read current state rather than
       // applying an old pre-start/pre-pause snapshot to a newly saved take.
@@ -294,6 +299,38 @@ export class Studio {
     if (!before.connected || before.error) throw new ApiFailure(409, 'Reconnectez OBS pour vérifier l’état avant une commande.', 'OBS_UNAVAILABLE');
     const current = this.activeTake();
     switch (command.action) {
+      case 'media.play': {
+        if (!this.obs.playMedia) throw new ApiFailure(503, 'Cet adaptateur OBS ne permet pas encore de piloter les médias.', 'MEDIA_CONTROL_UNAVAILABLE');
+        const projectId = command.projectId ?? current?.projectId ?? this.liveProjectId;
+        if (projectId) {
+          const project = this.project(projectId);
+          if (project.status === 'archived') throw new ApiFailure(409, 'Restaurez la production avant de la piloter.', 'PROJECT_ARCHIVED');
+          if (!this.store.projectMedia()[projectId]?.some(link => link.assetId === command.assetId)) throw new ApiFailure(409, 'Associez ce média à la production avant de le diffuser.', 'MEDIA_NOT_LINKED');
+        }
+        if (current && projectId !== current.projectId || this.liveActive() && projectId !== this.liveProjectId
+          || before.recording && !current) throw new ApiFailure(409, 'La production active doit être vérifiée avant de changer son programme.', 'PROJECT_CONFLICT');
+        const { asset, file } = await libraryFile(this.store, command.assetId);
+        if (asset.archivedAt) throw new ApiFailure(409, 'Restaurez ce média avant de le diffuser.', 'MEDIA_ARCHIVED');
+        if (asset.kind === 'document') throw new ApiFailure(400, 'Préparez le PDF ou le PowerPoint comme source dans OBS. Ce document peut être conservé et récupéré avec la production.', 'MEDIA_DOCUMENT_ONLY');
+        const mode = command.mode ?? (asset.kind === 'audio' ? 'audio' : 'fullscreen');
+        if (asset.kind === 'audio' && mode !== 'audio' || asset.kind !== 'audio' && mode === 'audio') throw new ApiFailure(400, 'Le mode choisi ne correspond pas à ce média.', 'MEDIA_MODE_INVALID');
+        let ownerId = this.store.setting<string>('libraryOwnerId');
+        if (!ownerId) { ownerId = randomUUID(); this.store.setSetting('libraryOwnerId', ownerId); }
+        const ownedFiles = Object.fromEntries(this.store.list<{ id: string; fileName: string }>('mediaAsset')
+          .filter(record => record.fileName.startsWith(`${record.id}.`) && path.basename(record.fileName) === record.fileName)
+          .map(record => [record.id, path.join(path.dirname(file), record.fileName)]));
+        try { this.mediaPlayback = await this.obs.playMedia({ assetId: asset.id, kind: asset.kind, file, mode, ownerId, ownedFiles }); }
+        catch (error) { this.mediaPlayback = this.obs.getMediaPlayback?.() ?? { assetId: asset.id, status: 'unknown', mode, sceneName: null, error: 'OBS n’a pas confirmé la lecture.' }; this.changed();
+          throw new ApiFailure(409, error instanceof ObsMediaFailure ? error.message : 'OBS n’a pas confirmé la lecture. Vérifiez sa source sur le PC.', 'MEDIA_OBS_FAILED'); }
+        break;
+      }
+      case 'media.pause': case 'media.resume': case 'media.stop': {
+        if (!this.obs.mediaAction) throw new ApiFailure(503, 'Cet adaptateur OBS ne permet pas de piloter les médias.', 'MEDIA_CONTROL_UNAVAILABLE');
+        try { this.mediaPlayback = await this.obs.mediaAction(command.action === 'media.pause' ? 'pause' : command.action === 'media.resume' ? 'resume' : 'stop'); }
+        catch (error) { this.mediaPlayback = this.obs.getMediaPlayback?.() ?? this.mediaPlayback; this.changed();
+          throw new ApiFailure(409, error instanceof ObsMediaFailure ? error.message : 'OBS n’a pas confirmé cette commande média. Vérifiez sa source sur le PC.', 'MEDIA_OBS_FAILED'); }
+        break;
+      }
       case 'preview.start': {
         await this.startPreview();
         break;

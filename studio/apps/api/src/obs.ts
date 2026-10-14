@@ -1,5 +1,6 @@
 import OBSWebSocket, { EventSubscription, type OBSRequestTypes, type OBSResponseTypes } from 'obs-websocket-js/json';
-import type { AudioFrame, ObsState, SceneThumbnail } from '@gabin/shared';
+import path from 'node:path';
+import type { AudioFrame, MediaKind, MediaMode, MediaPlayback, ObsState, SceneThumbnail } from '@gabin/shared';
 
 export type ObsEvent =
   | { type: 'state'; state: ObsState }
@@ -7,6 +8,8 @@ export type ObsEvent =
   | { type: 'audio'; frame: AudioFrame }
   | { type: 'disconnected' };
 export class ObsFeedConflict extends Error {}
+export class ObsMediaFailure extends Error {}
+export interface ObsMediaOptions { assetId: string; ownerId: string; kind: Exclude<MediaKind, 'document'>; file: string; mode: MediaMode; ownedFiles?: Record<string, string> }
 
 /** The real adapter and tests share this interface. No command assumes success. */
 export interface ObsGateway {
@@ -25,6 +28,9 @@ export interface ObsGateway {
   configureLocalFeed(settings: { server: string; key: string }): Promise<void>;
   startStream(): Promise<void>;
   stopStream(): Promise<void>;
+  playMedia?(options: ObsMediaOptions): Promise<MediaPlayback>;
+  mediaAction?(action: 'pause' | 'resume' | 'stop'): Promise<MediaPlayback>;
+  getMediaPlayback?(): MediaPlayback | null;
   subscribe(listener: (event: ObsEvent) => void): () => void;
 }
 
@@ -52,11 +58,14 @@ export class RealObsGateway implements ObsGateway {
   private readonly thumbnailRequests = new Map<string, Promise<SceneThumbnail>>();
   private thumbnailActive = 0;
   private readonly thumbnailWaiting = new Set<() => void>();
+  private mediaSelection: (ObsMediaOptions & { inputName: string; sceneName: string; sceneItemId: number; previousScene: string | null; playback: MediaPlayback }) | null = null;
+  private readonly createdMediaScenes = new Set<string>();
 
   constructor() {
     this.client.on('ConnectionClosed', () => {
       this.connectionEpoch++;
       this.stopPolling();
+      this.createdMediaScenes.clear();
       // Preserve the last known recording fields. Disconnected does NOT mean stopped.
       this.state = { ...this.state, connected: false, connecting: false, error: 'Connexion OBS interrompue. État de l’enregistrement à vérifier dans OBS.' };
       this.emit({ type: 'disconnected' });
@@ -85,6 +94,10 @@ export class RealObsGateway implements ObsGateway {
   }
 
   getState(): ObsState { return structuredClone(this.state); }
+  getMediaPlayback(): MediaPlayback | null {
+    if (!this.mediaSelection) return null;
+    return structuredClone(this.state.connected ? this.mediaSelection.playback : { ...this.mediaSelection.playback, status: 'unknown', error: 'Connexion OBS interrompue. Vérifiez le média sur le PC.' });
+  }
   subscribe(listener: (event: ObsEvent) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -137,6 +150,7 @@ export class RealObsGateway implements ObsGateway {
   async disconnect(): Promise<void> {
     this.connectionEpoch++;
     this.stopPolling();
+    this.createdMediaScenes.clear();
     await this.bounded(this.client.disconnect());
     this.state = { ...this.state, connected: false, connecting: false, error: null };
     this.emit({ type: 'state', state: this.getState() });
@@ -231,6 +245,9 @@ export class RealObsGateway implements ObsGateway {
         timecode: record.outputTimecode, outputBytes: record.outputBytes, recordingDirectory: directory.recordDirectory,
         streaming: stream.outputActive, streamReconnecting: stream.outputReconnecting,
         streamTimecode: stream.outputTimecode, streamOutputBytes: stream.outputBytes };
+      if (this.mediaSelection) await this.observeMedia().catch(() => {
+        if (this.mediaSelection) this.mediaSelection.playback = { ...this.mediaSelection.playback, status: 'unknown', error: 'OBS ne confirme plus l’état du média. Vérifiez sa source.' };
+      });
       this.emit({ type: 'state', state: this.getState() });
       return this.getState();
     } catch {
@@ -265,6 +282,158 @@ export class RealObsGateway implements ObsGateway {
   }
   async startStream(): Promise<void> { await this.call('StartStream'); }
   async stopStream(): Promise<void> { await this.call('StopStream'); }
+
+  private mediaInputName(options: Pick<ObsMediaOptions, 'ownerId' | 'assetId'>): string { return `Nino · ${options.ownerId.slice(0, 8)} · ${options.assetId}`; }
+  private async assertMediaOwnership(options: ObsMediaOptions, inputName: string): Promise<OBSResponseTypes['GetInputSettings']> {
+    const result = await this.call('GetInputSettings', { inputName });
+    const expectedKind = options.kind === 'image' ? 'image_source' : 'ffmpeg_source';
+    const filename = options.kind === 'image' ? result.inputSettings.file : result.inputSettings.local_file;
+    if (result.inputKind !== expectedKind || result.inputSettings.nino_owner !== options.ownerId || result.inputSettings.nino_asset !== options.assetId
+      || filename !== options.file || options.kind !== 'image' && result.inputSettings.is_local_file !== true) throw new ObsMediaFailure('Cette source OBS a été modifiée ou appartient à une autre configuration. Nino ne la remplacera pas.');
+    return result;
+  }
+  private settingsOwned(options: ObsMediaOptions, inputName: string, settings: OBSResponseTypes['GetInputSettings']): boolean {
+    const assetId = settings.inputSettings.nino_asset;
+    if (typeof assetId !== 'string' || settings.inputSettings.nino_owner !== options.ownerId || inputName !== this.mediaInputName({ ownerId: options.ownerId, assetId })) return false;
+    const expectedFile = assetId === options.assetId ? options.file : options.ownedFiles?.[assetId];
+    return !!expectedFile && (settings.inputKind === 'image_source' && settings.inputSettings.file === expectedFile
+      || settings.inputKind === 'ffmpeg_source' && settings.inputSettings.is_local_file === true && settings.inputSettings.local_file === expectedFile);
+  }
+  private async ownedScene(sceneName: string, options: ObsMediaOptions): Promise<void> {
+    const { sceneItems } = await this.call('GetSceneItemList', { sceneName });
+    if (!sceneItems.length && this.createdMediaScenes.has(sceneName)) return;
+    if (!sceneItems.length) throw new ObsMediaFailure('La scène « Nino · Médias » existe déjà sans source Nino identifiable. Renommez-la dans OBS pour préserver sa configuration.');
+    for (const item of sceneItems) {
+      const inputName = String(item.sourceName);
+      const settings = await this.call('GetInputSettings', { inputName }).catch(() => null);
+      if (!settings || !this.settingsOwned(options, inputName, settings)) throw new ObsMediaFailure('La scène « Nino · Médias » contient une source étrangère ou modifiée. Nino ne modifiera pas cette scène.');
+    }
+  }
+  private async disableOwnedMedia(options: ObsMediaOptions): Promise<void> {
+    const prefix = `Nino · ${options.ownerId.slice(0, 8)} · `;
+    const candidates = new Set(this.state.inputs.filter(input => input.name.startsWith(prefix)).map(input => input.name));
+    if (!candidates.size) return;
+    const items: { sceneName: string; sceneItemId: number }[] = [];
+    for (const sceneName of this.state.scenes) {
+      const { sceneItems } = await this.call('GetSceneItemList', { sceneName });
+      for (const item of sceneItems) {
+        const inputName = String(item.sourceName);
+        if (!candidates.has(inputName)) continue;
+        const settings = await this.call('GetInputSettings', { inputName });
+        if (!this.settingsOwned(options, inputName, settings)) throw new ObsMediaFailure('Une ancienne source média Nino a été modifiée dans OBS. Vérifiez-la avant d’en lancer une nouvelle.');
+        items.push({ sceneName, sceneItemId: Number(item.sceneItemId) });
+      }
+    }
+    for (const item of items) await this.call('SetSceneItemEnabled', { ...item, sceneItemEnabled: false });
+  }
+  async playMedia(options: ObsMediaOptions): Promise<MediaPlayback> {
+    if (!this.state.connected || !path.isAbsolute(options.file) || /[\r\n\0]/.test(options.file)) throw new ObsMediaFailure('Reconnectez OBS avant de lancer ce média.');
+    await this.refresh(true);
+    if (this.mediaSelection && (this.mediaSelection.playback.status !== 'stopped'
+      || this.mediaSelection.mode === 'fullscreen' && this.state.currentScene === this.mediaSelection.sceneName)) {
+      // An ended clip may still leave the dedicated scene on programme. Restore
+      // its original plan before capturing the next clip's return destination.
+      await this.mediaAction('stop');
+    }
+    const previousScene = this.state.currentScene;
+    const sceneName = options.mode === 'fullscreen' ? 'Nino · Médias' : previousScene;
+    if (!sceneName) throw new ObsMediaFailure('Choisissez d’abord un plan dans OBS.');
+    if (options.mode === 'fullscreen') {
+      if (this.state.scenes.includes(sceneName)) await this.ownedScene(sceneName, options);
+      else { await this.call('CreateScene', { sceneName }); this.createdMediaScenes.add(sceneName); }
+    }
+    const inputName = this.mediaInputName(options);
+    const inputKind = options.kind === 'image' ? 'image_source' : 'ffmpeg_source';
+    const inputSettings: OBSRequestTypes['SetInputSettings']['inputSettings'] = options.kind === 'image' ? { file: options.file, nino_owner: options.ownerId, nino_asset: options.assetId }
+      : { is_local_file: true, local_file: options.file, looping: false, restart_on_activate: false, clear_on_media_end: true, close_when_inactive: true, nino_owner: options.ownerId, nino_asset: options.assetId };
+    let sceneItemId: number;
+    if (this.state.inputs.some(input => input.name === inputName)) {
+      await this.assertMediaOwnership(options, inputName);
+      await this.call('SetInputSettings', { inputName, inputSettings, overlay: false });
+      const { sceneItems } = await this.call('GetSceneItemList', { sceneName });
+      const item = sceneItems.find(item => item.sourceName === inputName);
+      sceneItemId = item ? Number(item.sceneItemId) : (await this.call('CreateSceneItem', { sceneName, sourceName: inputName, sceneItemEnabled: false })).sceneItemId;
+    } else {
+      sceneItemId = (await this.call('CreateInput', { sceneName, inputName, inputKind, inputSettings, sceneItemEnabled: false })).sceneItemId;
+    }
+    // Do not touch camera/microphone sources, including sources whose names only
+    // resemble Nino. Owned local sources are disabled before the next one opens.
+    await this.disableOwnedMedia(options);
+    await this.assertMediaOwnership(options, inputName);
+    this.mediaSelection = { ...options, inputName, sceneName, sceneItemId, previousScene,
+      playback: { assetId: options.assetId, status: 'unknown', mode: options.mode, sceneName, error: 'En attente de confirmation OBS.' } };
+    try {
+      if (options.kind !== 'audio') {
+        const video = await this.call('GetVideoSettings');
+        const overlay = options.mode === 'overlay';
+        await this.call('SetSceneItemTransform', { sceneName, sceneItemId, sceneItemTransform: {
+          positionX: overlay ? Math.max(0, video.baseWidth * .75 - 24) : 0,
+          positionY: overlay ? Math.max(0, video.baseHeight * .75 - 24) : 0,
+          boundsType: 'OBS_BOUNDS_SCALE_INNER', boundsWidth: video.baseWidth * (overlay ? .25 : 1), boundsHeight: video.baseHeight * (overlay ? .25 : 1), alignment: 5, boundsAlignment: 0,
+        } });
+      }
+      await this.call('SetSceneItemEnabled', { sceneName, sceneItemId, sceneItemEnabled: true });
+      if (options.mode === 'fullscreen') await this.setScene(sceneName);
+      if (options.kind !== 'image') await this.call('TriggerMediaInputAction', { inputName, mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_RESTART' });
+      await this.confirmMedia(options.kind === 'image' ? 'shown' : 'playing');
+      const confirmed = await this.refresh(true);
+      if (!confirmed.connected || confirmed.error) throw new ObsMediaFailure('OBS ne confirme plus l’état du programme. Vérifiez le média sur le PC.');
+      return this.getMediaPlayback()!;
+    } catch (error) {
+      this.mediaSelection.playback = { ...this.mediaSelection.playback, status: 'unknown', error: 'OBS n’a pas confirmé la lecture. Vérifiez le média sur le PC.' };
+      throw error;
+    }
+  }
+  private async observeMedia(): Promise<MediaPlayback> {
+    const selected = this.mediaSelection;
+    if (!selected || !this.state.connected) throw new ObsMediaFailure('Aucun média Nino confirmé dans OBS.');
+    await this.assertMediaOwnership(selected, selected.inputName);
+    const enabled = await this.call('GetSceneItemEnabled', { sceneName: selected.sceneName, sceneItemId: selected.sceneItemId });
+    let status: MediaPlayback['status'];
+    if (selected.kind === 'image') status = enabled.sceneItemEnabled ? 'shown' : 'stopped';
+    else {
+      const observation = await this.call('GetMediaInputStatus', { inputName: selected.inputName });
+      status = observation.mediaState === 'OBS_MEDIA_STATE_PLAYING' ? 'playing' : observation.mediaState === 'OBS_MEDIA_STATE_PAUSED' ? 'paused'
+        : ['OBS_MEDIA_STATE_STOPPED', 'OBS_MEDIA_STATE_ENDED', 'OBS_MEDIA_STATE_NONE'].includes(observation.mediaState) ? 'stopped' : 'unknown';
+      if (!enabled.sceneItemEnabled && status !== 'stopped') status = 'unknown';
+    }
+    const scenes = await this.call('GetSceneList');
+    const sceneChanged = enabled.sceneItemEnabled && scenes.currentProgramSceneName !== selected.sceneName && status !== 'stopped';
+    if (sceneChanged) status = 'unknown';
+    selected.playback = { ...selected.playback, status, error: sceneChanged ? 'Le plan programme a changé. Ce média n’est plus confirmé à l’écran.' : status === 'unknown' ? 'OBS prépare le média ou ne confirme plus sa lecture.' : null };
+    return selected.playback;
+  }
+  private async confirmMedia(expected: MediaPlayback['status']): Promise<void> {
+    const deadline = Date.now() + 5000;
+    while (true) {
+      const result = await this.observeMedia();
+      if (result.status === expected) return;
+      if (Date.now() >= deadline) throw new ObsMediaFailure('OBS n’a pas confirmé l’état demandé du média. Vérifiez sa source avant de recommencer.');
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+  async mediaAction(action: 'pause' | 'resume' | 'stop'): Promise<MediaPlayback> {
+    const selected = this.mediaSelection;
+    if (!selected || !this.state.connected) throw new ObsMediaFailure('Aucun média Nino actif ou OBS déconnecté.');
+    if (selected.kind === 'image' && action !== 'stop') throw new ObsMediaFailure('Une image reste affichée jusqu’à son arrêt ; elle ne se met pas en pause.');
+    await this.assertMediaOwnership(selected, selected.inputName);
+    if (selected.kind !== 'image') await this.call('TriggerMediaInputAction', { inputName: selected.inputName,
+      mediaAction: action === 'pause' ? 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_PAUSE' : action === 'resume' ? 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_PLAY' : 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP' });
+    if (action === 'stop') {
+      await this.call('SetSceneItemEnabled', { sceneName: selected.sceneName, sceneItemId: selected.sceneItemId, sceneItemEnabled: false });
+      // If an operator has chosen another plan, never force them back.
+      const scenes = await this.call('GetSceneList');
+      if (selected.mode === 'fullscreen' && scenes.currentProgramSceneName === selected.sceneName && selected.previousScene && selected.previousScene !== selected.sceneName
+        && scenes.scenes.some(scene => scene.sceneName === selected.previousScene)) await this.setScene(selected.previousScene);
+    }
+    try {
+      await this.confirmMedia(action === 'pause' ? 'paused' : action === 'resume' ? 'playing' : 'stopped');
+      const confirmed = await this.refresh(true);
+      if (!confirmed.connected || confirmed.error) throw new ObsMediaFailure('OBS ne confirme plus l’état du programme. Vérifiez le média sur le PC.');
+    }
+    catch (error) { selected.playback = { ...selected.playback, status: 'unknown', error: 'OBS n’a pas confirmé cette commande média.' }; throw error; }
+    return this.getMediaPlayback()!;
+  }
 }
 
 /** OBS sends post-fader magnitude and peak as linear amplitude per channel. */

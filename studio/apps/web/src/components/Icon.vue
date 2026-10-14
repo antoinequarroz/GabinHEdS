@@ -2,6 +2,15 @@
 defineProps<{ name: string }>();
 const paths: Record<string, string> = {
   projects: 'M3 7h7l2 2h9v11H3z M3 7V4h7l2 3',
+  library: 'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',
+  image: 'M3 3h18v18H3z M3 17l5-5 4 4 4-7 5 8 M7 7h.01',
+  audio: 'M4 9v6 M8 5v14 M12 2v20 M16 6v12 M20 9v6',
+  document: 'M5 2h9l5 5v15H5z M14 2v5h5 M9 12h6 M9 16h6',
+  upload: 'M12 16V3 M7 8l5-5 5 5 M4 15v6h16v-6',
+  archive: 'M3 3h18v5H3z M5 8v13h14V8 M10 12h4',
+  restore: 'M3 11a9 9 0 1 1 2 7 M3 4v7h7 M12 7v5l3 2',
+  up: 'M5 15l7-7 7 7',
+  down: 'M5 9l7 7 7-7',
   plus: 'M12 5v14 M5 12h14',
   room: 'M4 21V3h16v18 M8 21v-4h8v4 M8 7h2 M14 7h2 M8 11h2 M14 11h2',
   devices: 'M5 3h14v18H5z M11 18h2',

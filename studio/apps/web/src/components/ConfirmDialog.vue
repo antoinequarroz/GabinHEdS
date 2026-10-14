@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue';
-const props = defineProps<{ open: boolean; title: string; confirmLabel: string; busy?: boolean; dangerous?: boolean }>();
+const props = withDefaults(defineProps<{ open: boolean; title: string; confirmLabel: string; busy?: boolean; busyLabel?: string; dangerous?: boolean }>(), { busyLabel: 'Confirmation par OBS…' });
 const emit = defineEmits<{ confirm: []; cancel: [] }>();
 const dialog = ref<HTMLDialogElement | null>(null);
 watch(() => props.open, async open => {
@@ -17,7 +17,7 @@ watch(() => props.open, async open => {
       <div class="dialog-copy"><slot /></div>
       <div class="actions end">
         <button class="button" :disabled="busy" autofocus @click="emit('cancel')">Annuler</button>
-        <button class="button" :class="dangerous ? 'danger' : 'primary'" :disabled="busy" @click="emit('confirm')">{{ busy ? 'Confirmation par OBS…' : confirmLabel }}</button>
+        <button class="button" :class="dangerous ? 'danger' : 'primary'" :disabled="busy" @click="emit('confirm')">{{ busy ? busyLabel : confirmLabel }}</button>
       </div>
     </dialog>
   </Teleport>

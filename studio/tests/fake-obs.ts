@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WebSocket, WebSocketServer } from 'ws';
@@ -31,6 +31,8 @@ export interface FakeObsOptions {
   streamStartDelayMs?: number;
   onStreamStart?: (service: FakeStreamService) => Promise<void> | void;
   onStreamStop?: () => Promise<void> | void;
+  /** A generated test media file to copy at StopRecord, never a real capture. */
+  recordingFixture?: string;
 }
 
 export async function startFakeObs(options: FakeObsOptions = {}) {
@@ -57,6 +59,9 @@ export async function startFakeObs(options: FakeObsOptions = {}) {
   const identifications: number[] = [];
   const scenes = ['Podcast', 'Table ronde', 'PowerPoint', 'Plan large', 'Caméra 1'];
   const mutes = new Map([['Micro 1', false], ['Micro 2', false], ['HDMI', false]]);
+  const mediaInputs = new Map<string, { kind: string; settings: Record<string, unknown>; state: string }>();
+  const sceneItems = new Map<string, { sceneItemId: number; sourceName: string; sceneItemEnabled: boolean }[]>();
+  let nextItemId = 1;
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await new Promise<void>((resolve, reject) => {
     server.once('listening', resolve);
@@ -92,7 +97,9 @@ export async function startFakeObs(options: FakeObsOptions = {}) {
   const supported = ['GetVersion', 'GetSceneList', 'GetSourceScreenshot', 'GetCurrentProgramScene', 'GetInputList', 'GetInputMute',
     'GetInputVolume', 'SetInputMute', 'GetRecordStatus', 'GetRecordDirectory', 'SetRecordDirectory',
     'SetCurrentProgramScene', 'StartRecord', 'StopRecord', 'PauseRecord', 'ResumeRecord',
-    'GetStreamStatus', 'StartStream', 'StopStream', 'GetStreamServiceSettings', 'SetStreamServiceSettings'];
+    'GetStreamStatus', 'StartStream', 'StopStream', 'GetStreamServiceSettings', 'SetStreamServiceSettings',
+    'CreateScene', 'GetSceneItemList', 'CreateInput', 'CreateSceneItem', 'GetInputSettings', 'SetInputSettings',
+    'SetSceneItemEnabled', 'GetSceneItemEnabled', 'GetVideoSettings', 'SetSceneItemTransform', 'TriggerMediaInputAction', 'GetMediaInputStatus'];
 
   server.on('connection', (client) => {
     send(client, { op: 0, d: { obsStudioVersion: 'test-fixture', obsWebSocketVersion: '5.6.0', rpcVersion: 1 } });
@@ -137,10 +144,85 @@ export async function startFakeObs(options: FakeObsOptions = {}) {
           case 'GetCurrentProgramScene': responseData = { currentProgramSceneName: currentScene }; break;
           case 'GetInputList': responseData = { inputs: [...mutes.keys()].map((inputName, index) => ({
             inputName, inputUuid: `input-${index}`, inputKind: 'wasapi_input_capture', unversionedInputKind: 'wasapi_input_capture',
-          })) }; break;
+          })).concat([...mediaInputs].map(([inputName, input]) => ({ inputName, inputUuid: inputName, inputKind: input.kind, unversionedInputKind: input.kind }))) }; break;
+          case 'CreateScene': {
+            const sceneName = String(request.requestData.sceneName);
+            if (scenes.includes(sceneName)) fail(601, 'Scene already exists');
+            else { scenes.push(sceneName); sceneItems.set(sceneName, []); responseData = { sceneUuid: sceneName }; event('SceneListChanged', 4, { scenes }); }
+            break;
+          }
+          case 'GetSceneItemList': {
+            const sceneName = String(request.requestData.sceneName);
+            if (!scenes.includes(sceneName)) fail(600, 'Scene not found');
+            else responseData = { sceneItems: structuredClone(sceneItems.get(sceneName) ?? []) };
+            break;
+          }
+          case 'CreateInput': {
+            const name = String(request.requestData.inputName);
+            const sceneName = String(request.requestData.sceneName);
+            if (mediaInputs.has(name) || mutes.has(name)) fail(601, 'Input already exists');
+            else if (!scenes.includes(sceneName)) fail(600, 'Scene not found');
+            else {
+              mediaInputs.set(name, { kind: String(request.requestData.inputKind), settings: structuredClone(request.requestData.inputSettings ?? {}) as Record<string, unknown>, state: 'OBS_MEDIA_STATE_STOPPED' });
+              const items = sceneItems.get(sceneName) ?? []; const sceneItemId = nextItemId++;
+              items.push({ sceneItemId, sourceName: name, sceneItemEnabled: !!request.requestData.sceneItemEnabled }); sceneItems.set(sceneName, items);
+              responseData = { sceneItemId, inputUuid: name }; event('InputCreated', 8, { inputName: name, inputKind: request.requestData.inputKind });
+            }
+            break;
+          }
+          case 'CreateSceneItem': {
+            const name = String(request.requestData.sourceName); const sceneName = String(request.requestData.sceneName);
+            if (!mediaInputs.has(name) || !scenes.includes(sceneName)) fail(600, 'Source or scene missing');
+            else {
+              const items = sceneItems.get(sceneName) ?? []; const sceneItemId = nextItemId++;
+              items.push({ sceneItemId, sourceName: name, sceneItemEnabled: !!request.requestData.sceneItemEnabled }); sceneItems.set(sceneName, items);
+              responseData = { sceneItemId };
+            }
+            break;
+          }
+          case 'GetInputSettings': {
+            const input = mediaInputs.get(String(request.requestData.inputName));
+            if (!input) fail(600, 'Input not found'); else responseData = { inputKind: input.kind, inputSettings: structuredClone(input.settings) };
+            break;
+          }
+          case 'SetInputSettings': {
+            const input = mediaInputs.get(String(request.requestData.inputName));
+            if (!input) fail(600, 'Input not found');
+            else input.settings = request.requestData.overlay ? { ...input.settings, ...(request.requestData.inputSettings as Record<string, unknown>) } : structuredClone(request.requestData.inputSettings) as Record<string, unknown>;
+            break;
+          }
+          case 'SetSceneItemEnabled': case 'GetSceneItemEnabled': {
+            const item = (sceneItems.get(String(request.requestData.sceneName)) ?? []).find(item => item.sceneItemId === request.requestData.sceneItemId);
+            if (!item) fail(600, 'Scene item missing');
+            else if (request.requestType === 'GetSceneItemEnabled') responseData = { sceneItemEnabled: item.sceneItemEnabled };
+            else item.sceneItemEnabled = !!request.requestData.sceneItemEnabled;
+            break;
+          }
+          case 'SetSceneItemTransform': {
+            if (!(sceneItems.get(String(request.requestData.sceneName)) ?? []).some(item => item.sceneItemId === request.requestData.sceneItemId)) fail(600, 'Scene item missing');
+            break;
+          }
+          case 'GetVideoSettings': responseData = { baseWidth: 1920, baseHeight: 1080, outputWidth: 1920, outputHeight: 1080, fpsNumerator: 25, fpsDenominator: 1 }; break;
+          case 'GetMediaInputStatus': {
+            const input = mediaInputs.get(String(request.requestData.inputName));
+            if (!input || input.kind !== 'ffmpeg_source') fail(600, 'Media input missing');
+            else responseData = { mediaState: input.state, mediaDuration: 4000, mediaCursor: 0 };
+            break;
+          }
+          case 'TriggerMediaInputAction': {
+            const input = mediaInputs.get(String(request.requestData.inputName));
+            if (!input || input.kind !== 'ffmpeg_source') fail(600, 'Media input missing');
+            else switch (request.requestData.mediaAction) {
+              case 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_RESTART': case 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_PLAY': input.state = 'OBS_MEDIA_STATE_PLAYING'; break;
+              case 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_PAUSE': input.state = 'OBS_MEDIA_STATE_PAUSED'; break;
+              case 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP': input.state = 'OBS_MEDIA_STATE_STOPPED'; break;
+              default: fail(400, 'Unknown media action');
+            }
+            break;
+          }
           case 'GetInputMute':
-            if (!mutes.has(String(request.requestData.inputName))) fail(600, 'Input not found');
-            else responseData = { inputMuted: mutes.get(String(request.requestData.inputName)) };
+            if (!mutes.has(String(request.requestData.inputName)) && !mediaInputs.has(String(request.requestData.inputName))) fail(600, 'Input not found');
+            else responseData = { inputMuted: mutes.get(String(request.requestData.inputName)) ?? false };
             break;
           case 'GetInputVolume': responseData = { inputVolumeDb: -6, inputVolumeMul: 0.501187 }; break;
           case 'GetStreamServiceSettings': responseData = structuredClone(streamService) as unknown as Record<string, unknown>; break;
@@ -218,7 +300,8 @@ export async function startFakeObs(options: FakeObsOptions = {}) {
             else {
               await mkdir(recordDirectory, { recursive: true });
               outputPath = join(recordDirectory, `test-recording-${++sequence}.mkv`);
-              await writeFile(outputPath, 'TEST FIXTURE: not a playable media file\n');
+              if (options.recordingFixture) await copyFile(options.recordingFixture, outputPath);
+              else await writeFile(outputPath, 'TEST FIXTURE: not a playable media file\n');
               recording = false; paused = false; responseData = { outputPath };
               recordEvent('OBS_WEBSOCKET_OUTPUT_STOPPED');
             }
@@ -246,6 +329,12 @@ export async function startFakeObs(options: FakeObsOptions = {}) {
     requests,
     identifications,
     emitMeters,
+    finishMedia() {
+      for (const [inputName, input] of mediaInputs) if (input.kind === 'ffmpeg_source' && input.state === 'OBS_MEDIA_STATE_PLAYING') {
+        input.state = 'OBS_MEDIA_STATE_ENDED';
+        event('MediaInputPlaybackEnded', 256, { inputName, inputUuid: inputName });
+      }
+    },
     disconnectClients() { for (const client of server.clients) client.terminate(); },
     async close() {
       if (meterTimer) clearInterval(meterTimer);

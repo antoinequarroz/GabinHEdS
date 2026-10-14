@@ -121,6 +121,37 @@ export interface Marker {
   createdAt: string;
 }
 
+export type MediaKind = 'image' | 'video' | 'audio' | 'document';
+export type MediaRole = 'intro' | 'logo' | 'presentation' | 'outro' | 'music' | 'other';
+export interface MediaAsset {
+  id: string;
+  title: string;
+  originalName: string;
+  kind: MediaKind;
+  mimeType: string;
+  sizeBytes: number;
+  createdAt: string;
+  archivedAt: string | null;
+  durationMs: number | null;
+  width: number | null;
+  height: number | null;
+}
+export interface ProjectMediaLink { assetId: string; role: MediaRole; order: number; }
+export type MediaMode = 'fullscreen' | 'overlay' | 'audio';
+export interface MediaPlayback {
+  assetId: string;
+  status: 'playing' | 'paused' | 'shown' | 'stopped' | 'unknown';
+  mode: MediaMode;
+  sceneName: string | null;
+  error: string | null;
+}
+export interface FilePlaybackSession { url: string; expiresAt: string; mimeType: string; }
+export interface TakePlaybackStatus {
+  status: 'preparing' | 'ready' | 'failed';
+  session?: FilePlaybackSession;
+  error?: string;
+}
+
 export interface StudioState {
   revision: number;
   accessUrls?: string[];
@@ -132,6 +163,9 @@ export interface StudioState {
   activeTake: Take | null;
   liveProjectId: string | null;
   markers: Marker[];
+  library?: MediaAsset[];
+  projectMedia?: Record<string, ProjectMediaLink[]>;
+  mediaPlayback?: MediaPlayback | null;
 }
 
 export interface PreparationCheck {
@@ -183,7 +217,9 @@ export type ControlCommand =
   | { action: 'input.mute'; inputName: string; muted: boolean; requestId?: string }
   | { action: 'marker.add'; label: string; requestId?: string }
   | { action: 'preview.start' | 'preview.stop' | 'stream.stop'; requestId?: string }
-  | { action: 'stream.start'; projectId: string; requestId?: string };
+  | { action: 'stream.start'; projectId: string; requestId?: string }
+  | { action: 'media.play'; assetId: string; projectId?: string; mode?: MediaMode; requestId?: string }
+  | { action: 'media.pause' | 'media.resume' | 'media.stop'; requestId?: string };
 
 export interface ApiError { error: string; code?: string; }
 

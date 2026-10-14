@@ -7,6 +7,7 @@ import ProjectsPage from './pages/ProjectsPage.vue';
 import ProjectPage from './pages/ProjectPage.vue';
 import RoomPage from './pages/RoomPage.vue';
 import DevicesPage from './pages/DevicesPage.vue';
+import LibraryPage from './pages/LibraryPage.vue';
 import StudioBrand from './components/StudioBrand.vue';
 const { device, state, initialized, live, busy, error, notice, technician, canEdit, initialize, pair, forgetDevice, refresh } = useStudio();
 const path = ref(location.hash.slice(1) || 'projects');
@@ -32,8 +33,8 @@ const liveIndicator = computed(() => {
   if (status === 'error') return { label: 'Interrompu', status: 'is-warning' };
   return { label: 'À l’arrêt', status: 'is-idle' };
 });
-const currentSection = computed(() => path.value === 'room' ? 'room' : path.value === 'devices' ? 'devices' : 'projects');
-const nav = computed(() => [{ id: 'projects', label: 'Productions', icon: 'projects' }, ...(technician.value ? [{ id: 'room', label: 'Salle et OBS', icon: 'room' }, { id: 'devices', label: 'Appareils', icon: 'devices' }] : [])]);
+const currentSection = computed(() => ['room', 'devices', 'library'].includes(path.value) ? path.value : 'projects');
+const nav = computed(() => [{ id: 'projects', label: 'Productions', icon: 'projects' }, { id: 'library', label: 'Bibliothèque', icon: 'library' }, ...(technician.value ? [{ id: 'room', label: 'Salle et OBS', icon: 'room' }, { id: 'devices', label: 'Appareils', icon: 'devices' }] : [])]);
 function navigate(next: string): void { path.value = next; location.hash = next; window.scrollTo({ top: 0, behavior: 'instant' }); }
 function onHash(): void { path.value = location.hash.slice(1) || 'projects'; }
 onMounted(() => { window.addEventListener('hashchange', onHash); void initialize(); });
@@ -65,6 +66,7 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', onHash));
         <div v-if="!live" class="banner warning sync-banner" role="status"><Icon name="warning" /><span>Synchronisation interrompue. Les commandes sont suspendues jusqu’à la reconnexion.</span><button class="button compact" :disabled="busy.refresh" @click="refresh">Actualiser</button></div>
         <div v-if="error" class="banner error" role="alert"><span class="grow">{{ error }}</span><button class="icon-button" aria-label="Fermer le message d’erreur" @click="error = ''"><Icon name="close" /></button></div>
         <ProjectsPage v-if="path === 'projects'" @navigate="navigate" />
+        <LibraryPage v-else-if="path === 'library'" />
         <template v-else-if="path === 'new' && canEdit"><div class="page-heading"><div><h1>Nouvelle production</h1><p>Donnez un vrai nom à votre contenu et préparez ses participants.</p></div></div><ProjectForm @saved="project => navigate(`project/${project.id}`)" @cancel="navigate('projects')" /></template>
         <ProjectPage v-else-if="selectedProject" :key="selectedProject.id" :project="selectedProject" @navigate="navigate" />
         <RoomPage v-else-if="path === 'room' && technician" />

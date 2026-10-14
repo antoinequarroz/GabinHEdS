@@ -2,6 +2,7 @@ import { computed, ref, shallowRef } from 'vue';
 import type {
   AudioFrame, AuthResult, ClientMessage, ControlCommand, Device, DownloadTicket, PairingCode, Preparation,
   PreviewSession, Project, ProjectInput, RoomConfig, RoomConfigInput, SceneThumbnail, ServerMessage, StudioState,
+  MediaAsset, ProjectMediaLink, FilePlaybackSession, TakePlaybackStatus,
 } from '@gabin/shared';
 
 const tokenKey = 'gabin.studio.device';
@@ -44,7 +45,7 @@ async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   try {
     response = await fetch(`/api${path}`, {
       ...init, signal: abort.signal,
-      headers: { 'Content-Type': 'application/json', ...(token.value ? { Authorization: `Bearer ${token.value}` } : {}), ...init.headers },
+      headers: { ...(init.body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(token.value ? { Authorization: `Bearer ${token.value}` } : {}), ...init.headers },
     });
   } catch {
     live.value = false;
@@ -236,6 +237,102 @@ async function downloadTake(id: string): Promise<void> {
   });
 }
 
+async function uploadMedia(file: File, title?: string, onProgress?: (percent: number) => void): Promise<MediaAsset | undefined> {
+  return run('media-upload', async () => {
+    if (!canEdit.value) throw new Error('Cet appareil ne peut pas ajouter de médias.');
+    if (file.size > 1024 ** 3) throw new Error('Choisissez un fichier de 1 Go maximum.');
+    if (!file.size) throw new Error('Ce fichier est vide.');
+    const requestToken = token.value;
+    const asset = await new Promise<MediaAsset>((resolve, reject) => {
+      const form = new FormData();
+      if (title?.trim()) form.append('title', title.trim());
+      form.append('file', file, file.name);
+      const request = new XMLHttpRequest();
+      request.open('POST', '/api/library');
+      request.timeout = 30 * 60_000;
+      request.setRequestHeader('Authorization', `Bearer ${requestToken}`);
+      request.upload.onprogress = event => { if (event.lengthComputable) onProgress?.(Math.min(99, Math.round(event.loaded / event.total * 100))); };
+      request.upload.onload = () => onProgress?.(100);
+      request.onerror = () => reject(new Error('L’import a été interrompu. Vérifiez la connexion au PC, puis réessayez.'));
+      request.ontimeout = () => reject(new Error('L’import est trop long. Vérifiez la connexion au PC avant de réessayer.'));
+      request.onabort = () => reject(new Error('L’import a été interrompu.'));
+      request.onload = () => {
+        let body: MediaAsset & { error?: string };
+        try { body = JSON.parse(request.responseText); }
+        catch { reject(new Error('Le PC n’a pas confirmé l’import. Actualisez la bibliothèque avant de réessayer.')); return; }
+        if (request.status === 401 && token.value === requestToken) forgetDevice();
+        if (request.status < 200 || request.status >= 300) { reject(new Error(body.error ?? 'Ce média n’a pas pu être importé.')); return; }
+        if (token.value !== requestToken) { reject(new Error('L’accès de cet appareil a changé pendant l’import.')); return; }
+        onProgress?.(100);
+        resolve(body);
+      };
+      request.send(form);
+    });
+    applyState(await api<StudioState>('/state'));
+    notify('Média ajouté à la bibliothèque.');
+    return asset;
+  });
+}
+
+async function updateMedia(id: string, input: { title?: string; archived?: boolean }): Promise<MediaAsset | undefined> {
+  return run(`media-edit:${id}`, async () => {
+    const asset = await api<MediaAsset>(`/library/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(input) });
+    applyState(await api<StudioState>('/state'));
+    notify(input.archived === true ? 'Média archivé. Il reste conservé pour les productions existantes.' : input.archived === false ? 'Média restauré.' : 'Nom du média enregistré.');
+    return asset;
+  });
+}
+
+async function saveProjectMedia(projectId: string, links: ProjectMediaLink[]): Promise<ProjectMediaLink[] | undefined> {
+  return run(`project-media:${projectId}`, async () => {
+    const saved = await api<ProjectMediaLink[]>(`/projects/${encodeURIComponent(projectId)}/media`, { method: 'PUT', body: JSON.stringify({ links }) });
+    applyState(await api<StudioState>('/state'));
+    notify('Médias de la production enregistrés.');
+    return saved;
+  });
+}
+
+function safeSession<T extends { url: string }>(session: T, prefix: string): T {
+  const url = new URL(session.url, location.origin);
+  if (url.origin !== location.origin || !new RegExp(`^/api/${prefix}/[A-Za-z0-9_-]{43}$`).test(url.pathname) || url.search || url.hash) {
+    throw new Error('Le lien transmis par le studio est invalide.');
+  }
+  return session;
+}
+
+async function mediaFileSession(id: string): Promise<FilePlaybackSession> {
+  return safeSession(await api<FilePlaybackSession>(`/library/${encodeURIComponent(id)}/file-ticket`, { method: 'POST', body: '{}' }), 'library-files');
+}
+
+async function takePlaybackSession(id: string): Promise<TakePlaybackStatus> {
+  const result = await api<TakePlaybackStatus>(`/takes/${encodeURIComponent(id)}/playback-session`, { method: 'POST', body: JSON.stringify({ mimeType: 'video/mp4' }) });
+  if (result.session) safeSession(result.session, 'playback-files');
+  return result;
+}
+
+async function exportProject(id: string): Promise<void> {
+  await run(`export:${id}`, async () => {
+    const ticket = safeSession(await api<DownloadTicket>(`/projects/${encodeURIComponent(id)}/export-ticket`, { method: 'POST', body: '{}' }), 'production-exports');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const response = await fetch(ticket.url, { method: 'HEAD', signal: controller.signal });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { error?: string };
+        throw new Error(body.error ?? 'Le dossier n’est plus disponible. Vérifiez les fichiers sur le PC puis réessayez.');
+      }
+    } finally { clearTimeout(timer); }
+    const anchor = document.createElement('a');
+    anchor.href = ticket.url;
+    anchor.download = '';
+    anchor.rel = 'noreferrer';
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    notify('Le téléchargement du dossier complet a été lancé. Consultez les téléchargements de votre navigateur.');
+  });
+}
+
 // Optional images use the same device access as every studio request. An
 // unavailable thumbnail must never suspend recording or the control socket.
 async function thumbnailResponse(path: string): Promise<Response | null> {
@@ -257,8 +354,8 @@ async function sceneThumbnail(scene: string): Promise<SceneThumbnail | null> {
   try { return await response.json() as SceneThumbnail; } catch { return null; }
 }
 
-async function takeThumbnail(id: string): Promise<string | null> {
-  const response = await thumbnailResponse(`/takes/${encodeURIComponent(id)}/thumbnail`);
+async function imageThumbnail(path: string): Promise<string | null> {
+  const response = await thumbnailResponse(path);
   if (!response || response.headers.get('content-type')?.split(';')[0] !== 'image/jpeg') return null;
   const blob = await response.blob();
   if (blob.size > 1024 * 1024) return null;
@@ -270,10 +367,14 @@ async function takeThumbnail(id: string): Promise<string | null> {
   });
 }
 
+const takeThumbnail = (id: string) => imageThumbnail(`/takes/${encodeURIComponent(id)}/thumbnail`);
+const mediaThumbnail = (id: string) => imageThumbnail(`/library/${encodeURIComponent(id)}/thumbnail`);
+
 export function useStudio() {
   return {
     device, state, initialized, live, audioFrame, audioReceivedAt, error, notice, busy, canEdit, technician,
     initialize, pair, forgetDevice, saveProject, preparation, control, connectObs, saveRoom, downloadTake, sceneThumbnail, takeThumbnail,
+    uploadMedia, updateMedia, saveProjectMedia, mediaFileSession, takePlaybackSession, exportProject, mediaThumbnail,
     getDevices: () => run('devices', () => api<Device[]>('/devices')),
     createPairing: (role: Device['role'] = 'operator') => run('pairing', () => api<PairingCode>('/pairing', { method: 'POST', body: JSON.stringify({ role, kind: 'ipad' }) })),
     createStreamDeck: (name: string) => run('streamdeck', () => api<AuthResult>('/devices', { method: 'POST', body: JSON.stringify({ name, kind: 'streamdeck', role: 'operator' }) })),
