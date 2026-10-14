@@ -130,3 +130,7 @@ coverage/
 
 # Ignore public build images
 /desktop-app/dist/img/
+
+# Reviewed configuration for the new Nino studio and its CI workflow
+!/.github/workflows/*.yml
+!/studio/config/mediamtx.yml

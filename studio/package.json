@@ -1,0 +1,32 @@
+{
+  "name": "gabinheds-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/api",
+    "apps/web",
+    "packages/shared"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev:api": "npm run dev --workspace @gabin/api",
+    "dev:web": "npm run dev --workspace @gabin/web",
+    "build": "npm run typecheck && npm run build --workspace @gabin/web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "check": "npm run build && npm test",
+    "test": "npm run test --workspaces --if-present && npm run test:integration",
+    "start": "npm run start --workspace @gabin/api",
+    "test:integration": "tsx --test tests/*.test.ts",
+    "test:browser": "tsx tests/browser-check.ts",
+    "setup:media": "node scripts/setup-media.mjs",
+    "start:media": "node scripts/start-media.mjs"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.5",
+    "ws": "^8.18.3",
+    "@types/ws": "^8.18.1"
+  }
+}

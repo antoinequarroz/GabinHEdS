@@ -1,0 +1,31 @@
+# Internal programme transport. Only Gabin's authenticated API is exposed on LAN.
+logLevel: warn
+logDestinations: [stdout]
+authMethod: internal
+authInternalUsers:
+  - user: any
+    ips: [127.0.0.1, "::1"]
+    permissions:
+      - action: publish
+      - action: read
+      - action: api
+api: true
+apiAddress: 127.0.0.1:9997
+rtsp: true
+rtspAddress: 127.0.0.1:8554
+rtspTransports: [tcp]
+rtmp: true
+rtmpAddress: 127.0.0.1:1935
+hls: true
+hlsAddress: 127.0.0.1:8888
+hlsAlwaysRemux: true
+hlsVariant: mpegts
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+webrtc: false
+srt: false
+moq: false
+paths:
+  gabin/program:
+    source: publisher
+    overridePublisher: false
