@@ -44,6 +44,12 @@ La réponse `AuthResult` contient `{ "token": "…", "device": { "id": "…", "n
 | Arrêter le retour vidéo | `{"action":"preview.stop"}` |
 | Démarrer le live | `{"action":"stream.start","projectId":"ID_DU_PROJET"}` |
 | Arrêter le live | `{"action":"stream.stop"}` |
+| Lancer une intro | `{"action":"media.play","assetId":"ID_DU_MEDIA","projectId":"ID_DU_PROJET","mode":"fullscreen"}` |
+| Afficher un logo | `{"action":"media.play","assetId":"ID_DU_MEDIA","projectId":"ID_DU_PROJET","mode":"overlay"}` |
+| Lancer un son | `{"action":"media.play","assetId":"ID_DU_MEDIA","projectId":"ID_DU_PROJET","mode":"audio"}` |
+| Pause du média | `{"action":"media.pause"}` |
+| Reprendre le média | `{"action":"media.resume"}` |
+| Arrêter le média | `{"action":"media.stop"}` |
 
 **Le champ `requestId` est facultatif** : lorsqu’il est absent, le serveur génère un identifiant pour cette commande. Les corps fixes ci-dessus sont donc utilisables à chaque pression de bouton. Pour une intégration qui réessaie automatiquement une commande après un problème réseau, générer un UUID par pression et réutiliser ce même UUID uniquement pour les tentatives de cette pression. Un UUID déjà exécuté ne doit jamais identifier une nouvelle pression.
 
@@ -69,6 +75,9 @@ Créer une action GET `/api/state` avec le même en-tête Bearer. Elle renvoie `
 | `media.previewReady` | Programme disponible pour le retour vidéo |
 | `media.liveStatus` | État du relais public : `idle`, `starting`, `live`, `stopping` ou `error` |
 | `media.liveError` | Erreur du relais de diffusion |
+| `library[]` | Médias nommés et identifiants disponibles pour les boutons |
+| `projectMedia[ID_DU_PROJET]` | Médias associés et leur rôle dans la production |
+| `mediaPlayback.assetId` et `mediaPlayback.status` | Média contrôlé et état confirmé (`playing`, `paused`, `shown`, `stopped`, ou `unknown` si incertain) |
 
 Le module HTTP permet de conserver la réponse et le code HTTP dans des variables personnalisées. Configurer une requête GET de rafraîchissement et stocker la réponse JSON analysée, puis utiliser ces valeurs dans les libellés ou expressions de boutons. La [documentation Companion des variables](https://companion.free/user-guide/v4.2/config/variables/) décrit ces champs et leur utilisation. Un retour de commande HTTP ne constitue pas, à lui seul, un témoin rouge d’enregistrement ; lire `obs.recording` et vérifier la connexion.
 
@@ -159,3 +168,9 @@ curl --fail-with-body --request POST 'http://127.0.0.1:4310/api/control' \
 Attendre `media.liveStatus === "live"` pour le témoin de diffusion publique. L’état de la prise reste `obs.recording`. Vérifier séparément l’événement publié dans la plateforme destinataire.
 
 Une prise et un live simultanés doivent concerner le même projet. Pour changer de production, terminer les activités du projet précédent ; le contrôleur refuse de réattribuer une prise ou un direct actif. Le bouton **Arrêter le live** reste utilisable si la connexion OBS est perdue, afin de couper le relais public depuis le Stream Deck.
+
+### Retrouver les médias et exporter la production
+
+L’identifiant `assetId` se retrouve dans **Bibliothèque**, dans les exemples de la page **Appareils** ou via GET `/api/state` / `/api/library`. Le bouton sélectionne un identifiant de média ; il ne reçoit jamais un chemin arbitraire vers un fichier du PC. Les PDF ne sont pas directement diffusables par cette commande.
+
+Un POST `/api/projects/ID_DU_PROJET/export-ticket` avec le jeton de l’appareil fournit un lien temporaire de téléchargement ZIP, une fois la production arrêtée. Un contrôleur HTTP peut demander ce lien ; son téléchargement et son enregistrement se font sur l’ordinateur ou la tablette, pas sur les touches du Stream Deck. Les prises individuelles gardent leur POST `/api/takes/ID_DE_LA_PRISE/download-ticket`.

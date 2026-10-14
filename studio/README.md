@@ -17,12 +17,15 @@ Le [guide de recette en salle (PDF)](../output/pdf/guide-recette-salle-gabinheds
 - Retour du programme OBS en HLS sur PC/iPad, activation du son par l’utilisateur et vumètres provenant des événements OBS.
 - Diffusion RTMP/RTMPS vers une destination configurée par le technicien, avec des commandes séparées de l’enregistrement.
 - Historique des prises, chemin du fichier retourné par OBS et téléchargement authentifié du fichier complet.
+- Bibliothèque locale d’images, vidéos, sons et PDF, import depuis PC/iPad, noms, archivage et association aux productions.
+- Lecture des médias dans OBS depuis la régie et l’API Stream Deck, avec confirmation de leur état.
+- Lecture des prises terminées sur PC/iPad et récupération d’un ZIP contenant les originaux, les médias associés et les repères de montage.
 - Interface tactile responsive pour iPad, code d’association temporaire et révocation des appareils.
 - Accès opérateur pour Stream Deck via HTTP ; voir [le guide Stream Deck](docs/stream-deck.md).
 
 La captation des caméras et micros se configure encore dans OBS. Les modes correspondent aux profils de production ; un podcast utilise également la sortie d’enregistrement OBS configurée. Cette version ne crée pas automatiquement des pistes audio ou des captures séparées de chaque caméra.
 
-Le retour vidéo WebRTC à plus faible latence, les deux invités à distance, la bibliothèque de médias, le conducteur, la sauvegarde NAS, le prémontage DaVinci Resolve et le montage IA restent des étapes suivantes. Les repères et les prises constituent déjà les données de départ de ces évolutions.
+Le retour vidéo WebRTC à plus faible latence, les deux invités à distance, le conducteur, la sauvegarde NAS, le prémontage DaVinci Resolve et le montage IA restent des étapes suivantes. Les repères et les prises constituent déjà les données de départ de ces évolutions. Le [guide médias et récupération](docs/media-library.md) explique la bibliothèque et le dossier complet.
 
 ## Prérequis
 
@@ -170,7 +173,7 @@ portly wait "$job_id"
 
 Les tests comprennent des doubles d’OBS et un serveur de protocole WebSocket de test. Ce dernier écrit un fichier factice marqué comme tel ; il ne capture aucun média. Leur réussite valide les échanges et la gestion des prises, pas le matériel, les codecs ni la qualité de l’enregistrement réel. La recette en salle doit comprendre un vrai démarrage/arrêt OBS et la lecture du fichier obtenu.
 
-Le contrôle navigateur `npm run test:browser` utilise l’interface compilée, l’API réelle et l’adaptateur OBS réel contre ce serveur de protocole. Il lance également un vrai MediaMTX et une source FFmpeg de mire animée avec sinus audio sur des ports temporaires. Il vérifie les trames HLS décodées et changeantes, l’audio AAC activable sur PC et au format iPad, le live réellement reçu par une deuxième destination RTMP locale, les arrêts indépendants, le contrôle Stream Deck par jeton dédié, l’association de l’iPad et le téléchargement. Construire l’interface et installer MediaMTX/FFmpeg avant de l’exécuter. Le test n’utilise ni caméra ni micro du poste et ne touche pas le serveur de la salle. Le fichier de prise demeure factice ; les pixels et l’audio du retour sont réellement encodés et décodés.
+Le contrôle navigateur `npm run test:browser` utilise l’interface compilée, l’API réelle et l’adaptateur OBS réel contre ce serveur de protocole. Il lance également un vrai MediaMTX et une source FFmpeg de mire animée avec sinus audio sur des ports temporaires. Il vérifie les trames HLS décodées et changeantes, l’audio AAC activable sur PC et au format iPad, le live réellement reçu par une deuxième destination RTMP locale, les arrêts indépendants, le contrôle Stream Deck par jeton dédié, l’association de l’iPad, la bibliothèque, la lecture et l’export. Construire l’interface et installer MediaMTX/FFmpeg avant de l’exécuter. Le test n’utilise ni caméra ni micro du poste et ne touche pas le serveur de la salle. Le protocole de capture reste un double ; les fichiers de mire des tests de lecture sont réellement encodés et décodés.
 
 Playwright et Chromium doivent être disponibles pour ce contrôle supplémentaire. Sur le Mac Codex, le script retrouve les dépendances du runtime. Sur un autre poste, fournir un module Playwright déjà installé via `GABIN_PLAYWRIGHT_MODULE` et, si nécessaire, l’exécutable via `GABIN_CHROMIUM_PATH`. `GABIN_SCREENSHOT_DIR` permet de choisir la destination des captures ; par défaut, elles vont dans le dossier temporaire du système. Aucune nouvelle dépendance du projet n’est nécessaire pour utiliser le runtime fourni.
 

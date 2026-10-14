@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
-import type { AuthResult, Device, PairingCode } from '@gabin/shared';
+import { computed, onMounted, ref, watch } from 'vue';
+import type { AuthResult, Device, PairingCode, MediaMode } from '@gabin/shared';
 import { useStudio } from '../composables/useStudio';
 import Icon from '../components/Icon.vue';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
@@ -15,6 +15,12 @@ const copied = ref('');
 const selectedProject = ref(state.value?.projects[0]?.id ?? '');
 const startPayload = computed(() => JSON.stringify({ action: 'record.start', projectId: selectedProject.value }));
 const livePayload = computed(() => JSON.stringify({ action: 'stream.start', projectId: selectedProject.value }));
+const selectedAsset = ref('');
+const mediaMode = ref<MediaMode>('fullscreen');
+const availableMedia = computed(() => (state.value?.library ?? []).filter(asset => !asset.archivedAt && asset.kind !== 'document'));
+const mediaAsset = computed(() => availableMedia.value.find(asset => asset.id === selectedAsset.value));
+const mediaPayload = computed(() => JSON.stringify({ action: 'media.play', projectId: selectedProject.value, assetId: selectedAsset.value, mode: mediaAsset.value?.kind === 'audio' ? 'audio' : mediaMode.value }));
+watch(selectedAsset, () => { mediaMode.value = mediaAsset.value?.kind === 'audio' ? 'audio' : 'fullscreen'; });
 const accessUrls = computed(() => state.value?.accessUrls ?? []);
 const roleLabel: Record<Device['role'], string> = { technician: 'Configuration et contrôle', operator: 'Préparation et contrôle', viewer: 'Consultation' };
 async function load(): Promise<void> { const result = await getDevices(); if (result) devices.value = result; }
@@ -83,8 +89,10 @@ const expiry = (value: string) => new Intl.DateTimeFormat('fr-CH', { hour: '2-di
         <label class="field">Production pour le bouton « Démarrer »<select v-model="selectedProject"><option value="">Choisir une production</option><option v-for="project in state?.projects" :key="project.id" :value="project.id">{{ project.title }}</option></select></label>
         <label v-if="selectedProject" class="field">Démarrer la prise<textarea :value="startPayload" readonly rows="2" spellcheck="false" /></label>
         <label v-if="selectedProject" class="field">Démarrer le direct<textarea :value="livePayload" readonly rows="2" spellcheck="false" /></label>
+        <div class="devices-media-recipes"><h3>Lancer un média de la bibliothèque</h3><label class="field">Média pour le bouton « Lancer »<select v-model="selectedAsset"><option value="">Choisir une image, une vidéo ou une musique</option><option v-for="asset in availableMedia" :key="asset.id" :value="asset.id">{{ asset.title }}</option></select></label><label v-if="mediaAsset && mediaAsset.kind !== 'audio'" class="field">Mode d’affichage<select v-model="mediaMode"><option value="fullscreen">Plein écran</option><option value="overlay">Superposition</option></select></label><label v-if="selectedProject && mediaAsset" class="field">Lancer le média<textarea :value="mediaPayload" readonly rows="3" spellcheck="false" /></label><p class="hint">Associez ce média à la production choisie avant de l’utiliser. Chaque commande conserve l’authentification propre au Stream Deck.</p></div>
         <div class="command-examples"><div><strong>Activer le retour</strong><code>{ "action": "preview.start" }</code></div><div><strong>Désactiver le retour</strong><code>{ "action": "preview.stop" }</code></div><div><strong>Arrêter le direct</strong><code>{ "action": "stream.stop" }</code></div><div><strong>Pause</strong><code>{ "action": "record.pause" }</code></div><div><strong>Reprendre</strong><code>{ "action": "record.resume" }</code></div><div><strong>Terminer</strong><code>{ "action": "record.stop" }</code></div><div><strong>Choisir un plan</strong><code>{ "action": "scene.set", "sceneName": "Plan large" }</code></div><div><strong>Ajouter un repère</strong><code>{ "action": "marker.add", "label": "À revoir" }</code></div></div>
         <p class="hint">Le direct et l’enregistrement sont indépendants. Arrêter le direct conserve le retour local et la prise en cours. Les noms de plans doivent correspondre exactement à ceux d’OBS. Nino vérifie les commandes et confirme le résultat avec OBS.</p>
+        <div class="command-examples devices-media-commands"><div><strong>Mettre le média en pause</strong><code>{ "action": "media.pause" }</code></div><div><strong>Reprendre le média</strong><code>{ "action": "media.resume" }</code></div><div><strong>Arrêter / masquer le média</strong><code>{ "action": "media.stop" }</code></div></div>
       </div></details>
     </div>
   </section>

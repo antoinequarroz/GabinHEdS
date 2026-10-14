@@ -16,6 +16,8 @@ import { RealMediaGateway, validHlsResource, type MediaGateway } from './media.j
 import { hashSecret, Store } from './store.js';
 import { Studio } from './studio.js';
 import { TakeThumbnails } from './thumbnails.js';
+import { libraryFile, registerLibraryRoutes } from './library.js';
+import { registerProductionFileRoutes } from './production-files.js';
 import { ApiFailure, choice, controlInput, object, projectInput, roomInput, string } from './validation.js';
 
 declare module 'fastify' { interface FastifyRequest { device?: Device } }
@@ -49,7 +51,8 @@ function requireRole(request: FastifyRequest, minimum: DeviceRole): Device {
 
 export async function buildApp(options: AppOptions) {
   const app = Fastify({ logger: options.logger ? { redact: ['req.headers.authorization', 'req.body.obsPassword', 'req.body.liveDestination.key', 'req.body.token', 'req.url'] } : false,
-    trustProxy: false, bodyLimit: 64 * 1024, requestTimeout: 30_000 });
+    trustProxy: false, bodyLimit: 64 * 1024, requestTimeout: 30 * 60_000, connectionTimeout: 60_000 });
+  app.server.headersTimeout = 30_000;
   const store = new Store(options.dataDir);
   const media = options.media ?? new RealMediaGateway();
   const studio = new Studio(store, options.obs ?? new RealObsGateway(), media);
@@ -114,6 +117,7 @@ export async function buildApp(options: AppOptions) {
     if (!sameOrigin(request)) throw new ApiFailure(403, 'Origine de la requête non autorisée.', 'ORIGIN_REJECTED');
     const route = request.url.split('?')[0];
     if (['/api/auth/local', '/api/auth/pair', '/api/events'].includes(route) || /^\/api\/downloads\/[a-zA-Z0-9_-]{43}$/.test(route)
+      || /^\/api\/(?:library-files|playback-files|production-exports)\/[a-zA-Z0-9_-]{43}$/.test(route)
       || /^\/api\/monitor\/[a-zA-Z0-9_-]{43}\/[a-zA-Z0-9_.-]+$/.test(route)) return;
     const authorization = request.headers.authorization;
     if (!authorization?.startsWith('Bearer ') || authorization.length > 512) throw new ApiFailure(401, 'Connectez cet appareil à la salle.', 'UNAUTHENTICATED');
@@ -126,7 +130,7 @@ export async function buildApp(options: AppOptions) {
     const candidate = error as { statusCode?: unknown };
     const statusCode = typeof candidate?.statusCode === 'number' && candidate.statusCode >= 400 && candidate.statusCode < 500 ? candidate.statusCode : 500;
     app.log.error({ err: error }, 'API request failed');
-    return reply.code(statusCode).send({ error: statusCode === 429 ? 'Trop de tentatives. Patientez avant de réessayer.' : statusCode === 400 ? 'Requête JSON invalide.' : 'Impossible de terminer cette opération. Vérifiez OBS et les journaux du serveur.', code: statusCode === 429 ? 'RATE_LIMITED' : 'REQUEST_FAILED' });
+    return reply.code(statusCode).send({ error: statusCode === 429 ? 'Trop de tentatives. Patientez avant de réessayer.' : statusCode === 413 ? 'Le fichier dépasse la taille maximale autorisée (1 Go).' : statusCode === 400 ? 'Requête invalide.' : 'Impossible de terminer cette opération. Vérifiez OBS et les journaux du serveur.', code: statusCode === 429 ? 'RATE_LIMITED' : 'REQUEST_FAILED' });
   });
 
   app.post('/api/auth/local', { config: { rateLimit: { max: 15, timeWindow: '1 minute' } } }, async (request) => {
@@ -240,6 +244,15 @@ export async function buildApp(options: AppOptions) {
     if (!fileStat.isFile()) throw new ApiFailure(404, 'Fichier vidéo introuvable.', 'FILE_NOT_FOUND');
     return { take, file, fileStat };
   };
+  await registerLibraryRoutes(app, { store, studio, requireRole, state });
+  await registerProductionFileRoutes(app, { store, studio, requireRole, resolveTakeFile });
+  app.get<{ Params: { id: string } }>('/api/library/:id/thumbnail', { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, async (request, reply) => {
+    const { asset, file, fileStat } = await libraryFile(store, request.params.id);
+    if (asset.kind !== 'video') throw new ApiFailure(404, 'Ce média ne possède pas d’affiche vidéo.', 'THUMBNAIL_UNAVAILABLE');
+    const image = await takeThumbnails.image(file, fileStat.mtimeMs, fileStat.size);
+    if (!store.device(request.device!.id)) throw new ApiFailure(401, 'L’accès de cet appareil a été révoqué.', 'UNAUTHENTICATED');
+    return reply.type('image/jpeg').header('Content-Length', image.length).send(image);
+  });
   const sendTakeFile = async (takeId: string, request: FastifyRequest, reply: FastifyReply) => {
     const { take, file, fileStat } = await resolveTakeFile(takeId);
     const filename = `${take.title.replace(/[^a-zA-Z0-9 -]/g, '').slice(0, 100) || 'prise'}${path.extname(file).slice(0, 10)}`;

@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, chmodSync } from 'node:fs';
 import path from 'node:path';
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
-import type { AuthResult, Device, DeviceKind, DeviceRole, Marker, PairingCode, Project, RoomConfig, Take } from '@gabin/shared';
+import type { AuthResult, Device, DeviceKind, DeviceRole, Marker, MediaAsset, PairingCode, Project, ProjectMediaLink, RoomConfig, Take } from '@gabin/shared';
 
 export interface PrivateRoom extends RoomConfig { obsPassword: string; liveKey: string }
 interface DeviceRow { id: string; token_hash: string; json: string }
@@ -52,6 +52,10 @@ export class Store {
   projects(): Project[] { return this.list<Project>('project'); }
   takes(): Take[] { return this.list<Take>('take').sort((a, b) => b.startedAt.localeCompare(a.startedAt)); }
   markers(): Marker[] { return this.list<Marker>('marker').sort((a, b) => a.offsetMs - b.offsetMs); }
+  library(): MediaAsset[] { return this.list<{ id: string; asset: MediaAsset }>('mediaAsset').map(record => record.asset); }
+  projectMedia(): Record<string, ProjectMediaLink[]> {
+    return Object.fromEntries(this.list<{ id: string; links: ProjectMediaLink[] }>('projectMedia').map(record => [record.id, record.links]));
+  }
   room(): PrivateRoom | null { return this.setting<PrivateRoom>('room'); }
   saveRoom(room: PrivateRoom): void { this.setSetting('room', room); }
   publicRoom(): RoomConfig {

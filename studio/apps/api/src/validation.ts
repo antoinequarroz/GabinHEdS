@@ -1,5 +1,5 @@
 import path from 'node:path';
-import type { ControlCommand, Participant, ProductionFormat, ProjectInput, RoomConfigInput } from '@gabin/shared';
+import type { ControlCommand, MediaMode, Participant, ProductionFormat, ProjectInput, ProjectMediaLink, RoomConfigInput } from '@gabin/shared';
 
 export class ApiFailure extends Error {
   constructor(public statusCode: number, message: string, public code = 'INVALID_REQUEST') { super(message); }
@@ -87,6 +87,10 @@ export function controlInput(value: unknown): ControlCommand {
   const data = object(value);
   const requestId = data.requestId === undefined ? undefined : string(data.requestId, 'identifiant de commande', 128);
   switch (data.action) {
+    case 'media.play': return { action: data.action, assetId: string(data.assetId, 'média', 100),
+      projectId: data.projectId === undefined ? undefined : string(data.projectId, 'projet', 100),
+      mode: data.mode === undefined ? undefined : choice<MediaMode>(data.mode, ['fullscreen', 'overlay', 'audio'], 'mode du média'), requestId };
+    case 'media.pause': case 'media.resume': case 'media.stop': return { action: data.action, requestId };
     case 'record.start': case 'stream.start': return { action: data.action, projectId: string(data.projectId, 'projet', 100), requestId };
     case 'record.stop': case 'record.pause': case 'record.resume': return { action: data.action, requestId };
     case 'preview.start': case 'preview.stop': case 'stream.stop': return { action: data.action, requestId };
@@ -98,4 +102,16 @@ export function controlInput(value: unknown): ControlCommand {
     case 'marker.add': return { action: data.action, label: string(data.label, 'marqueur', 160), requestId };
     default: throw new ApiFailure(400, 'Commande non reconnue.');
   }
+}
+
+export function projectMediaInput(value: unknown): ProjectMediaLink[] {
+  const data = object(value);
+  if (Object.keys(data).some(key => key !== 'links') || !Array.isArray(data.links) || data.links.length > 100) throw new ApiFailure(400, 'La liste des médias du projet est invalide.');
+  const links = data.links.map(item => {
+    const link = object(item);
+    if (Object.keys(link).some(key => !['assetId', 'role', 'order'].includes(key)) || !Number.isInteger(link.order) || Number(link.order) < 0 || Number(link.order) > 9999) throw new ApiFailure(400, 'L’ordre du média doit être un entier entre 0 et 9999.');
+    return { assetId: string(link.assetId, 'média', 100), role: choice(link.role, ['intro', 'logo', 'presentation', 'outro', 'music', 'other'] as const, 'rôle du média'), order: Number(link.order) };
+  });
+  if (new Set(links.map(link => link.assetId)).size !== links.length) throw new ApiFailure(400, 'Chaque média ne peut être associé qu’une fois au projet.');
+  return links.sort((a, b) => a.order - b.order);
 }

@@ -2,17 +2,21 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { homedir, networkInterfaces, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildApp } from '../apps/api/src/app.js';
 import { RealMediaGateway } from '../apps/api/src/media.js';
 import { startFakeObs } from './fake-obs.js';
 import { startTestMedia } from './media-test-server.js';
-import type { AuthResult, PreviewSession, StudioState } from '@gabin/shared';
+import { createMediaFixture } from './media-fixture.js';
+import type { AuthResult, MediaAsset, PreviewSession, StudioState } from '@gabin/shared';
 
 // Bounded verification: real API, OBS adapter, MediaMTX, FFmpeg relay and HLS
 // decoding. OBS control and recording are fixtures; no physical capture.
 const require = createRequire(import.meta.url);
+const execute = promisify(execFile);
 const bundledModules = join(homedir(), '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
 let playwright: any;
 let usesBundledRuntime = false;
@@ -52,7 +56,7 @@ const track = (page: any) => {
   page.on('pageerror', (error: Error) => pageErrors.push(error.message));
   page.on('response', async (response: any) => {
     if (response.url().includes('/api/') && response.status() >= 400) {
-      const pathname = new URL(response.url()).pathname.replace(/\/monitor\/[^/]+\//, '/monitor/<session>/');
+      const pathname = new URL(response.url()).pathname.replace(/\/(monitor|library-files|playback-files|production-exports|downloads)\/[^/]+/, '/$1/<session>');
       failedApi.push(`${response.status()} ${pathname} ${(await response.text().catch(() => '')).slice(0, 500)}`);
     }
   });
@@ -121,9 +125,11 @@ async function decodedProgramme(page: any, label: string): Promise<void> {
 }
 
 try {
+  const encodedFixture = await createMediaFixture(join(temp, 'fixtures'));
   const testMedia = await startTestMedia(temp);
   mediaServer = testMedia;
   fixture = await startFakeObs({ recordDirectory: join(temp, 'initial-obs'),
+    recordingFixture: encodedFixture.mkv,
     onStreamStart: service => testMedia.startSource(service), onStreamStop: () => testMedia.stopSource() });
   app = await buildApp({ dataDir: join(temp, 'data'), media: new RealMediaGateway(testMedia.options), logger: process.env.GABIN_TEST_LOGGER === '1' });
   await app.listen({ host: browserEngine === 'webkit' ? '0.0.0.0' : '127.0.0.1', port: 0 });
@@ -204,8 +210,39 @@ try {
   await noOverflow(ipad, 'iPad 1024');
   steps.push('iPad : association complète via formulaires PC/iPad, accès opérateur, même projet et synchronisation');
 
+  await pc.goto(`${baseUrl}/#library`);
+  await pc.getByLabel('Fichiers à importer').setInputFiles(encodedFixture.mp4);
+  const videoImported = await untilState(state => !!state.library?.some(asset => asset.originalName === 'intro-test.mp4'), 'vidéo importée depuis le PC');
+  const videoAsset = videoImported.library!.find(asset => asset.originalName === 'intro-test.mp4')!;
+  assert.equal(videoAsset.kind, 'video');
+  assert((videoAsset.durationMs ?? 0) >= 3900, 'Métadonnées de la vraie vidéo importée');
+  await pc.getByText(videoAsset.title, { exact: true }).first().waitFor();
+  await ipad.goto(new URL('/#library', ipad.url()).href);
+  await ipad.getByLabel('Fichiers à importer').setInputFiles(encodedFixture.image);
+  const imageImported = await untilState(state => state.library?.length === 2, 'image importée depuis iPad');
+  const imageAsset = imageImported.library!.find(asset => asset.originalName === 'logo-test.png')!;
+  assert.equal(imageAsset.kind, 'image');
+  await pc.getByText(imageAsset.title, { exact: true }).first().waitFor();
+  await ipad.getByText(videoAsset.title, { exact: true }).first().waitFor();
+  await noOverflow(pc, 'Bibliothèque PC');
+  await noOverflow(ipad, 'Bibliothèque iPad');
+  await mkdir(screenshotDir, { recursive: true });
+  await pc.waitForFunction(() => [...document.querySelectorAll('.media-asset-card img')].filter(image => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0).length >= 2);
+  await pc.screenshot({ path: join(screenshotDir, 'nino-library-pc.png'), fullPage: true });
+  await ipad.screenshot({ path: join(screenshotDir, 'nino-library-ipad.png'), fullPage: true });
+  steps.push('Bibliothèque : vrais imports MP4 sur PC et PNG sur iPad, métadonnées vérifiées et catalogue partagé');
+
   await pc.goto(`${baseUrl}/#project/${projectId}`);
   await pc.getByRole('heading', { name: 'Métiers de la santé · épisode 01', exact: true }).waitFor();
+  await pc.getByLabel('Média à associer', { exact: true }).selectOption(videoAsset.id);
+  await pc.getByLabel('Rôle du média', { exact: true }).selectOption('intro');
+  await pc.getByRole('button', { name: 'Ajouter le média', exact: true }).click();
+  await untilState(state => state.projectMedia?.[projectId]?.length === 1, 'intro associée');
+  await pc.getByLabel('Média à associer', { exact: true }).selectOption(imageAsset.id);
+  await pc.getByLabel('Rôle du média', { exact: true }).selectOption('logo');
+  await pc.getByRole('button', { name: 'Ajouter le média', exact: true }).click();
+  await untilState(state => state.projectMedia?.[projectId]?.length === 2, 'logo associé');
+  await ipad.goto(new URL(`/#project/${projectId}`, ipad.url()).href);
   await pc.getByRole('button', { name: 'Ouvrir la régie', exact: true }).click();
   await pc.getByRole('button', { name: 'Démarrer la prise', exact: true }).click();
   await pc.getByRole('dialog').getByRole('button', { name: 'Démarrer dans OBS', exact: true }).click();
@@ -214,6 +251,27 @@ try {
   await ipad.getByText('Enregistrement · confirmé par OBS', { exact: true }).waitFor();
   assert(fixture.requests.some(request => request.requestType === 'StartRecord'), 'Requête StartRecord passée sur le protocole réel');
   steps.push('Enregistrement : démarrage depuis PC, confirmation OBS et régie visible sur iPad');
+
+  const deck = await api<AuthResult>('/devices', { name: 'Stream Deck de recette', kind: 'streamdeck', role: 'operator' });
+  await pc.getByRole('button', { name: `Lancer ${videoAsset.title}`, exact: true }).click();
+  await untilState(state => state.mediaPlayback?.assetId === videoAsset.id && state.mediaPlayback.status === 'playing', 'intro confirmée par OBS');
+  await ipad.getByRole('button', { name: 'Mettre le média en pause', exact: true }).click();
+  await untilState(state => state.mediaPlayback?.status === 'paused', 'pause média depuis iPad');
+  await pc.getByRole('button', { name: 'Reprendre le média', exact: true }).click();
+  await untilState(state => state.mediaPlayback?.status === 'playing', 'reprise média depuis PC');
+  fixture.finishMedia();
+  await untilState(state => state.mediaPlayback?.status === 'stopped' && state.obs.currentScene === 'Nino · Médias', 'fin naturelle du clip confirmée par OBS');
+  await pc.getByRole('button', { name: 'Revenir au plan précédent', exact: true }).waitFor();
+  await deckControl(deck.token, { action: 'media.stop' });
+  await untilState(state => state.mediaPlayback?.status === 'stopped' && state.obs.currentScene === 'Table ronde', 'arrêt Stream Deck et retour scène précédente');
+  const imageCommand = { action: 'media.play', assetId: imageAsset.id, projectId, mode: 'overlay', requestId: crypto.randomUUID() };
+  await Promise.all([deckControl(deck.token, imageCommand), deckControl(deck.token, imageCommand)]);
+  await untilState(state => state.mediaPlayback?.assetId === imageAsset.id && state.mediaPlayback.status === 'shown', 'logo Stream Deck confirmé');
+  await ipad.getByRole('button', { name: 'Masquer le média', exact: true }).click();
+  const afterMedia = await untilState(state => state.mediaPlayback?.status === 'stopped', 'arrêt logo depuis iPad');
+  assert(afterMedia.obs.recording, 'Contrôler les médias conserve la capture OBS');
+  assert(fixture.requests.some(request => request.requestType === 'GetMediaInputStatus'), 'La lecture est confirmée sur le protocole OBS');
+  steps.push('Médias en régie : vidéo lancée PC, pause iPad/reprise PC, arrêt et logo depuis API Stream Deck, capture conservée');
 
   await pc.getByRole('button', { name: 'Activer le retour', exact: true }).click();
   await untilState(state => state.obs.streaming && state.media.previewReady, 'programme reçu par MediaMTX réel');
@@ -256,7 +314,6 @@ try {
     'Arrêter le direct conserve la prise OBS et le retour HLS');
   steps.push('Arrêt du live depuis iPad : prise OBS et retour vidéo conservés');
 
-  const deck = await api<AuthResult>('/devices', { name: 'Stream Deck de recette', kind: 'streamdeck', role: 'operator' });
   const deckCommand = { action: 'stream.start', projectId, requestId: crypto.randomUUID() };
   await Promise.all([deckControl(deck.token, deckCommand), deckControl(deck.token, deckCommand)]);
   await untilState(state => state.media.liveStatus === 'live' && state.media.liveBytes > 0, 'relance du live depuis API Stream Deck');
@@ -293,8 +350,40 @@ try {
     const download = await pendingDownload;
     const saved = join(temp, 'download.mkv');
     await download.saveAs(saved);
-    assert((await readFile(saved, 'utf8')).includes('TEST FIXTURE'), 'Téléchargement complet correspond au fichier OBS de test');
+    assert.deepEqual(await readFile(saved), await readFile(encodedFixture.mkv), 'Téléchargement complet correspond exactement au fichier de mire encodée retourné par OBS de test');
     steps.push('Récupération : téléchargement navigateur complet via ticket autorisé, fichier identique');
+  }
+
+  await pc.getByRole('button', { name: 'Lire la prise', exact: true }).click();
+  await pc.locator('.take-player video').waitFor({ timeout: 30_000 });
+  await pc.locator('.take-player video').evaluate((video: HTMLVideoElement) => { video.muted = true; return video.play(); });
+  await pc.waitForFunction(() => { const video = document.querySelector('.take-player video') as HTMLVideoElement | null; return video && video.videoWidth === 640 && video.currentTime > 0.2; });
+  await ipad.getByRole('button', { name: 'Lire la prise', exact: true }).click();
+  await ipad.locator('.take-player video').waitFor({ timeout: 30_000 });
+  await ipad.locator('.take-player video').evaluate((video: HTMLVideoElement) => { video.muted = true; return video.play(); });
+  await ipad.waitForFunction(() => { const video = document.querySelector('.take-player video') as HTMLVideoElement | null; return video && video.videoWidth === 640 && video.currentTime > 0.2; });
+  steps.push('Lecture des prises : original MKV converti/remuxé pour lecture MP4 décodée sur PC et iPad');
+  await pc.screenshot({ path: join(screenshotDir, 'nino-production-files-pc.png'), fullPage: true });
+  await ipad.screenshot({ path: join(screenshotDir, 'nino-production-files-ipad.png'), fullPage: true });
+  if (process.env.GABIN_SKIP_DOWNLOAD !== '1') {
+    const pendingArchive = pc.waitForEvent('download');
+    await pc.getByRole('button', { name: 'Récupérer le dossier complet', exact: true }).click();
+    const archive = await pendingArchive;
+    const saved = join(temp, 'production.zip');
+    await archive.saveAs(saved);
+    const { stdout } = await execute('unzip', ['-Z1', saved], { timeout: 10_000 });
+    const names = stdout.trim().split('\n');
+    assert(names.some(name => name.endsWith('project.json')), 'Métadonnées projet présentes');
+    assert(names.some(name => name.endsWith('markers.json')), 'Repères de montage présents');
+    assert(names.some(name => name.endsWith('manifest.json')), 'Manifest du dossier présent');
+    for (const [extension, original] of [['.mkv', encodedFixture.mkv], ['.mp4', encodedFixture.mp4], ['.png', encodedFixture.image]] as const) {
+      const entry = names.find(name => name.endsWith(extension));
+      assert(entry, `Fichier ${extension} présent dans le dossier complet`);
+      const extracted = await execute('unzip', ['-p', saved, entry], { encoding: 'buffer', timeout: 10_000, maxBuffer: 2 * 1024 * 1024 });
+      assert.deepEqual(extracted.stdout, await readFile(original), `Original ${extension} conservé intégralement`);
+    }
+    assert(!names.some(name => /sqlite|\.env|token/i.test(name)), 'Aucun fichier privé dans l’archive');
+    steps.push('Dossier complet : ZIP navigateur contenant prises originales, médias associés, projet et repères, octets identiques');
   }
 
   await noOverflow(ipad, 'Prises iPad 1024');
@@ -305,6 +394,11 @@ try {
     await noOverflow(ipad, `Préparation ${width}`);
     await ipad.getByRole('button', { name: /Enregistrer et diffuser$/ }).click();
     await noOverflow(ipad, `Régie ${width}`);
+    await ipad.getByRole('button', { name: /Retrouver les prises/ }).click();
+    await ipad.goto(new URL('/#library', ipad.url()).href);
+    await ipad.getByText(videoAsset.title, { exact: true }).first().waitFor();
+    await noOverflow(ipad, `Bibliothèque ${width}`);
+    await ipad.goto(new URL(`/#project/${projectId}`, ipad.url()).href);
     await ipad.getByRole('button', { name: /Retrouver les prises/ }).click();
   }
   assert.deepEqual(pageErrors, [], 'Aucune exception JavaScript navigateur');
