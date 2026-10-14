@@ -1,0 +1,19 @@
+# Append one dedicated site to the existing Caddyfile after backing it up.
+# Replace guest.example.com and the Docker gateway; do not replace existing sites.
+# BEGIN NINO GUEST GATEWAY
+guest.example.com {
+    route {
+        @privateApi {
+            path /api/*
+            not path /api/guest/*
+        }
+        respond @privateApi "Route introuvable." 404
+        reverse_proxy 172.18.0.1:18413 {
+            header_up Host guest.example.com
+            # Never trust a client-provided value: overwrite it at the HTTPS edge.
+            header_up X-Nino-Client-IP {remote_host}
+            stream_timeout 6h
+        }
+    }
+}
+# END NINO GUEST GATEWAY

@@ -201,6 +201,7 @@ export interface StudioState {
   autoDirection?: AutoDirectionState;
   autoDirectionSettings?: Record<string, AutoDirectionSettings>;
   sceneChanges?: SceneChange[];
+  guestRooms?: Record<string, GuestRoomState>;
 }
 
 export interface PreparationCheck {
@@ -246,7 +247,44 @@ export interface DownloadTicket {
 }
 export interface ResolveExportStatus { status: 'preparing' | 'ready' | 'failed'; ticket?: DownloadTicket; error?: string; }
 
+export interface GuestSlot {
+  id: string; projectId: string; slot: 1 | 2; name: string;
+  status: 'invited' | 'waiting' | 'ready' | 'admitted' | 'disconnected' | 'removed';
+  joined: boolean; mediaReady: boolean; sourceReady: boolean; admitted: boolean; muted: boolean;
+  sceneName: string; inputName: string; invitationExpiresAt: string | null; error: string | null;
+}
+export interface GuestRoomState {
+  projectId: string;
+  bridge: { connected: boolean; mediaReady: boolean; error: string | null };
+  guests: GuestSlot[];
+}
+export interface GuestInvitation { guestId: string; slot: 1 | 2; url: string; expiresAt: string; }
+export interface GuestIceServer { urls: string[]; username?: string; credential?: string; }
+export type GuestPeerRole = 'guest' | 'bridge' | 'source';
+export interface GuestPeer { id: string; role: GuestPeerRole; guestId: string | null; }
+export interface GuestSession {
+  token: string; role: GuestPeerRole; peerId: string; guestId: string | null; projectId: string;
+  roomTitle: string; name: string; expiresAt: string; socketPath: string; iceServers: GuestIceServer[];
+  room: GuestRoomState;
+}
+export type GuestClientMessage =
+  | { type: 'auth'; token: string }
+  | { type: 'signal'; to: string; description?: { type: 'offer' | 'answer'; sdp: string }; candidate?: { candidate: string; sdpMid?: string | null; sdpMLineIndex?: number | null } | null }
+  | { type: 'media'; ready: boolean; guestId?: string; video?: boolean; audio?: boolean; error?: string }
+  | { type: 'leave' };
+export type GuestServerMessage =
+  | { type: 'welcome'; peer: GuestPeer; peers: GuestPeer[]; room: GuestRoomState }
+  | { type: 'room'; peers: GuestPeer[]; room: GuestRoomState }
+  | { type: 'signal'; from: GuestPeer; description?: { type: 'offer' | 'answer'; sdp: string }; candidate?: { candidate: string; sdpMid?: string | null; sdpMLineIndex?: number | null } | null }
+  | { type: 'error'; error: string };
+
 export type ControlCommand =
+  | { action: 'guest.admit'; guestId: string; requestId?: string }
+  | { action: 'guest.mute'; guestId: string; muted: boolean; requestId?: string }
+  | { action: 'guest.remove'; guestId: string; requestId?: string }
+  | { action: 'guest.scene'; guestId: string; requestId?: string }
+  | { action: 'guest.prepare'; projectId: string; requestId?: string }
+  | { action: 'guest.bridge.stop'; projectId: string; requestId?: string }
   | { action: 'auto.configure'; projectId: string; settings: AutoDirectionSettings; requestId?: string }
   | { action: 'auto.start'; projectId: string; requestId?: string }
   | { action: 'auto.stop'; requestId?: string }

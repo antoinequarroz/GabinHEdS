@@ -3,15 +3,17 @@ import os from 'node:os';
 import path from 'node:path';
 import { access, mkdir, open, statfs, unlink } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import type { AudioFrame, AutoDirectionState, ControlCommand, Marker, MediaPlayback, ObsState, Preparation, PreparationCheck, Project, ProjectInput, RoomConfigInput, SceneChange, StudioState, Take } from '@gabin/shared';
-import { ObsFeedConflict, ObsMediaFailure, type ObsEvent, type ObsGateway, timecodeMs } from './obs.js';
+import type { AudioFrame, AutoDirectionState, ControlCommand, GuestSlot, Marker, MediaPlayback, ObsState, Participant, Preparation, PreparationCheck, Project, ProjectInput, RoomConfigInput, SceneChange, StudioState, Take } from '@gabin/shared';
+import { ObsFeedConflict, ObsGuestFailure, ObsMediaFailure, type ObsEvent, type ObsGateway, timecodeMs } from './obs.js';
 import { emptyMediaState, type MediaGateway } from './media.js';
 import { Store } from './store.js';
 import { ApiFailure, autoDirectionInput } from './validation.js';
 import { libraryFile } from './library.js';
 import { AUDIO_STALE_MS, AutoDirection } from './auto-direction.js';
+import type { GuestService } from './guests.js';
 
 const slug = (name: string): string => name.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 70) || 'production';
+type GuestCommand = Extract<ControlCommand, { action: `guest.${string}` }>;
 
 export class Studio {
   private queue: Promise<unknown> = Promise.resolve();
@@ -31,9 +33,22 @@ export class Studio {
   private autoTickQueued = false;
   private lastObservedScene: string | null = null;
   private readonly now: () => number;
+  private readonly guests?: GuestService;
+  private readonly unsubscribeGuests: () => void;
+  private guestReconcileQueued = false;
+  private readonly guestPrepared = new Set<string>();
+  private readonly guestUrls = new Map<string, { url: string; expiresAt: string }>();
 
-  constructor(readonly store: Store, readonly obs: ObsGateway, readonly media?: MediaGateway, options: { now?: () => number; autoIntervalMs?: number } = {}) {
+  constructor(readonly store: Store, readonly obs: ObsGateway, readonly media?: MediaGateway, options: { now?: () => number; autoIntervalMs?: number; guests?: GuestService } = {}) {
     this.now = options.now ?? Date.now;
+    this.guests = options.guests;
+    this.unsubscribeGuests = options.guests?.subscribe(() => {
+      if (this.closing) return;
+      this.changed();
+      if (this.guestReconcileQueued) return;
+      this.guestReconcileQueued = true;
+      void this.serial(() => this.reconcileGuests()).catch(() => undefined).finally(() => { this.guestReconcileQueued = false; });
+    }) ?? (() => undefined);
     if (!store.room()) store.saveRoom({ name: 'Studio Nino', obsUrl: 'ws://127.0.0.1:4455', obsPassword: '', obsPasswordConfigured: false,
       recordingRoot: path.join(os.homedir(), 'Videos', 'Nino'), defaultScenes: { podcast: 'Podcast', roundtable: 'Table ronde', slides: 'PowerPoint' },
       liveDestination: { name: '', server: '', keyConfigured: false }, liveKey: '' });
@@ -96,6 +111,8 @@ export class Studio {
     this.disableAuto('off', 'Réalisation manuelle.');
     this.unsubscribe();
     this.unsubscribeMedia();
+    this.unsubscribeGuests();
+    this.guests?.close();
     await this.queue.catch(() => undefined);
     // Disconnect only; the OBS recording keeps running independently.
     await this.obs.disconnect().catch(() => undefined);
@@ -111,9 +128,139 @@ export class Studio {
     return { revision: this.revision, room: this.store.publicRoom(), obs: this.obs.getState(), media: this.media?.getState() ?? emptyMediaState(), liveProjectId: this.liveProjectId, projects: this.store.projects(),
       takes: this.store.takes(), activeTake: this.activeTake(), markers: this.store.markers(), library: this.store.library(),
       projectMedia: this.store.projectMedia(), mediaPlayback: this.obs.getMediaPlayback?.() ?? this.mediaPlayback,
-      autoDirection: structuredClone(this.autoDirection), autoDirectionSettings: this.store.autoDirectionSettings(), sceneChanges: this.store.sceneChanges() };
+      autoDirection: structuredClone(this.autoDirection), autoDirectionSettings: this.store.autoDirectionSettings(), sceneChanges: this.store.sceneChanges(), guestRooms: this.guests?.rooms() };
   }
   libraryChanged(): StudioState { return this.changed(); }
+  /** Guests cannot change or inject audio into another active production. */
+  assertGuestProject(projectId: string): Project {
+    const project = this.project(projectId);
+    const take = this.activeTake();
+    if (project.status === 'archived') throw new ApiFailure(409, 'Restaurez cette production avant d’inviter.', 'PROJECT_ARCHIVED');
+    if (take && take.projectId !== projectId || this.liveActive() && this.liveProjectId !== projectId
+      || this.obs.getState().recording && !take || this.store.setting('pendingTake')) throw new ApiFailure(409, 'Une autre production utilise la salle, ou l’enregistrement reste à vérifier.', 'PROJECT_CONFLICT');
+    return project;
+  }
+  private assertGuestActor(actor?: { deviceId: string }): string {
+    const device = actor && this.store.device(actor.deviceId);
+    if (!device || device.role === 'viewer') throw new ApiFailure(403, 'Un appareil opérateur autorisé doit contrôler les invités.', 'GUEST_AUTH_REQUIRED');
+    return device.id;
+  }
+  private guestParticipants(project: Project): Participant[] {
+    const guests = this.guests?.rooms()[project.id]?.guests.filter(guest => this.guestPrepared.has(guest.id) && guest.admitted && guest.mediaReady && guest.sourceReady && !guest.muted) ?? [];
+    return [...project.participants, ...guests.map(guest => ({ id: guest.id, name: guest.name, micInput: guest.inputName, sceneName: guest.sceneName }))];
+  }
+  private assertCallBinding(projectId: string): void {
+    const bridgeProjectId = this.guests?.bridgeProjectId();
+    if (bridgeProjectId && bridgeProjectId !== projectId) throw new ApiFailure(409, 'Fermez l’appel de l’autre production avant de démarrer ici.', 'GUEST_PROJECT_CONFLICT');
+  }
+  private async reconcileGuests(): Promise<void> {
+    if (!this.guests || this.closing) return;
+    const obs = this.obs.getState();
+    for (const room of Object.values(this.guests.rooms())) for (const guest of room.guests) {
+      const input = obs.inputs.find(input => input.name === guest.inputName && input.kind === 'browser_source');
+      if (!obs.connected || obs.error || !this.guestPrepared.has(guest.id)) continue;
+      if (!input || !await this.obs.guestSourceOwned?.(guest.inputName, guest.id, guest.projectId).catch(() => false)) {
+        this.guestPrepared.delete(guest.id);
+        if (this.autoDirection.enabled && this.autoDirection.projectId === guest.projectId) this.disableAuto('suspended',
+          'Une source invité a changé dans OBS. Vérifiez la collection puis préparez à nouveau les invités.');
+        continue;
+      }
+      if (!guest.admitted) {
+        if (input.muted === false) {
+          await this.obs.setInputMute(input.name, true).catch(() => undefined);
+          await this.obs.refresh(true).catch(() => undefined);
+        }
+      } else if (input?.muted !== null && input?.muted !== undefined && input.muted !== guest.muted) this.guests.setMuted(guest.id, input.muted);
+    }
+    if (this.autoDirection.enabled && this.autoEngine && this.autoDirection.projectId) {
+      const participants = this.guestParticipants(this.project(this.autoDirection.projectId));
+      if (JSON.stringify(participants) !== JSON.stringify(this.autoEngine.participants)) this.disableAuto('suspended', 'La présence ou le micro d’un invité a changé. Vérifiez les plans puis reprenez l’automatique.');
+    }
+    this.changed();
+  }
+  private async assertGuestSource(guest: GuestSlot): Promise<void> {
+    if (!await this.obs.guestSourceOwned?.(guest.inputName, guest.id, guest.projectId)) throw new ApiFailure(409,
+      'La source invité a changé dans OBS. Vérifiez la collection puis préparez à nouveau les invités.', 'GUEST_SOURCE_CHANGED');
+  }
+  private async muteGuestInput(guest: GuestSlot, muted: boolean): Promise<void> {
+    await this.assertGuestSource(guest);
+    await this.obs.setInputMute(guest.inputName, muted);
+    const after = await this.obs.refresh(true);
+    if (!after.connected || after.error || after.inputs.find(input => input.name === guest.inputName)?.muted !== muted) throw new ApiFailure(503, 'OBS n’a pas confirmé le micro invité. Vérifiez la salle.', 'OBS_CONFIRMATION_LOST');
+  }
+  private async controlGuest(command: GuestCommand, actor?: { deviceId: string }): Promise<StudioState> {
+    const owner = this.assertGuestActor(actor);
+    if (!this.guests) throw new ApiFailure(503, 'La passerelle invités n’est pas disponible.', 'GUEST_UNAVAILABLE');
+    if (command.action === 'guest.bridge.stop') {
+      this.guests.stopBridge(command.projectId);
+      await this.reconcileGuests();
+      return this.changed();
+    }
+    if (command.action === 'guest.remove') {
+      const guest = this.guests.getGuest(command.guestId);
+      this.guests.remove(guest.id);
+      await this.reconcileGuests();
+      this.guestPrepared.delete(guest.id); this.guestUrls.delete(guest.id);
+      return this.changed();
+    }
+    await this.obs.refresh(true);
+    this.assertGuestActor(actor);
+    const before = this.obs.getState();
+    if (!before.connected || before.error) throw new ApiFailure(409, 'Connectez OBS avant de préparer ou d’admettre un invité.', 'OBS_UNAVAILABLE');
+    if (command.action === 'guest.prepare') {
+      const project = this.assertGuestProject(command.projectId);
+      if (!this.obs.prepareGuestSources || !this.obs.startVirtualCamera) throw new ApiFailure(503, 'OBS doit prendre en charge les sources Navigateur et la caméra virtuelle.', 'GUEST_OBS_UNAVAILABLE');
+      const guests = this.guests.rooms()[project.id]?.guests.filter(guest => guest.status !== 'removed') ?? [];
+      if (!guests.length) throw new ApiFailure(409, 'Créez d’abord une invitation.', 'GUEST_SETUP_REQUIRED');
+      const configured = this.store.autoDirectionSettings()[project.id];
+      const sceneNames = [...new Set([project.defaultScene || this.store.publicRoom().defaultScenes[project.format], configured?.wideScene,
+        ...project.participants.map(person => person.sceneName)].filter((value): value is string => !!value))];
+      const sources = guests.map(guest => {
+        let ticket = this.guestUrls.get(guest.id);
+        if (!ticket || !guest.sourceReady && !this.guests!.hasSourceAccess(guest.id)) {
+          ticket = this.guests!.sourceTicket(guest.id, owner); this.guestUrls.set(guest.id, ticket);
+        }
+        return { ...guest, url: ticket.url };
+      });
+      try {
+        await this.obs.prepareGuestSources({ ownerId: 'nino.remoteguests', projectId: project.id, sceneNames,
+          audioInputNames: project.participants.map(person => person.micInput).filter((value): value is string => !!value), guests: sources });
+      } catch (error) { throw new ApiFailure(409, error instanceof ObsGuestFailure ? error.message : 'OBS n’a pas confirmé la préparation des invités. Vérifiez les sources sur le PC.', 'GUEST_SETUP_FAILED'); }
+      this.assertGuestActor(actor);
+      await this.obs.startVirtualCamera();
+      this.assertGuestActor(actor);
+      const after = await this.obs.refresh(true);
+      for (const guest of guests) {
+        if (!after.connected || after.error || !after.scenes.includes(guest.sceneName) || !after.inputs.some(input => input.name === guest.inputName && input.kind === 'browser_source' && input.muted !== null)) throw new ApiFailure(503, 'OBS ne confirme pas les sources invitées.', 'OBS_CONFIRMATION_LOST');
+        this.guestPrepared.add(guest.id);
+      }
+      return this.changed();
+    }
+    const guest = this.guests.getGuest(command.guestId);
+    this.assertGuestProject(guest.projectId);
+    if (!this.guestPrepared.has(guest.id) || !before.inputs.some(input => input.name === guest.inputName && input.kind === 'browser_source' && input.muted !== null)) throw new ApiFailure(409, 'Préparez les sources invités dans OBS avant cette commande.', 'GUEST_SETUP_REQUIRED');
+    await this.assertGuestSource(guest);
+    this.assertGuestActor(actor);
+    if (command.action === 'guest.admit') {
+      try { await this.muteGuestInput(guest, false); this.assertGuestActor(actor); this.guests.admit(guest.id); }
+      catch (failure) { await this.muteGuestInput(guest, true).catch(() => undefined); throw failure; }
+    } else if (command.action === 'guest.mute') {
+      if (!guest.admitted) throw new ApiFailure(409, 'Admettez d’abord cet invité.', 'GUEST_NOT_ADMITTED');
+      try { await this.muteGuestInput(guest, command.muted); this.assertGuestActor(actor); this.guests.setMuted(guest.id, command.muted); }
+      catch (failure) {
+        await this.muteGuestInput(guest, true).catch(() => undefined);
+        this.guests.setMuted(guest.id, true);
+        throw failure;
+      }
+    } else if (command.action === 'guest.scene') {
+      if (!guest.admitted || !guest.sourceReady) throw new ApiFailure(409, 'Attendez la réception de l’invité dans OBS avant de choisir son plan.', 'GUEST_NOT_READY');
+      // Delegate to the existing confirmed manual cut, including automatic
+      // suspension and the actual recording-time journal.
+      return this.control({ action: 'scene.set', sceneName: guest.sceneName }, actor);
+    }
+    await this.reconcileGuests();
+    return this.changed();
+  }
   private setAutoState(update: Partial<AutoDirectionState>): void {
     const next = { ...this.autoDirection, ...update };
     if (JSON.stringify(next) !== JSON.stringify(this.autoDirection)) { this.autoDirection = next; this.changed(); }
@@ -365,6 +512,7 @@ export class Studio {
         this.store.put('take', { ...take, status: 'interrupted' });
       }
     }
+    if (event.type === 'state') await this.reconcileGuests();
     this.changed();
   }
   private finishTake(take: Take, outputPath: string | null, durationMs: number): void {
@@ -423,6 +571,7 @@ export class Studio {
     return { projectId, sceneName, recordingDirectory, freeBytes, checks, canStart: checks.every((check) => check.status !== 'blocked') };
   }
   async control(command: ControlCommand, actor?: { deviceId: string }): Promise<StudioState> {
+    if (command.action.startsWith('guest.')) return this.controlGuest(command as GuestCommand, actor);
     if (command.action === 'auto.stop') {
       this.disableAuto('off', 'Réalisation manuelle.');
       return this.changed();
@@ -442,6 +591,7 @@ export class Studio {
       return this.changed();
     }
     await this.obs.refresh(true);
+    if (actor && !this.store.device(actor.deviceId)) throw new ApiFailure(401, 'L’accès de cet appareil a été révoqué.', 'UNAUTHENTICATED');
     const before = this.obs.getState();
     if (!before.connected || before.error) throw new ApiFailure(409, 'Reconnectez OBS pour vérifier l’état avant une commande.', 'OBS_UNAVAILABLE');
     const current = this.activeTake();
@@ -450,6 +600,8 @@ export class Studio {
     switch (command.action) {
       case 'auto.start': {
         const project = this.project(command.projectId);
+        this.assertCallBinding(project.id);
+        const participants = this.guestParticipants(project);
         const device = actor && this.store.device(actor.deviceId);
         if (!device || device.role === 'viewer') throw new ApiFailure(403, 'Un appareil de contrôle autorisé doit activer l’automatique.', 'AUTO_AUTH_REQUIRED');
         if (this.autoProjectConflict(project.id, before)) throw new ApiFailure(409, 'La prise ou le direct concerne un autre projet ou reste à vérifier.', 'PROJECT_CONFLICT');
@@ -457,14 +609,14 @@ export class Studio {
         const saved = this.store.autoDirectionSettings()[project.id];
         if (!saved) throw new ApiFailure(409, 'Choisissez le plan large et les réglages de réalisation automatique.', 'AUTO_NOT_CONFIGURED');
         const settings = autoDirectionInput(saved);
-        if (!project.participants.length || project.participants.some(person => !person.micInput || !person.sceneName
+        if (!participants.length || participants.some(person => !person.micInput || !person.sceneName
           || !before.inputs.some(input => input.name === person.micInput && input.muted === false) || !before.scenes.includes(person.sceneName))
           || !before.scenes.includes(settings.wideScene)) throw new ApiFailure(409, 'Chaque participant doit avoir un micro actif et un plan OBS disponible, ainsi qu’un plan large.', 'AUTO_SETUP_REQUIRED');
-        if (new Set(project.participants.map(person => person.micInput)).size !== project.participants.length) throw new ApiFailure(409, 'La réalisation automatique nécessite une entrée micro distincte par participant.', 'AUTO_DISTINCT_MICS');
-        if (new Set(project.participants.map(person => person.sceneName)).size !== project.participants.length
-          || new Set([settings.wideScene, ...project.participants.map(person => person.sceneName)]).size < 2) throw new ApiFailure(409, 'Choisissez un plan distinct par participant et un plan large permettant un changement de caméra.', 'AUTO_DISTINCT_SCENES');
+        if (new Set(participants.map(person => person.micInput)).size !== participants.length) throw new ApiFailure(409, 'La réalisation automatique nécessite une entrée micro distincte par participant.', 'AUTO_DISTINCT_MICS');
+        if (new Set(participants.map(person => person.sceneName)).size !== participants.length
+          || new Set([settings.wideScene, ...participants.map(person => person.sceneName)]).size < 2) throw new ApiFailure(409, 'Choisissez un plan distinct par participant et un plan large permettant un changement de caméra.', 'AUTO_DISTINCT_SCENES');
         this.autoOwnerId = device.id;
-        this.autoEngine = new AutoDirection(structuredClone(project.participants), settings, before.currentScene, this.now());
+        this.autoEngine = new AutoDirection(structuredClone(participants), settings, before.currentScene, this.now());
         this.setAutoState({ enabled: true, status: 'waiting', projectId: project.id, participantId: null, lastAudioAt: null, lastSwitchAt: null,
           message: 'Automatique activée : en attente de mesures OBS récentes sur chaque micro.' });
         break;
@@ -521,6 +673,7 @@ export class Studio {
         break;
       }
       case 'stream.start': {
+        this.assertCallBinding(command.projectId);
         const media = this.requireMedia();
         await media.refresh();
         if (this.liveActive()) throw new ApiFailure(409, 'Un direct est déjà actif ou en transition.', 'LIVE_ACTIVE');
@@ -552,6 +705,7 @@ export class Studio {
         break;
       }
       case 'record.start': {
+        this.assertCallBinding(command.projectId);
         if (this.autoDirection.enabled && this.autoDirection.projectId !== command.projectId) this.disableAuto('suspended', 'L’enregistrement concerne un autre projet. L’automatique est suspendue.');
         if (this.liveActive() && this.liveProjectId !== command.projectId) throw new ApiFailure(409, 'Le direct concerne un autre projet. Terminez-le avant de changer de production.', 'PROJECT_CONFLICT');
         const prep = await this.preparation(command.projectId);
@@ -642,6 +796,7 @@ export class Studio {
         break;
       }
     }
+    if (command.action === 'input.mute') await this.reconcileGuests();
     if (command.action.startsWith('media.')) this.journalScene(this.obs.getState(), 'media', null, directionProjectId);
     if (command.action === 'scene.set') this.journalScene(this.obs.getState(), 'manual', null, directionProjectId);
     return this.changed();

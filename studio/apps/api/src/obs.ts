@@ -9,7 +9,17 @@ export type ObsEvent =
   | { type: 'disconnected' };
 export class ObsFeedConflict extends Error {}
 export class ObsMediaFailure extends Error {}
+export class ObsGuestFailure extends Error {}
 export interface ObsMediaOptions { assetId: string; ownerId: string; kind: Exclude<MediaKind, 'document'>; file: string; mode: MediaMode; ownedFiles?: Record<string, string> }
+export interface ObsGuestSourceOptions {
+  ownerId: string;
+  projectId: string;
+  /** Only the production's own plans; never all OBS scenes. */
+  sceneNames: string[];
+  /** Room microphones which are scene-local rather than OBS global devices. */
+  audioInputNames?: string[];
+  guests: { id: string; slot: 1 | 2; name: string; sceneName: string; inputName: string; url: string }[];
+}
 
 /** The real adapter and tests share this interface. No command assumes success. */
 export interface ObsGateway {
@@ -31,6 +41,9 @@ export interface ObsGateway {
   playMedia?(options: ObsMediaOptions): Promise<MediaPlayback>;
   mediaAction?(action: 'pause' | 'resume' | 'stop'): Promise<MediaPlayback>;
   getMediaPlayback?(): MediaPlayback | null;
+  prepareGuestSources?(options: ObsGuestSourceOptions): Promise<void>;
+  guestSourceOwned?(inputName: string, guestId: string, projectId: string): Promise<boolean>;
+  startVirtualCamera?(): Promise<void>;
   subscribe(listener: (event: ObsEvent) => void): () => void;
 }
 
@@ -60,12 +73,14 @@ export class RealObsGateway implements ObsGateway {
   private readonly thumbnailWaiting = new Set<() => void>();
   private mediaSelection: (ObsMediaOptions & { inputName: string; sceneName: string; sceneItemId: number; previousScene: string | null; playback: MediaPlayback }) | null = null;
   private readonly createdMediaScenes = new Set<string>();
+  private readonly createdGuestScenes = new Set<string>();
 
   constructor() {
     this.client.on('ConnectionClosed', () => {
       this.connectionEpoch++;
       this.stopPolling();
       this.createdMediaScenes.clear();
+      this.createdGuestScenes.clear();
       // Preserve the last known recording fields. Disconnected does NOT mean stopped.
       this.state = { ...this.state, connected: false, connecting: false, error: 'Connexion OBS interrompue. État de l’enregistrement à vérifier dans OBS.' };
       this.emit({ type: 'disconnected' });
@@ -151,6 +166,7 @@ export class RealObsGateway implements ObsGateway {
     this.connectionEpoch++;
     this.stopPolling();
     this.createdMediaScenes.clear();
+    this.createdGuestScenes.clear();
     await this.bounded(this.client.disconnect());
     this.state = { ...this.state, connected: false, connecting: false, error: null };
     this.emit({ type: 'state', state: this.getState() });
@@ -282,6 +298,227 @@ export class RealObsGateway implements ObsGateway {
   }
   async startStream(): Promise<void> { await this.call('StartStream'); }
   async stopStream(): Promise<void> { await this.call('StopStream'); }
+
+  /** This output carries video only. The browser bridge builds a separate
+   * mix-minus audio return, rather than looping OBS programme audio back. */
+  async startVirtualCamera(): Promise<void> {
+    if (!this.state.connected) throw new ObsGuestFailure('Reconnectez OBS avant de démarrer le retour des invités.');
+    const current = await this.call('GetVirtualCamStatus').catch(() => {
+      throw new ObsGuestFailure('La caméra virtuelle OBS n’est pas disponible. Vérifiez son installation sur le PC de la salle.');
+    });
+    if (current.outputActive) return;
+    await this.call('StartVirtualCam').catch(() => {
+      throw new ObsGuestFailure('OBS n’a pas pu démarrer sa caméra virtuelle. Vérifiez son installation et ses autorisations.');
+    });
+    const deadline = Date.now() + 5000;
+    do {
+      if ((await this.call('GetVirtualCamStatus')).outputActive) return;
+      if (Date.now() >= deadline) break;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    } while (this.state.connected);
+    throw new ObsGuestFailure('OBS n’a pas confirmé le démarrage de sa caméra virtuelle.');
+  }
+
+  private guestUrlValid(value: unknown): value is string {
+    if (typeof value !== 'string') return false;
+    try {
+      const url = new URL(value);
+      return url.protocol === 'http:' && url.hostname === '127.0.0.1' && !!url.port
+        && !url.username && !url.password && !url.search && url.pathname === '/'
+        && /^#guest-source\/[a-zA-Z0-9_-]{43}$/.test(url.hash);
+    } catch { return false; }
+  }
+
+  private guestSettingsOwned(options: ObsGuestSourceOptions, guest: ObsGuestSourceOptions['guests'][number], result: OBSResponseTypes['GetInputSettings']): boolean {
+    const settings = result.inputSettings;
+    return result.inputKind === 'browser_source' && settings.nino_owner === options.ownerId
+      && settings.nino_project === options.projectId && settings.nino_guestid === guest.id
+      && settings.nino_slot === guest.slot && settings.nino_scene === guest.sceneName && this.guestUrlValid(settings.url)
+      && settings.reroute_audio === true && settings.shutdown === false
+      && settings.restart_when_active === false && settings.webpage_control_level === 0;
+  }
+
+  private async assertGuestOwnership(options: ObsGuestSourceOptions, guest: ObsGuestSourceOptions['guests'][number]): Promise<OBSResponseTypes['GetInputSettings']> {
+    const settings = await this.call('GetInputSettings', { inputName: guest.inputName });
+    if (!this.guestSettingsOwned(options, guest, settings)) {
+      throw new ObsGuestFailure('Une source invité OBS existe déjà avec une autre configuration. Nino ne la remplacera pas.');
+    }
+    return settings;
+  }
+
+  /** Read ownership again before a later mute/cut. A same-name source in a new
+   * OBS collection or one replaced by the operator must not inherit controls. */
+  async guestSourceOwned(inputName: string, guestId: string, projectId: string): Promise<boolean> {
+    if (!this.state.connected) return false;
+    try {
+      const settings = await this.call('GetInputSettings', { inputName });
+      const data = settings.inputSettings;
+      const sceneName = data.nino_scene;
+      if (typeof sceneName !== 'string' || !sceneName.trim() || sceneName.length > 200 || /[\r\n\0]/.test(sceneName)) return false;
+      const guest = { id: guestId, slot: data.nino_slot as 1 | 2, name: '', inputName, sceneName, url: String(data.url ?? '') };
+      if (![1, 2].includes(guest.slot) || !this.guestSettingsOwned({ ownerId: 'nino.remoteguests', projectId, sceneNames: [], guests: [] }, guest, settings)) return false;
+      const { sceneItems } = await this.call('GetSceneItemList', { sceneName });
+      return sceneItems.filter(item => item.sourceName === inputName).length === 1;
+    } catch { return false; }
+  }
+
+  /** One browser input per guest is reused in every in-scope scene. Its image
+   * stays outside the canvas on other shots, while its audio remains active.
+   * Disabling the item would also remove the guest's voice from programme. */
+  async prepareGuestSources(options: ObsGuestSourceOptions): Promise<void> {
+    const validName = (value: string) => typeof value === 'string' && !!value.trim() && value.length <= 200 && !/[\r\n\0]/.test(value);
+    const requestedAudio = [...new Set(options.audioInputNames ?? [])];
+    if (!this.state.connected) throw new ObsGuestFailure('Reconnectez OBS avant de préparer les invités.');
+    if (!validName(options.ownerId) || !validName(options.projectId) || options.guests.length < 1 || options.guests.length > 2
+      || options.sceneNames.length > 20 || options.sceneNames.some(name => !validName(name))
+      || requestedAudio.length > 8 || requestedAudio.some(name => !validName(name) || options.guests.some(guest => guest.inputName === name))
+      || options.guests.some(guest => !validName(guest.id) || ![1, 2].includes(guest.slot) || !validName(guest.inputName)
+        || !validName(guest.sceneName) || !this.guestUrlValid(guest.url))
+      || new Set(options.guests.map(guest => guest.id)).size !== options.guests.length
+      || new Set(options.guests.map(guest => guest.slot)).size !== options.guests.length
+      || new Set(options.guests.map(guest => guest.inputName)).size !== options.guests.length
+      || new Set(options.guests.map(guest => guest.sceneName)).size !== options.guests.length) {
+      throw new ObsGuestFailure('Configuration des sources invités invalide.');
+    }
+    await this.refresh(true);
+    // Provisioning the second invitation must also keep the first guest in its
+    // scene and in the room's other shots. Discover only fully owned sources
+    // from this production; do not claim any input merely by its display name.
+    const guests = [...options.guests];
+    for (const input of this.state.inputs) {
+      if (guests.some(guest => guest.inputName === input.name) || input.kind !== 'browser_source') continue;
+      const settings = await this.call('GetInputSettings', { inputName: input.name });
+      if (settings.inputSettings.nino_owner !== options.ownerId || settings.inputSettings.nino_project !== options.projectId) continue;
+      const data = settings.inputSettings;
+      const guest = { id: String(data.nino_guestid ?? ''), slot: data.nino_slot as 1 | 2,
+        sceneName: String(data.nino_scene ?? ''), inputName: input.name, name: `Invité ${data.nino_slot}`,
+        url: String(data.url ?? '') };
+      if (!validName(guest.id) || !validName(guest.sceneName) || ![1, 2].includes(guest.slot) || !this.guestSettingsOwned(options, guest, settings)
+        || guests.some(value => value.id === guest.id || value.slot === guest.slot || value.sceneName === guest.sceneName)) {
+        throw new ObsGuestFailure('Une autre source invité de cette production a été modifiée. Vérifiez-la dans OBS avant de continuer.');
+      }
+      guests.push(guest);
+    }
+    if (guests.length > 2) throw new ObsGuestFailure('Cette production contient déjà les deux sources invités autorisées.');
+    const special = await this.call('GetSpecialInputs').catch(() => null);
+    const globals = new Set(Object.values(special ?? {}).filter((name): name is string => typeof name === 'string' && !!name));
+    // OBS global devices are already mixed in every scene. Adding them again as
+    // scene items can duplicate the same microphone's audio.
+    const roomAudio = requestedAudio.filter(name => !globals.has(name) && !guests.some(guest => guest.inputName === name));
+    const kinds = await this.call('GetInputKindList', { unversioned: true });
+    if (!kinds.inputKinds.includes('browser_source')) throw new ObsGuestFailure('Cette installation OBS ne propose pas la source Navigateur nécessaire aux invités.');
+    const video = await this.call('GetVideoSettings');
+    if (!Number.isFinite(video.baseWidth) || !Number.isFinite(video.baseHeight) || video.baseWidth < 1 || video.baseHeight < 1) {
+      throw new ObsGuestFailure('OBS ne confirme pas les dimensions du programme.');
+    }
+    const guestScenes = new Set(guests.map(guest => guest.sceneName));
+    const sceneNames = [...new Set([...options.sceneNames, ...guestScenes])];
+    const itemLists = new Map<string, OBSResponseTypes['GetSceneItemList']['sceneItems']>();
+    // Complete collision/ownership preflight before changing any source or scene.
+    for (const guest of guests) {
+      if (this.state.inputs.some(input => input.name === guest.inputName)) await this.assertGuestOwnership(options, guest);
+    }
+    for (const inputName of roomAudio) {
+      if (!this.state.inputs.some(input => input.name === inputName)) throw new ObsGuestFailure('Un micro de salle n’existe plus dans OBS. Vérifiez les micros de cette production.');
+      // OBS rejects this request for sources without audio capability. Do not
+      // duplicate a camera merely because its name resembles a microphone.
+      await this.call('GetInputMute', { inputName }).catch(() => {
+        throw new ObsGuestFailure('Une source choisie comme micro de salle ne propose pas d’audio dans OBS.');
+      });
+    }
+    for (const sceneName of sceneNames) {
+      if (!this.state.scenes.includes(sceneName)) {
+        if (!guestScenes.has(sceneName)) throw new ObsGuestFailure('Un plan de cette production n’existe plus dans OBS. Vérifiez la préparation de la salle.');
+        itemLists.set(sceneName, []);
+        continue;
+      }
+      const { sceneItems } = await this.call('GetSceneItemList', { sceneName });
+      for (const guest of guests) {
+        if (sceneItems.filter(item => item.sourceName === guest.inputName).length > 1) throw new ObsGuestFailure('Une source invité apparaît plusieurs fois dans un plan OBS. Supprimez le doublon avant de continuer.');
+      }
+      if (guestScenes.has(sceneName)) {
+        if (!sceneItems.length && !this.createdGuestScenes.has(sceneName)) throw new ObsGuestFailure('Une scène invité vide existe déjà dans OBS. Renommez-la pour préserver votre configuration.');
+        for (const item of sceneItems) {
+          if (roomAudio.includes(String(item.sourceName))) continue;
+          const guest = guests.find(guest => guest.inputName === item.sourceName);
+          if (!guest) throw new ObsGuestFailure('Une scène invité contient une source étrangère. Nino ne modifiera pas cette scène.');
+          await this.assertGuestOwnership(options, guest);
+        }
+        for (const inputName of roomAudio) if (sceneItems.filter(item => item.sourceName === inputName).length > 1) throw new ObsGuestFailure('Un micro de salle apparaît plusieurs fois dans un plan invité OBS. Supprimez le doublon avant de continuer.');
+      }
+      itemLists.set(sceneName, sceneItems);
+    }
+    for (const sceneName of guestScenes) {
+      if (!this.state.scenes.includes(sceneName)) {
+        await this.call('CreateScene', { sceneName });
+        this.createdGuestScenes.add(sceneName);
+      }
+    }
+    for (const guest of guests) {
+      const inputSettings = { url: guest.url, width: video.baseWidth, height: video.baseHeight,
+        is_local_file: false, reroute_audio: true, shutdown: false, restart_when_active: false,
+        webpage_control_level: 0, nino_owner: options.ownerId, nino_project: options.projectId,
+        nino_guestid: guest.id, nino_slot: guest.slot, nino_scene: guest.sceneName };
+      const existing = this.state.inputs.some(input => input.name === guest.inputName);
+      if (existing) {
+        const current = await this.assertGuestOwnership(options, guest);
+        if (Object.entries(inputSettings).some(([key, value]) => current.inputSettings[key] !== value)) {
+          await this.call('SetInputSettings', { inputName: guest.inputName, inputSettings, overlay: true });
+        }
+      } else {
+        const created = await this.call('CreateInput', { sceneName: guest.sceneName, inputName: guest.inputName,
+          inputKind: 'browser_source', inputSettings, sceneItemEnabled: false });
+        itemLists.get(guest.sceneName)!.push({ sourceName: guest.inputName, sceneItemId: created.sceneItemId, sceneItemEnabled: false });
+        await this.call('SetInputMute', { inputName: guest.inputName, inputMuted: true });
+        if (!(await this.call('GetInputMute', { inputName: guest.inputName })).inputMuted) throw new ObsGuestFailure('OBS n’a pas confirmé la coupure du micro invité.');
+      }
+      // Browser audio belongs to the OBS mix, never the PC speakers where it
+      // could re-enter a room microphone or be captured twice as desktop audio.
+      await this.call('SetInputAudioMonitorType', { inputName: guest.inputName, monitorType: 'OBS_MONITORING_TYPE_NONE' });
+      if ((await this.call('GetInputAudioMonitorType', { inputName: guest.inputName })).monitorType !== 'OBS_MONITORING_TYPE_NONE') throw new ObsGuestFailure('OBS n’a pas confirmé le routage audio invité.');
+      const confirmed = await this.assertGuestOwnership(options, guest);
+      for (const [key, value] of Object.entries(inputSettings)) {
+        if (confirmed.inputSettings[key] !== value) throw new ObsGuestFailure('OBS n’a pas confirmé la configuration de la source invité.');
+      }
+    }
+    for (const sceneName of sceneNames) {
+      for (const guest of guests) {
+        const item = itemLists.get(sceneName)!.find(item => item.sourceName === guest.inputName);
+        const sceneItemId = item ? Number(item.sceneItemId) : (await this.call('CreateSceneItem', {
+          sceneName, sourceName: guest.inputName, sceneItemEnabled: false })).sceneItemId;
+        const visible = sceneName === guest.sceneName;
+        const sceneItemTransform = { positionX: visible ? 0 : video.baseWidth + 100, positionY: 0,
+          boundsType: 'OBS_BOUNDS_SCALE_INNER', boundsWidth: video.baseWidth, boundsHeight: video.baseHeight,
+          alignment: 5, boundsAlignment: 0, rotation: 0, cropLeft: 0, cropRight: 0, cropTop: 0, cropBottom: 0 };
+        await this.call('SetSceneItemTransform', { sceneName, sceneItemId, sceneItemTransform });
+        await this.call('SetSceneItemEnabled', { sceneName, sceneItemId, sceneItemEnabled: true });
+        const [enabled, transform] = await Promise.all([
+          this.call('GetSceneItemEnabled', { sceneName, sceneItemId }),
+          this.call('GetSceneItemTransform', { sceneName, sceneItemId }),
+        ]);
+        if (!enabled.sceneItemEnabled || Object.entries(sceneItemTransform).some(([key, value]) => transform.sceneItemTransform[key] !== value)) {
+          throw new ObsGuestFailure('OBS n’a pas confirmé le cadrage et le son des invités.');
+        }
+      }
+      if (guestScenes.has(sceneName)) {
+        for (const inputName of roomAudio) {
+          const item = itemLists.get(sceneName)!.find(item => item.sourceName === inputName);
+          const sceneItemId = item ? Number(item.sceneItemId) : (await this.call('CreateSceneItem', {
+            sceneName, sourceName: inputName, sceneItemEnabled: false })).sceneItemId;
+          // An audio-capable camera/HDMI input can be used as a microphone too;
+          // keep any image outside the guest shot without changing the input.
+          await this.call('SetSceneItemTransform', { sceneName, sceneItemId, sceneItemTransform: { positionX: video.baseWidth + 100, positionY: 0 } });
+          await this.call('SetSceneItemEnabled', { sceneName, sceneItemId, sceneItemEnabled: true });
+          const [enabled, transform] = await Promise.all([
+            this.call('GetSceneItemEnabled', { sceneName, sceneItemId }), this.call('GetSceneItemTransform', { sceneName, sceneItemId }),
+          ]);
+          if (!enabled.sceneItemEnabled || transform.sceneItemTransform.positionX !== video.baseWidth + 100) throw new ObsGuestFailure('OBS n’a pas confirmé les micros de salle dans le plan invité.');
+        }
+      }
+    }
+    const confirmed = await this.refresh(true);
+    if (!confirmed.connected || confirmed.error) throw new ObsGuestFailure('OBS ne confirme plus les sources invités.');
+  }
 
   private mediaInputName(options: Pick<ObsMediaOptions, 'ownerId' | 'assetId'>): string { return `Nino · ${options.ownerId.slice(0, 8)} · ${options.assetId}`; }
   private async assertMediaOwnership(options: ObsMediaOptions, inputName: string): Promise<OBSResponseTypes['GetInputSettings']> {

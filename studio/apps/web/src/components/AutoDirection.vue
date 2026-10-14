@@ -19,21 +19,25 @@ const changed = computed(() => !saved.value || JSON.stringify(draft.value) !== J
 const automatic = computed(() => state.value?.autoDirection);
 const own = computed(() => automatic.value?.projectId === props.project.id);
 const enabled = computed(() => own.value && automatic.value?.enabled);
+const remoteParticipants = computed(() => (state.value?.guestRooms?.[props.project.id]?.guests ?? [])
+  .filter(guest => guest.admitted && guest.mediaReady && guest.sourceReady && !guest.muted)
+  .map(guest => ({ id: guest.id, name: `${guest.name} (à distance)`, micInput: guest.inputName, sceneName: guest.sceneName })));
+const participants = computed(() => [...props.project.participants, ...remoteParticipants.value]);
 const otherProduction = computed(() => automatic.value?.enabled && !own.value
   || state.value?.activeTake && state.value.activeTake.projectId !== props.project.id
   || state.value?.liveProjectId && state.value.liveProjectId !== props.project.id);
 const editable = computed(() => live.value && canEdit.value && !busy.value.control && !enabled.value);
 const invalid = computed(() => {
-  const participants = props.project.participants;
+  const people = participants.value;
   const obs = state.value?.obs;
-  if (!participants.length) return 'Ajoutez au moins une personne et associez son micro et son plan dans la production.';
-  if (participants.some(person => !person.micInput || !person.sceneName)) return 'Associez un micro et un plan à chaque personne dans « Modifier ».';
-  if (new Set(participants.map(person => person.micInput)).size !== participants.length) return 'Chaque personne doit avoir un micro ou canal audio distinct.';
-  if (new Set(participants.map(person => person.sceneName)).size !== participants.length) return 'Associez un plan distinct à chaque personne.';
+  if (!people.length) return 'Ajoutez au moins une personne et associez son micro et son plan dans la production.';
+  if (people.some(person => !person.micInput || !person.sceneName)) return 'Associez un micro et un plan à chaque personne dans « Modifier ».';
+  if (new Set(people.map(person => person.micInput)).size !== people.length) return 'Chaque personne doit avoir un micro ou canal audio distinct.';
+  if (new Set(people.map(person => person.sceneName)).size !== people.length) return 'Associez un plan distinct à chaque personne.';
   if (!draft.value.wideScene || !obs?.scenes.includes(draft.value.wideScene)) return 'Choisissez un plan large présent dans OBS.';
-  if (new Set([...participants.map(person => person.sceneName), draft.value.wideScene]).size < 2) return 'Le plan large et le plan de la personne doivent être différents.';
-  if (participants.some(person => !obs?.scenes.includes(person.sceneName!) || !obs?.inputs.some(input => input.name === person.micInput && input.muted !== null))) return 'Un plan ou un micro associé est absent d’OBS. Vérifiez les sources de la salle.';
-  if (participants.some(person => obs?.inputs.find(input => input.name === person.micInput)?.muted)) return 'Un micro est coupé. Réactivez les micros avant de reprendre l’automatique.';
+  if (new Set([...people.map(person => person.sceneName), draft.value.wideScene]).size < 2) return 'Le plan large et le plan de la personne doivent être différents.';
+  if (people.some(person => !obs?.scenes.includes(person.sceneName!) || !obs?.inputs.some(input => input.name === person.micInput && input.muted !== null))) return 'Un plan ou un micro associé est absent d’OBS. Vérifiez les sources de la salle.';
+  if (people.some(person => obs?.inputs.find(input => input.name === person.micInput)?.muted)) return 'Un micro est coupé. Réactivez les micros avant de reprendre l’automatique.';
   const bounds: [keyof AutoDirectionSettings, number, number][] = [['thresholdDb', -60, -10], ['dominanceDb', 3, 20], ['confirmationMs', 300, 3000], ['minShotMs', 1000, 15000], ['silenceMs', 1500, 15000], ['overlapMs', 300, 5000]];
   if (bounds.some(([key, min, max]) => typeof draft.value[key] !== 'number' || !Number.isFinite(draft.value[key]) || Number(draft.value[key]) < min || Number(draft.value[key]) > max || !Number.isInteger(Number(draft.value[key])))) return 'Vérifiez les valeurs des réglages avancés et leurs limites.';
   return '';
@@ -55,7 +59,8 @@ async function start(): Promise<void> {
   <section class="auto-direction" aria-label="Réalisation automatique">
     <header class="regie-section-heading"><div><Icon name="camera" /><h2>Réalisation automatique</h2></div><span class="regie-status" :class="enabled && live ? 'active' : 'idle'" role="status">{{ label }}</span></header>
     <p class="auto-intro">Le micro qui parle choisit son plan. Le silence et les voix simultanées ramènent au plan large.</p>
-    <div class="auto-associations"><div v-for="person in project.participants" :key="person.id" :class="{ speaking: enabled && automatic?.participantId === person.id }"><span class="auto-person">{{ person.name }}</span><small>{{ person.micInput || 'Micro à associer' }} <span aria-hidden="true">→</span> {{ person.sceneName || 'Plan à associer' }}</small></div></div>
+    <div class="auto-associations"><div v-for="person in participants" :key="person.id" :class="{ speaking: enabled && automatic?.participantId === person.id }"><span class="auto-person">{{ person.name }}</span><small>{{ person.micInput || 'Micro à associer' }} <span aria-hidden="true">→</span> {{ person.sceneName || 'Plan à associer' }}</small></div></div>
+    <p v-if="state?.guestRooms?.[project.id]?.guests.some(guest => guest.status !== 'removed')" class="hint">Les invités rejoignent l’automatique après leur admission et la réception de leur vidéo dans OBS. Un invité muet ou déconnecté est écarté.</p>
     <div class="field"><label :for="fieldId('wide')">Plan large</label><select :id="fieldId('wide')" v-model="draft.wideScene" :disabled="!editable"><option value="">Choisir un plan</option><option v-for="scene in state?.obs.scenes" :key="scene" :value="scene">{{ scene }}</option></select></div>
     <p v-if="own && automatic?.message" class="auto-message" role="status">{{ automatic.message }}</p>
     <p v-if="invalid" class="hint">{{ invalid }}</p>

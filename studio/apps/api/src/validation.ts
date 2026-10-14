@@ -87,6 +87,12 @@ export function controlInput(value: unknown): ControlCommand {
   const data = object(value);
   const requestId = data.requestId === undefined ? undefined : string(data.requestId, 'identifiant de commande', 128);
   switch (data.action) {
+    case 'guest.prepare': case 'guest.bridge.stop': return { action: data.action, projectId: string(data.projectId, 'projet', 100), requestId };
+    case 'guest.admit': case 'guest.remove': case 'guest.scene': return { action: data.action, guestId: string(data.guestId, 'invité', 100), requestId };
+    case 'guest.mute': {
+      if (typeof data.muted !== 'boolean') throw new ApiFailure(400, 'L’état du micro doit être explicite.');
+      return { action: data.action, guestId: string(data.guestId, 'invité', 100), muted: data.muted, requestId };
+    }
     case 'auto.configure': return { action: data.action, projectId: string(data.projectId, 'projet', 100), settings: autoDirectionInput(data.settings), requestId };
     case 'auto.start': return { action: data.action, projectId: string(data.projectId, 'projet', 100), requestId };
     case 'auto.stop': return { action: data.action, requestId };

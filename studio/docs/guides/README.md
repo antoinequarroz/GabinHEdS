@@ -36,7 +36,7 @@ Après inspection, copier les trois PDF finaux dans ce dossier pour la publicati
 
 - La réalisation automatique choisit des scènes à partir des niveaux de micros OBS distincts, localement. Elle ne nécessite pas de clé d'IA, ne transcrit pas les voix et ne supprime pas les silences.
 - Le micro partagé du Mac ne permet pas de sélectionner une caméra par personne. Les micros doivent rester présents dans les scènes utilisées pour la réalisation automatique. Un micro associé coupé, absent ou sans mesure récente met l'ensemble de la réalisation automatique en attente.
-- Une production est limitée à quatre participants en salle. Les invités en appel à distance ne sont pas encore intégrés.
+- Une production est limitée à quatre participants en salle et deux invités depuis un navigateur. Les chapitres ajoutés à la fin des guides couvrent l’appel, les retours sans voix propre et les tests. L’accès extérieur HTTPS et TURN doit être installé et testé séparément.
 - PDF/PPTX de bibliothèque sont des documents de référence ; la présentation se filme via une fenêtre capturée ou une entrée HDMI préparée dans OBS.
 - Live et enregistrement ont des démarrages et des arrêts distincts. Les tests de navigateur/CI ne remplacent pas la recette iPad, Stream Deck et plateforme réels.
 - L'export Resolve fournit une timeline OTIO par prise et sa vidéo de programme compatible ; il ne fabrique pas des caméras ISO absentes. L'import réel a été validé sur DaVinci Resolve Studio 21.1.
