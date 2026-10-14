@@ -11,6 +11,8 @@ import { RealMediaGateway } from '../apps/api/src/media.js';
 import { startFakeObs } from './fake-obs.js';
 import { startTestMedia } from './media-test-server.js';
 import { createMediaFixture } from './media-fixture.js';
+import { decodedImagePreviews, noOverflow as assertNoOverflow, proofScreenshot as captureProof,
+  verifyRenderingGuards } from './browser-rendering.js';
 import type { AuthResult, MediaAsset, PreviewSession, StudioState } from '@gabin/shared';
 
 // Bounded verification: real API, OBS adapter, MediaMTX, FFmpeg relay and HLS
@@ -84,35 +86,14 @@ async function untilState(predicate: (state: StudioState) => boolean, descriptio
   }
   throw new Error(`État non confirmé : ${description}`);
 }
-async function renderedLayout(page: any): Promise<void> {
-  const viewport = page.viewportSize();
-  await page.waitForFunction((expected: { width: number; height: number } | null) =>
-    document.readyState !== 'loading' && document.fonts.status === 'loaded'
-      && (!expected || (innerWidth === expected.width && innerHeight === expected.height)),
-  viewport, { timeout: 10_000, polling: 'raf' });
-  // On mobile WebKit a newly navigated document can report the previous
-  // viewport's scrollWidth before its first paint. Observe actual render frames.
-  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-}
 async function noOverflow(page: any, label: string): Promise<void> {
-  await renderedLayout(page);
-  await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth + 1,
-    null, { timeout: 5_000, polling: 'raf' }).catch(() => undefined);
-  const dimensions = await page.evaluate(() => ({
-    width: innerWidth, scroll: document.documentElement.scrollWidth,
-    ...(document.documentElement.scrollWidth > innerWidth + 1 ? {
-      overflowing: [...document.querySelectorAll<HTMLElement>('body *')].map(element => {
-        const rect = element.getBoundingClientRect();
-        return { tag: element.tagName, class: element.className, left: rect.left, right: rect.right, width: rect.width };
-      }).filter(rect => rect.right > innerWidth + 1).slice(0, 12),
-    } : {}),
-  }));
-  assert(dimensions.scroll <= dimensions.width + 1, `${label}: ${dimensions.scroll}px pour ${dimensions.width}px ${JSON.stringify(dimensions)}`);
+  await assertNoOverflow(page, label);
   steps.push(`${label} : aucun débordement horizontal`);
 }
 async function proofScreenshot(page: any, filename: string): Promise<void> {
-  await renderedLayout(page);
-  await page.screenshot({ path: join(screenshotDir, filename), fullPage: true, animations: 'disabled', timeout: 45_000 });
+  const started = Date.now();
+  await captureProof(page, join(screenshotDir, filename));
+  console.info(`Capture confirmée : ${filename} (${Date.now() - started} ms)`);
 }
 async function decodedProgramme(page: any, label: string): Promise<void> {
   await page.locator('video').waitFor();
@@ -164,6 +145,8 @@ try {
   browser = await playwright[browserEngine].launch({ headless: true,
     ...(browserEngine === 'chromium' ? { args: ['--host-resolver-rules=MAP ipad.gabin.test 127.0.0.1', '--no-proxy-server'],
       ...(executablePath ? { executablePath } : chromiumChannel ? { channel: chromiumChannel } : {}) } : {}) });
+  await verifyRenderingGuards(browser);
+  steps.push('Gardes du test : débordement réel de 420 px rejeté à 390 px ; aperçu manquant rejeté, images valides décodées');
   const pcContext = await browser.newContext({ viewport: { width: 1440, height: 1000 }, acceptDownloads: true });
   pc = await pcContext.newPage();
   pc.setDefaultTimeout(15_000);
@@ -252,8 +235,9 @@ try {
   await noOverflow(pc, 'Bibliothèque PC');
   await noOverflow(ipad, 'Bibliothèque iPad');
   await mkdir(screenshotDir, { recursive: true });
-  await pc.waitForFunction(() => [...document.querySelectorAll('.media-asset-card img')].filter(image => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0).length >= 2);
+  await decodedImagePreviews(pc, '.media-asset-card img', 2);
   await proofScreenshot(pc, 'nino-library-pc.png');
+  await decodedImagePreviews(ipad, '.media-asset-card img', 2);
   await proofScreenshot(ipad, 'nino-library-ipad.png');
   steps.push('Bibliothèque : vrais imports MP4 sur PC et PNG sur iPad, métadonnées vérifiées et catalogue partagé');
 
@@ -267,7 +251,10 @@ try {
   await pc.getByLabel('Rôle du média', { exact: true }).selectOption('logo');
   await pc.getByRole('button', { name: 'Ajouter le média', exact: true }).click();
   await untilState(state => state.projectMedia?.[projectId]?.length === 2, 'logo associé');
+  await ipad.bringToFront();
   await ipad.goto(new URL(`/#project/${projectId}`, ipad.url()).href);
+  await ipad.getByRole('heading', { name: 'Métiers de la santé · épisode 01', exact: true }).waitFor();
+  await ipad.getByRole('button', { name: 'Enregistrer et diffuser', exact: true }).click();
   await pc.getByRole('button', { name: 'Ouvrir la régie', exact: true }).click();
   await pc.getByRole('button', { name: 'Démarrer la prise', exact: true }).click();
   await pc.getByRole('dialog').getByRole('button', { name: 'Démarrer dans OBS', exact: true }).click();
@@ -412,19 +399,41 @@ try {
   }
 
   await noOverflow(ipad, 'Prises iPad 1024');
+  const ipadStorage = await ipadContext.storageState();
+  const ipadOrigin = new URL(ipad.url()).origin;
+  // Static device sizes get their own mobile render view. Repeatedly resizing
+  // one WebKit fixed-layout view can retain the previous device's scrollport.
   for (const width of [768, 390]) {
-    await ipad.setViewportSize({ width, height: 900 });
-    await noOverflow(ipad, `Prises ${width}`);
-    await ipad.getByRole('button', { name: /Préparer la salle/ }).click();
-    await noOverflow(ipad, `Préparation ${width}`);
-    await ipad.getByRole('button', { name: /Enregistrer et diffuser$/ }).click();
-    await noOverflow(ipad, `Régie ${width}`);
-    await ipad.getByRole('button', { name: /Retrouver les prises/ }).click();
-    await ipad.goto(new URL('/#library', ipad.url()).href);
-    await ipad.getByText(videoAsset.title, { exact: true }).first().waitFor();
-    await noOverflow(ipad, `Bibliothèque ${width}`);
-    await ipad.goto(new URL(`/#project/${projectId}`, ipad.url()).href);
-    await ipad.getByRole('button', { name: /Retrouver les prises/ }).click();
+    const context = await browser.newContext({ viewport: { width, height: 900 }, isMobile: true, hasTouch: true,
+      acceptDownloads: true, storageState: ipadStorage });
+    try {
+      const mobile = await context.newPage();
+      mobile.setDefaultTimeout(15_000);
+      track(mobile);
+      await mobile.goto(`${ipadOrigin}/#project/${projectId}`);
+      await mobile.getByRole('heading', { name: 'Métiers de la santé · épisode 01', exact: true }).waitFor();
+      await mobile.getByRole('button', { name: /Retrouver les prises/ }).click();
+      await mobile.getByRole('heading', { name: 'Les prises de cette production', exact: true }).waitFor();
+      await noOverflow(mobile, `Prises ${width}`);
+      await mobile.getByRole('button', { name: /Préparer la salle/ }).click();
+      await mobile.getByRole('heading', { name: 'Participants et plans', exact: true }).waitFor();
+      await noOverflow(mobile, `Préparation ${width}`);
+      await mobile.getByRole('button', { name: /Enregistrer et diffuser$/ }).click();
+      await mobile.getByRole('heading', { name: 'Changer de plan', exact: true }).waitFor();
+      await noOverflow(mobile, `Régie ${width}`);
+      await mobile.getByRole('button', { name: /Retrouver les prises/ }).click();
+      await mobile.goto(`${ipadOrigin}/#library`);
+      await mobile.getByRole('heading', { name: 'Bibliothèque de médias', exact: true }).waitFor();
+      await noOverflow(mobile, `Bibliothèque ${width}`);
+      await decodedImagePreviews(mobile, '.media-asset-card img', 2);
+      await proofScreenshot(mobile, `nino-library-${width}.png`);
+    } catch (error) {
+      const [mobile] = context.pages();
+      if (mobile) await captureProof(mobile, join(screenshotDir, `nino-mobile-failure-${width}.png`)).catch(() => undefined);
+      throw error;
+    } finally {
+      await context.close();
+    }
   }
   assert.deepEqual(pageErrors, [], 'Aucune exception JavaScript navigateur');
   assert.deepEqual(failedApi, [], 'Aucune requête API échouée pendant le parcours');
