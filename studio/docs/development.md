@@ -62,7 +62,7 @@ Les preuves navigateur sont conservées pendant **7 jours** : captures PNG et jo
 
 ## Récupérer une version locale validée
 
-Après un push ou un lancement manuel réussi, télécharger l’artefact **nino-local-<commit>** dans le run Actions. Il contient une archive `nino-studio-<commit>.zip` et son fichier `.sha256`, conservés pendant **14 jours**. Le fichier `release.json` à l’intérieur indique le commit construit et la date de construction.
+Après un push ou un lancement manuel réussi, télécharger l’artefact **nino-local-<commit>-<tentative>** dans le run Actions. Il contient une archive `nino-studio-<commit>.zip` et son fichier `.sha256`, conservés pendant **14 jours**. Le fichier `release.json` à l’intérieur indique le commit construit et la date de construction. Chaque relance possède ses propres artefacts.
 
 L’archive est créée dans un dossier neuf depuis une liste de fichiers autorisés. Elle contient les workspaces API/contrats, les sources et la construction du navigateur, les scripts MediaMTX, les tests et la documentation. Elle exclut les bases locales, les fichiers `.env`, les vidéos, les caches, `node_modules` et les sorties historiques. L’API utilise encore `tsx` pour démarrer : installer toutes les dépendances avec **`npm ci`**, sans `--omit=dev`. MediaMTX, FFmpeg et OBS s’installent sur le poste cible ; aucun binaire macOS n’est réutilisé pour Windows.
 

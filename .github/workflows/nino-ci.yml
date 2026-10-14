@@ -122,7 +122,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: nino-browser-${{ matrix.browser }}-${{ github.run_id }}
+          name: nino-browser-${{ matrix.browser }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/nino-artifacts/${{ matrix.browser }}/*.png
             ${{ runner.temp }}/nino-artifacts/${{ matrix.browser }}/browser.log
@@ -202,7 +202,7 @@ jobs:
       - name: Livrer le code et l’interface compilée
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: nino-local-${{ github.sha }}
+          name: nino-local-${{ github.sha }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/nino-release/*.zip
             ${{ runner.temp }}/nino-release/*.sha256
