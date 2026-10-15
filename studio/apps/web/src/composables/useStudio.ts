@@ -2,7 +2,7 @@ import { computed, ref, shallowRef } from 'vue';
 import type {
   AudioFrame, AuthResult, ClientMessage, ControlCommand, Device, DownloadTicket, PairingCode, Preparation,
   PreviewSession, Project, ProjectInput, RoomConfig, RoomConfigInput, SceneThumbnail, ServerMessage, StudioState,
-  MediaAsset, ProjectMediaLink, FilePlaybackSession, TakePlaybackStatus, ResolveExportStatus,
+  MediaAsset, ProjectMediaLink, FilePlaybackSession, TakePlaybackStatus, ResolveExportStatus, GuestInvitation, GuestSession,
 } from '@gabin/shared';
 
 const tokenKey = 'gabin.studio.device';
@@ -22,9 +22,11 @@ let socket: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 let reconnectDelay = 1000;
 let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+let controllerEnabled = false;
 const resolvePreparations = new Map<string, AbortController>();
+const guestInvitations = shallowRef<Record<string, Record<number, GuestInvitation>>>({});
 window.addEventListener('offline', () => { live.value = false; socket?.close(); });
-window.addEventListener('online', () => { if (token.value) connectEvents(); });
+window.addEventListener('online', () => { if (controllerEnabled && token.value) connectEvents(); });
 
 class ApiFailure extends Error {
   constructor(message: string, readonly status: number) { super(message); }
@@ -69,7 +71,16 @@ async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 function applyState(next: StudioState): void {
-  if (!state.value || next.revision >= state.value.revision) state.value = next;
+  if (!state.value || next.revision >= state.value.revision) {
+    state.value = next;
+    const active = new Set(Object.values(next.guestRooms ?? {}).flatMap(room => room.guests.filter(guest => guest.status === 'invited').map(guest => guest.id)));
+    let changed = false; const invitations: Record<string, Record<number, GuestInvitation>> = {};
+    for (const [projectId, links] of Object.entries(guestInvitations.value)) {
+      invitations[projectId] = {};
+      for (const [slot, invitation] of Object.entries(links)) { if (active.has(invitation.guestId)) invitations[projectId][Number(slot)] = invitation; else changed = true; }
+    }
+    if (changed) guestInvitations.value = invitations;
+  }
 }
 
 function notify(message: string): void {
@@ -103,11 +114,12 @@ function forgetDevice(): void {
   localStorage.removeItem(tokenKey);
   device.value = null;
   state.value = null;
+  guestInvitations.value = {};
   stopEvents();
 }
 
 function connectEvents(): void {
-  if (!token.value || socket) return;
+  if (!controllerEnabled || !token.value || socket) return;
   const connection = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/api/events`);
   let firstSnapshot = true;
   socket = connection;
@@ -161,7 +173,8 @@ async function acceptAuth(result: AuthResult): Promise<void> {
 }
 
 async function initialize(): Promise<void> {
-  if (initialized.value) return;
+  controllerEnabled = true;
+  if (initialized.value) { if (token.value && device.value) connectEvents(); return; }
   await run('auth', async () => {
     if (token.value) {
       device.value = await api<Device>('/auth/me');
@@ -425,8 +438,9 @@ const mediaThumbnail = (id: string) => imageThumbnail(`/library/${encodeURICompo
 
 export function useStudio() {
   return {
-    device, state, initialized, live, audioFrame, audioReceivedAt, error, notice, busy, canEdit, technician,
+    device, state, initialized, live, audioFrame, audioReceivedAt, error, notice, busy, canEdit, technician, guestInvitations,
     initialize, pair, forgetDevice, saveProject, preparation, control, connectObs, saveRoom, downloadTake, sceneThumbnail, takeThumbnail,
+    suspendStudioConnection: () => { controllerEnabled = false; stopEvents(); },
     uploadMedia, updateMedia, saveProjectMedia, mediaFileSession, takePlaybackSession, exportProject, exportResolve, cancelResolveExport, mediaThumbnail,
     getDevices: () => run('devices', () => api<Device[]>('/devices')),
     createPairing: (role: Device['role'] = 'operator') => run('pairing', () => api<PairingCode>('/pairing', { method: 'POST', body: JSON.stringify({ role, kind: 'ipad' }) })),
@@ -434,5 +448,12 @@ export function useStudio() {
     revokeDevice: (id: string) => run('revoke', async () => { await api<void>(`/devices/${encodeURIComponent(id)}`, { method: 'DELETE' }); notify('Accès de l’appareil révoqué.'); return true; }),
     refresh: () => run('refresh', async () => { applyState(await api<StudioState>('/state')); }),
     previewSession: () => run('preview-session', () => api<PreviewSession>('/monitor/session', { method: 'POST', body: '{}' })),
+    inviteGuest: (projectId: string, slot: 1 | 2, name: string) => run(`guest-invite:${slot}`, async () => {
+      const invitation = await api<GuestInvitation>(`/projects/${encodeURIComponent(projectId)}/guests/invitations`, { method: 'POST', body: JSON.stringify({ slot, name }) });
+      applyState(await api<StudioState>('/state'));
+      guestInvitations.value = { ...guestInvitations.value, [projectId]: { ...guestInvitations.value[projectId], [slot]: invitation } };
+      return invitation;
+    }),
+    guestBridgeSession: (projectId: string) => run('guest-bridge', () => api<GuestSession>(`/projects/${encodeURIComponent(projectId)}/guests/bridge-session`, { method: 'POST', body: '{}' })),
   };
 }

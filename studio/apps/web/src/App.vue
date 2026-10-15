@@ -9,8 +9,16 @@ import RoomPage from './pages/RoomPage.vue';
 import DevicesPage from './pages/DevicesPage.vue';
 import LibraryPage from './pages/LibraryPage.vue';
 import StudioBrand from './components/StudioBrand.vue';
-const { device, state, initialized, live, busy, error, notice, technician, canEdit, initialize, pair, forgetDevice, refresh } = useStudio();
+import GuestPage from './pages/GuestPage.vue';
+import GuestBridgePage from './pages/GuestBridgePage.vue';
+import GuestSourcePage from './pages/GuestSourcePage.vue';
+const { device, state, initialized, live, busy, error, notice, technician, canEdit, initialize, pair, forgetDevice, refresh, suspendStudioConnection } = useStudio();
 const path = ref(location.hash.slice(1) || 'projects');
+const gateway = ref<'checking' | 'studio' | 'guest'>('checking');
+const guestRoute = computed(() => /^(guest|guest-source)\//.test(path.value) || path.value === 'guest-bridge' || location.pathname === '/guest-bridge');
+const invitationToken = computed(() => path.value.startsWith('guest/') ? path.value.slice(6) : '');
+const sourceToken = computed(() => path.value.startsWith('guest-source/') ? path.value.slice(13) : '');
+const bridgeRoute = computed(() => path.value === 'guest-bridge' || location.pathname === '/guest-bridge');
 const code = ref('');
 const deviceName = ref('iPad de la salle');
 const localPc = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
@@ -36,12 +44,23 @@ const liveIndicator = computed(() => {
 const currentSection = computed(() => ['room', 'devices', 'library'].includes(path.value) ? path.value : 'projects');
 const nav = computed(() => [{ id: 'projects', label: 'Productions', icon: 'projects' }, { id: 'library', label: 'Bibliothèque', icon: 'library' }, ...(technician.value ? [{ id: 'room', label: 'Salle et OBS', icon: 'room' }, { id: 'devices', label: 'Appareils', icon: 'devices' }] : [])]);
 function navigate(next: string): void { path.value = next; location.hash = next; window.scrollTo({ top: 0, behavior: 'instant' }); }
-function onHash(): void { path.value = location.hash.slice(1) || 'projects'; }
-onMounted(() => { window.addEventListener('hashchange', onHash); void initialize(); });
+function onHash(): void { path.value = location.hash.slice(1) || 'projects'; if (guestRoute.value || gateway.value === 'guest') suspendStudioConnection(); else if (gateway.value === 'studio') void initialize(); }
+onMounted(async () => {
+  window.addEventListener('hashchange', onHash);
+  if (guestRoute.value) { gateway.value = 'guest'; suspendStudioConnection(); return; }
+  try { const response = await fetch('/api/guest/config'); const config = await response.json() as { mode?: string }; gateway.value = config.mode === 'guest' ? 'guest' : 'studio'; }
+  catch { gateway.value = 'studio'; }
+  if (gateway.value === 'studio') void initialize(); else suspendStudioConnection();
+});
 onBeforeUnmount(() => window.removeEventListener('hashchange', onHash));
 </script>
 
 <template>
+  <GuestSourcePage v-if="sourceToken" :key="sourceToken" :token="sourceToken" />
+  <GuestPage v-else-if="invitationToken" :key="invitationToken" :token="invitationToken" />
+  <GuestBridgePage v-else-if="bridgeRoute" />
+  <div v-else-if="gateway !== 'studio'" class="guest-layout"><header class="guest-header"><StudioBrand /><span>Invités à distance</span></header><main class="guest-main"><div class="guest-heading"><h1>{{ gateway === 'checking' ? 'Connexion au studio…' : 'Votre invitation vous attend' }}</h1><p>{{ gateway === 'checking' ? 'Vérification de l’accès.' : 'Ouvrez le lien personnel envoyé par la salle pour rejoindre votre conversation.' }}</p></div></main></div>
+  <template v-else>
   <a v-if="device && state" class="skip-link" href="#main-content">Aller au contenu</a>
   <div v-if="!device || !state" class="login-layout">
     <section class="login-intro"><div class="brand"><StudioBrand /></div><div><h1>La salle est prête.<br />À vous de créer.</h1><p>Préparez votre production et retrouvez la régie de la salle sur le PC ou l’iPad.</p></div><p class="login-footnote">Le PC conserve les enregistrements, même lorsque l’iPad se déconnecte.</p></section>
@@ -77,4 +96,5 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', onHash));
     <nav class="studio-touch-nav tablet-nav" aria-label="Navigation tactile"><button v-for="item in nav" :key="item.id" :aria-label="item.label" :aria-current="currentSection === item.id ? 'page' : undefined" @click="navigate(item.id)"><Icon :name="item.icon" /><span>{{ item.label }}</span></button><details class="studio-touch-access"><summary><Icon name="settings" /><span>Accès</span></summary><div><strong>{{ device.name }}</strong><span>{{ deviceRole }}</span><button class="text-button" @click="forgetDevice">Oublier cet appareil</button></div></details></nav>
     <div v-if="notice" class="toast" role="status" aria-live="polite"><Icon name="check" />{{ notice }}</div>
   </div>
+  </template>
 </template>

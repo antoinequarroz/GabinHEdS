@@ -33,6 +33,12 @@ export interface FakeObsOptions {
   onStreamStop?: () => Promise<void> | void;
   /** A generated test media file to copy at StopRecord, never a real capture. */
   recordingFixture?: string;
+  inputKinds?: string[];
+  virtualCameraAvailable?: boolean;
+  virtualCameraStartDelayMs?: number;
+  specialInputs?: Record<string, string | null>;
+  /** Simulate an OBS acknowledgement whose requested state was not applied. */
+  ignoreMutations?: string[];
 }
 
 export async function startFakeObs(options: FakeObsOptions = {}) {
@@ -47,6 +53,7 @@ export async function startFakeObs(options: FakeObsOptions = {}) {
   let sequence = 0;
   let outputPath: string | null = null;
   let streaming = false;
+  let virtualCamera = false;
   let streamStartTime = 0;
   let streamService: FakeStreamService = { streamServiceType: 'rtmp_custom',
     streamServiceSettings: { server: 'rtmp://127.0.0.1:1935', key: 'fixture-initial-key' } };
@@ -60,6 +67,8 @@ export async function startFakeObs(options: FakeObsOptions = {}) {
   const scenes = ['Podcast', 'Table ronde', 'PowerPoint', 'Plan large', 'Caméra 1', 'Caméra 2'];
   const mutes = new Map([['Micro 1', false], ['Micro 2', false], ['HDMI', false]]);
   const mediaInputs = new Map<string, { kind: string; settings: Record<string, unknown>; state: string }>();
+  const monitors = new Map<string, string>();
+  const transforms = new Map<number, Record<string, unknown>>();
   const sceneItems = new Map<string, { sceneItemId: number; sourceName: string; sceneItemEnabled: boolean }[]>();
   let nextItemId = 1;
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
@@ -100,6 +109,8 @@ export async function startFakeObs(options: FakeObsOptions = {}) {
     'GetStreamStatus', 'StartStream', 'StopStream', 'GetStreamServiceSettings', 'SetStreamServiceSettings',
     'CreateScene', 'GetSceneItemList', 'CreateInput', 'CreateSceneItem', 'GetInputSettings', 'SetInputSettings',
     'SetSceneItemEnabled', 'GetSceneItemEnabled', 'GetVideoSettings', 'SetSceneItemTransform', 'TriggerMediaInputAction', 'GetMediaInputStatus'];
+  supported.push('GetInputKindList', 'GetInputAudioMonitorType', 'SetInputAudioMonitorType', 'GetSceneItemTransform', 'GetVirtualCamStatus', 'StartVirtualCam');
+  supported.push('GetSpecialInputs');
 
   server.on('connection', (client) => {
     send(client, { op: 0, d: { obsStudioVersion: 'test-fixture', obsWebSocketVersion: '5.6.0', rpcVersion: 1 } });
@@ -142,9 +153,11 @@ export async function startFakeObs(options: FakeObsOptions = {}) {
           case 'GetSceneList': responseData = { currentProgramSceneName: currentScene, currentPreviewSceneName: null,
             scenes: scenes.map((sceneName, sceneIndex) => ({ sceneName, sceneIndex, sceneUuid: `scene-${sceneIndex}` })) }; break;
           case 'GetCurrentProgramScene': responseData = { currentProgramSceneName: currentScene }; break;
-          case 'GetInputList': responseData = { inputs: [...mutes.keys()].map((inputName, index) => ({
+          case 'GetInputList': responseData = { inputs: [...mutes.keys()].filter(name => !mediaInputs.has(name)).map((inputName, index) => ({
             inputName, inputUuid: `input-${index}`, inputKind: 'wasapi_input_capture', unversionedInputKind: 'wasapi_input_capture',
           })).concat([...mediaInputs].map(([inputName, input]) => ({ inputName, inputUuid: inputName, inputKind: input.kind, unversionedInputKind: input.kind }))) }; break;
+          case 'GetInputKindList': responseData = { inputKinds: options.inputKinds ?? ['image_source', 'ffmpeg_source', 'browser_source', 'wasapi_input_capture'] }; break;
+          case 'GetSpecialInputs': responseData = options.specialInputs ?? { desktop1: null, desktop2: null, mic1: null, mic2: null, mic3: null, mic4: null }; break;
           case 'CreateScene': {
             const sceneName = String(request.requestData.sceneName);
             if (scenes.includes(sceneName)) fail(601, 'Scene already exists');
@@ -172,7 +185,7 @@ export async function startFakeObs(options: FakeObsOptions = {}) {
           }
           case 'CreateSceneItem': {
             const name = String(request.requestData.sourceName); const sceneName = String(request.requestData.sceneName);
-            if (!mediaInputs.has(name) || !scenes.includes(sceneName)) fail(600, 'Source or scene missing');
+            if ((!mediaInputs.has(name) && !mutes.has(name)) || !scenes.includes(sceneName)) fail(600, 'Source or scene missing');
             else {
               const items = sceneItems.get(sceneName) ?? []; const sceneItemId = nextItemId++;
               items.push({ sceneItemId, sourceName: name, sceneItemEnabled: !!request.requestData.sceneItemEnabled }); sceneItems.set(sceneName, items);
@@ -198,8 +211,10 @@ export async function startFakeObs(options: FakeObsOptions = {}) {
             else item.sceneItemEnabled = !!request.requestData.sceneItemEnabled;
             break;
           }
-          case 'SetSceneItemTransform': {
+          case 'SetSceneItemTransform': case 'GetSceneItemTransform': {
             if (!(sceneItems.get(String(request.requestData.sceneName)) ?? []).some(item => item.sceneItemId === request.requestData.sceneItemId)) fail(600, 'Scene item missing');
+            else if (request.requestType === 'GetSceneItemTransform') responseData = { sceneItemTransform: structuredClone(transforms.get(Number(request.requestData.sceneItemId)) ?? {}) };
+            else if (!options.ignoreMutations?.includes('SetSceneItemTransform')) transforms.set(Number(request.requestData.sceneItemId), structuredClone(request.requestData.sceneItemTransform as Record<string, unknown>));
             break;
           }
           case 'GetVideoSettings': responseData = { baseWidth: 1920, baseHeight: 1080, outputWidth: 1920, outputHeight: 1080, fpsNumerator: 25, fpsDenominator: 1 }; break;
@@ -224,6 +239,13 @@ export async function startFakeObs(options: FakeObsOptions = {}) {
             if (!mutes.has(String(request.requestData.inputName)) && !mediaInputs.has(String(request.requestData.inputName))) fail(600, 'Input not found');
             else responseData = { inputMuted: mutes.get(String(request.requestData.inputName)) ?? false };
             break;
+          case 'GetInputAudioMonitorType': case 'SetInputAudioMonitorType': {
+            const inputName = String(request.requestData.inputName);
+            if (!mutes.has(inputName) && !mediaInputs.has(inputName)) fail(600, 'Input not found');
+            else if (request.requestType === 'GetInputAudioMonitorType') responseData = { monitorType: monitors.get(inputName) ?? 'OBS_MONITORING_TYPE_NONE' };
+            else monitors.set(inputName, String(request.requestData.monitorType));
+            break;
+          }
           case 'GetInputVolume': responseData = { inputVolumeDb: -6, inputVolumeMul: 0.501187 }; break;
           case 'GetStreamServiceSettings': responseData = structuredClone(streamService) as unknown as Record<string, unknown>; break;
           case 'SetStreamServiceSettings':
@@ -263,14 +285,26 @@ export async function startFakeObs(options: FakeObsOptions = {}) {
             break;
           case 'SetInputMute': {
             const inputName = String(request.requestData.inputName);
-            if (!mutes.has(inputName)) fail(600, 'Input not found');
+            if (!mutes.has(inputName) && !mediaInputs.has(inputName)) fail(600, 'Input not found');
             else {
               const inputMuted = Boolean(request.requestData.inputMuted);
-              mutes.set(inputName, inputMuted);
+              if (!options.ignoreMutations?.includes('SetInputMute')) mutes.set(inputName, inputMuted);
               event('InputMuteStateChanged', 8, { inputName, inputMuted });
             }
             break;
           }
+          case 'GetVirtualCamStatus':
+            if (options.virtualCameraAvailable === false) fail(204, 'Virtual camera unavailable');
+            else responseData = { outputActive: virtualCamera };
+            break;
+          case 'StartVirtualCam':
+            if (options.virtualCameraAvailable === false) fail(204, 'Virtual camera unavailable');
+            else if (virtualCamera) fail(500, 'Already active');
+            else if (!options.ignoreMutations?.includes('StartVirtualCam')) {
+              if (options.virtualCameraStartDelayMs) delayedStart(options.virtualCameraStartDelayMs, () => { virtualCamera = true; });
+              else virtualCamera = true;
+            }
+            break;
           case 'GetRecordStatus': responseData = { outputActive: recording, outputPaused: paused,
             outputTimecode: timecode(elapsed()), outputDuration: elapsed(), outputBytes: recording ? 4096 : 0 }; break;
           case 'GetRecordDirectory': responseData = { recordDirectory }; break;
@@ -329,6 +363,29 @@ export async function startFakeObs(options: FakeObsOptions = {}) {
     requests,
     identifications,
     emitMeters,
+    snapshot() {
+      return { currentScene, recording, streaming, virtualCamera, scenes: [...scenes],
+        inputs: Object.fromEntries([...mediaInputs].map(([name, input]) => [name, { ...structuredClone(input),
+          muted: mutes.get(name) ?? false, monitorType: monitors.get(name) ?? 'OBS_MONITORING_TYPE_NONE' }])),
+        sceneItems: Object.fromEntries([...sceneItems].map(([name, items]) => [name, items.map(item => ({ ...item,
+          transform: structuredClone(transforms.get(item.sceneItemId) ?? {}) }))])) };
+    },
+    changeInput(name: string, changes: { kind?: string; settings?: Record<string, unknown>; muted?: boolean }) {
+      const input = mediaInputs.get(name);
+      if (!input) throw new Error('Unknown fixture input');
+      if (changes.kind !== undefined) input.kind = changes.kind;
+      if (changes.settings !== undefined) input.settings = structuredClone(changes.settings);
+      if (changes.muted !== undefined) mutes.set(name, changes.muted);
+    },
+    addScene(sceneName: string, sourceNames: string[] = []) {
+      if (scenes.includes(sceneName)) throw new Error('Existing fixture scene');
+      scenes.push(sceneName); sceneItems.set(sceneName, sourceNames.map(sourceName => ({ sceneItemId: nextItemId++, sourceName, sceneItemEnabled: true })));
+    },
+    addSceneItem(sceneName: string, sourceName: string) {
+      if (!scenes.includes(sceneName)) throw new Error('Unknown fixture scene');
+      const items = sceneItems.get(sceneName) ?? [];
+      items.push({ sceneItemId: nextItemId++, sourceName, sceneItemEnabled: true }); sceneItems.set(sceneName, items);
+    },
     finishMedia() {
       for (const [inputName, input] of mediaInputs) if (input.kind === 'ffmpeg_source' && input.state === 'OBS_MEDIA_STATE_PLAYING') {
         input.state = 'OBS_MEDIA_STATE_ENDED';

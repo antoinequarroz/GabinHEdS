@@ -19,9 +19,10 @@ import { TakeThumbnails } from './thumbnails.js';
 import { libraryFile, registerLibraryRoutes } from './library.js';
 import { registerProductionFileRoutes } from './production-files.js';
 import { ApiFailure, choice, controlInput, object, projectInput, roomInput, string } from './validation.js';
+import { GuestService, type GuestConfig } from './guests.js';
 
-declare module 'fastify' { interface FastifyRequest { device?: Device } }
-export interface AppOptions { dataDir: string; obs?: ObsGateway; media?: MediaGateway; webDir?: string; logger?: boolean }
+declare module 'fastify' { interface FastifyRequest { device?: Device } interface FastifyInstance { guests: GuestService } }
+export interface AppOptions { dataDir: string; obs?: ObsGateway; media?: MediaGateway; webDir?: string; logger?: boolean; guestConfig?: GuestConfig }
 const roles: DeviceRole[] = ['viewer', 'operator', 'technician'];
 const kinds = ['pc', 'ipad', 'streamdeck'] as const;
 const loopbackPeer = (ip: string | undefined): boolean => ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
@@ -55,7 +56,9 @@ export async function buildApp(options: AppOptions) {
   app.server.headersTimeout = 30_000;
   const store = new Store(options.dataDir);
   const media = options.media ?? new RealMediaGateway();
-  const studio = new Studio(store, options.obs ?? new RealObsGateway(), media);
+  const guests = new GuestService(store, options.guestConfig);
+  app.decorate('guests', guests);
+  const studio = new Studio(store, options.obs ?? new RealObsGateway(), media, { guests });
   const takeThumbnails = new TakeThumbnails();
   void media.refresh().catch(() => undefined);
   const clients = new Map<WebSocket, Device>();
@@ -109,14 +112,16 @@ export async function buildApp(options: AppOptions) {
   await app.register(rateLimit, { global: false, keyGenerator: (request) => request.raw.socket.remoteAddress ?? 'unknown' });
   await app.register(websocket, { options: { maxPayload: 16 * 1024 } });
   app.addHook('onRequest', async (request, reply) => {
+    const capturePage = request.url.split('?')[0] === '/guest-bridge';
+    const guestSockets = capturePage ? ` ws://127.0.0.1:${guests.port} ws://localhost:${guests.port}` : '';
     reply.header('X-Content-Type-Options', 'nosniff').header('X-Frame-Options', 'DENY')
-      .header('Referrer-Policy', 'same-origin').header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
-      .header('Content-Security-Policy', `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ${websocketSources(request)}; media-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`);
+      .header('Referrer-Policy', 'no-referrer').header('Permissions-Policy', capturePage ? 'camera=(self), microphone=(self), geolocation=()' : 'camera=(), microphone=(), geolocation=()')
+      .header('Content-Security-Policy', `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ${websocketSources(request)}${guestSockets}; media-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`);
     if (!request.url.startsWith('/api/')) return;
     reply.header('Cache-Control', 'no-store');
     if (!sameOrigin(request)) throw new ApiFailure(403, 'Origine de la requête non autorisée.', 'ORIGIN_REJECTED');
     const route = request.url.split('?')[0];
-    if (['/api/auth/local', '/api/auth/pair', '/api/events'].includes(route) || /^\/api\/downloads\/[a-zA-Z0-9_-]{43}$/.test(route)
+    if (['/api/auth/local', '/api/auth/pair', '/api/events', '/api/guest/config'].includes(route) || /^\/api\/downloads\/[a-zA-Z0-9_-]{43}$/.test(route)
       || /^\/api\/(?:library-files|playback-files|production-exports|resolve-exports)\/[a-zA-Z0-9_-]{43}$/.test(route)
       || /^\/api\/monitor\/[a-zA-Z0-9_-]{43}\/[a-zA-Z0-9_.-]+$/.test(route)) return;
     const authorization = request.headers.authorization;
@@ -150,6 +155,26 @@ export async function buildApp(options: AppOptions) {
     return result;
   });
   app.get('/api/auth/me', async (request) => request.device!);
+  app.get('/api/guest/config', async () => ({ mode: 'studio' }));
+  app.post<{ Params: { id: string } }>('/api/projects/:id/guests/invitations', { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async request => {
+    const device = requireRole(request, 'operator');
+    const body = object(request.body);
+    if (Object.keys(body).some(key => !['slot', 'name'].includes(key)) || ![1, 2].includes(Number(body.slot)) || typeof body.slot !== 'number') throw new ApiFailure(400, 'Choisissez la place 1 ou 2 de l’invité.');
+    return studio.serial(() => {
+      if (!store.device(device.id)) throw new ApiFailure(401, 'Accès révoqué.', 'UNAUTHENTICATED');
+      studio.assertGuestProject(request.params.id);
+      return guests.invite(request.params.id, body.slot as 1 | 2, string(body.name, 'nom de l’invité', 100), device.id);
+    });
+  });
+  app.post<{ Params: { id: string } }>('/api/projects/:id/guests/bridge-session', async request => {
+    const device = requireRole(request, 'operator');
+    if (!loopbackPeer(request.raw.socket.remoteAddress) || request.headers.forwarded || request.headers['x-forwarded-for']) throw new ApiFailure(403, 'Ouvrez le pont sur le PC de la salle.', 'LOCAL_ONLY');
+    return studio.serial(() => {
+      if (!store.device(device.id)) throw new ApiFailure(401, 'Accès révoqué.', 'UNAUTHENTICATED');
+      studio.assertGuestProject(request.params.id);
+      return guests.bridgeSession(request.params.id, device.id);
+    });
+  });
   app.post('/api/pairing', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (request) => {
     requireRole(request, 'technician');
     const body = object(request.body);
@@ -167,6 +192,7 @@ export async function buildApp(options: AppOptions) {
     requireRole(request, 'technician');
     if (!store.revoke(request.params.id)) throw new ApiFailure(404, 'Appareil introuvable.', 'NOT_FOUND');
     studio.revokeAutoDevice(request.params.id);
+    guests.revokeDevice(request.params.id);
     for (const [socket, device] of clients) if (device.id === request.params.id) socket.close(4001, 'Accès révoqué');
     return reply.code(204).send();
   });

@@ -11,6 +11,7 @@ import AudioMeter from '../components/AudioMeter.vue';
 import ProjectMedia from '../components/ProjectMedia.vue';
 import TakePlayer from '../components/TakePlayer.vue';
 import AutoDirection from '../components/AutoDirection.vue';
+import GuestPanel from '../components/GuestPanel.vue';
 const props = defineProps<{ project: Project }>();
 const emit = defineEmits<{ navigate: [path: string] }>();
 const { state, live, canEdit, busy, preparation, control, downloadTake, exportProject, exportResolve, cancelResolveExport } = useStudio();
@@ -121,6 +122,7 @@ function bytes(value: number | null): string { return value === null ? 'Non mesu
           <div class="prep-launch"><p>{{ checks?.canStart ? 'Vérifiez le cadrage et le son dans la régie avant de démarrer.' : 'Vous pouvez ouvrir la régie pour vérifier les retours et la connexion.' }}</p><button class="button primary" @click="step = 'record'">Ouvrir la régie<Icon name="arrow" /></button></div>
         </section>
         <ProjectMedia :project-id="project.id" @library="emit('navigate', 'library')" />
+        <GuestPanel :project="project" />
       </div>
 
       <template v-else-if="step === 'record'">
@@ -151,6 +153,7 @@ function bytes(value: number | null): string { return value === null ? 'Non mesu
               <details class="regie-help"><summary>À propos du direct</summary><p>Vérifiez la réception sur la plateforme. Le direct et la prise sont indépendants.</p></details>
             </section>
             <AutoDirection :project="project" />
+            <GuestPanel :project="project" />
             <section class="regie-audio">
               <header class="regie-section-heading"><div><Icon name="mic" /><h2>Micros des participants</h2></div><span class="regie-input-count">{{ eligibleInputs.length }}</span></header>
               <p v-if="!eligibleInputs.length" class="empty-inline">{{ obs?.connected ? 'Associez les micros dans les paramètres de la production.' : 'Connectez OBS pour retrouver les micros de la production.' }}</p>

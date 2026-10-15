@@ -4,9 +4,11 @@ Nino transforme le PC fixe de la salle en contrôleur de studio. Le navigateur d
 
 Domaine prévu pour l’identité publique de Nino : **ninostudio.ch**.
 
-Cette version constitue une première chaîne utilisable : création d’un projet nommé, préparation de la salle, retour vidéo et son, changement de plan, enregistrement OBS, diffusion live, pause/reprise, repères et récupération de la prise complète. Aucun enregistrement n’est annoncé comme réussi sans retour d’OBS.
+Cette version constitue une première chaîne utilisable : création d’un projet nommé, préparation de la salle, retour vidéo et son, deux invités à distance, changement de plan, enregistrement OBS, diffusion live, pause/reprise, repères et récupération de la prise complète. Aucun enregistrement n’est annoncé comme réussi sans retour d’OBS.
 
 Trois guides illustrés accompagnent la salle : [installation (PDF)](docs/guides/nino-installation.pdf), [tests complets (PDF)](docs/guides/nino-guide-tests.pdf) et [tutoriel utilisateur (PDF)](docs/guides/nino-guide-utilisateur.pdf). Ils expliquent la préparation, chaque format, le live, l’iPad, le Stream Deck et la récupération jusqu’à DaVinci Resolve.
+
+Le [guide des invités à distance](docs/remote-guests.md) complète ces PDF avec le nouveau parcours d’appel, le retour sans sa propre voix, les commandes de régie et la configuration HTTPS/TURN encore à réaliser pour les appels sur Internet.
 
 ## Périmètre livré
 
@@ -22,14 +24,18 @@ Trois guides illustrés accompagnent la salle : [installation (PDF)](docs/guides
 - Lecture des prises terminées sur PC/iPad et récupération d’un ZIP contenant les originaux, les médias associés et les repères de montage.
 - Réalisation automatique locale : sélection du plan à partir des micros distincts, confirmation de parole, durée minimale des plans, retour au plan large après silence ou voix simultanées, reprise manuelle prioritaire.
 - Journal des plans confirmés par OBS avec les positions réelles dans les prises ; export portable pour DaVinci Resolve, vidéo et son liés, timeline OTIO par prise, repères et originaux conservés.
+- Deux places d’invités à distance : invitations personnelles, aperçu caméra/micro, salle d’attente, admission, coupure audio, retrait et plans OBS contrôlés par le PC, l’iPad et l’API Stream Deck.
+- Liaison WebRTC dédiée sur le PC, image du programme OBS par caméra virtuelle, entrée audio de salle et retour individuel excluant la propre voix de chaque invité. Passerelle invitée séparée du contrôleur privé ; configuration HTTPS et TURN nécessaire pour Internet.
 - Interface tactile responsive pour iPad, code d’association temporaire et révocation des appareils.
 - Accès opérateur pour Stream Deck via HTTP ; voir [le guide Stream Deck](docs/stream-deck.md).
 
 La captation des caméras et micros se configure encore dans OBS. Les modes correspondent aux profils de production ; un podcast utilise également la sortie d’enregistrement OBS configurée. Cette version ne crée pas automatiquement des pistes audio ou des captures séparées de chaque caméra.
 
-Le retour vidéo WebRTC à plus faible latence, les deux invités à distance, le conducteur, la sauvegarde NAS, les angles caméra séparés et le montage éditorial IA restent des étapes suivantes. La réalisation automatique actuelle utilise les niveaux audio OBS localement ; elle ne transcrit ni ne reconnaît les personnes avec un service IA. Le [guide médias et récupération](docs/media-library.md) explique la bibliothèque et les exports.
+Le conducteur, la sauvegarde NAS, les angles caméra séparés et le montage éditorial IA restent des étapes suivantes. Le retour conversationnel des invités utilise WebRTC ; le lecteur de programme de la régie PC/iPad conserve le HLS. La réalisation automatique actuelle utilise les niveaux audio OBS localement ; elle ne transcrit ni ne reconnaît les personnes avec un service IA. Le [guide médias et récupération](docs/media-library.md) explique la bibliothèque et les exports.
 
 Pour l’automatique, chaque participant possède une entrée micro et un plan distincts. Les micros doivent rester actifs dans toutes les scènes. Dans la régie, choisir le **Plan large**, ajuster la détection puis **Activer l’automatique**. Une commande manuelle, un média plein écran, une perte OBS ou une révocation suspend le mode ; sa reprise est explicite. Une mesure périmée ou manquante bloque les changements. Après redémarrage, les réglages sont conservés mais le mode reste manuel. Le même contrôle est disponible sur iPad et via les commandes Stream Deck `auto.start` / `auto.stop`.
+
+Les invités rejoignent ce mode après admission et réception réelle par leur source OBS, avec leur micro ouvert. Un invité muet ou déconnecté en est écarté. Garder la fenêtre de liaison ouverte et le PC éveillé ; fermer la régie iPad conserve la prise, mais fermer cette fenêtre PC coupe la liaison de conversation.
 
 ## Prérequis
 

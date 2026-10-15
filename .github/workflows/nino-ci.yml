@@ -110,6 +110,9 @@ jobs:
         run: |
           npm install --prefix "$RUNNER_TEMP/nino-playwright" --no-save --package-lock=false "playwright@$PLAYWRIGHT_VERSION"
           node "$RUNNER_TEMP/nino-playwright/node_modules/playwright/cli.js" install --with-deps "$NINO_BROWSER_INSTALL"
+          if [ "$NINO_BROWSER_INSTALL" = "webkit" ]; then
+            node "$RUNNER_TEMP/nino-playwright/node_modules/playwright/cli.js" install --with-deps chromium
+          fi
       - name: Tester le parcours complet
         timeout-minutes: 10
         env:
@@ -118,6 +121,15 @@ jobs:
         run: |
           mkdir -p "$GABIN_SCREENSHOT_DIR"
           npm run test:browser 2>&1 | tee "$GABIN_SCREENSHOT_DIR/browser.log"
+      - name: Tester les invités WebRTC et le retour audio sans voix propre
+        timeout-minutes: 10
+        env:
+          GABIN_PLAYWRIGHT_MODULE: ${{ runner.temp }}/nino-playwright/node_modules/playwright
+          GABIN_GUEST_SCREENSHOT_DIR: ${{ runner.temp }}/nino-artifacts/${{ matrix.browser }}/guests
+          GABIN_GUEST_TEST_STUN: '1'
+        run: |
+          mkdir -p "$GABIN_GUEST_SCREENSHOT_DIR"
+          npm run test:guests:browser 2>&1 | tee "$GABIN_GUEST_SCREENSHOT_DIR/guests.log"
       - name: Conserver les captures et le journal du test
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -126,6 +138,9 @@ jobs:
           path: |
             ${{ runner.temp }}/nino-artifacts/${{ matrix.browser }}/*.png
             ${{ runner.temp }}/nino-artifacts/${{ matrix.browser }}/browser.log
+            ${{ runner.temp }}/nino-artifacts/${{ matrix.browser }}/guests/*.png
+            ${{ runner.temp }}/nino-artifacts/${{ matrix.browser }}/guests/*.json
+            ${{ runner.temp }}/nino-artifacts/${{ matrix.browser }}/guests/guests.log
           if-no-files-found: ignore
           retention-days: 7
 
@@ -168,6 +183,9 @@ jobs:
             'packages/shared/package.json', 'packages/shared/src', 'tests',
             'scripts/media-runtime.mjs', 'scripts/setup-media.mjs', 'scripts/start-media.mjs', 'scripts/generate-guides.py',
             'config/mediamtx.yml',
+            'config/guests-vps/.gitignore', 'config/guests-vps/README.md',
+            'config/guests-vps/compose.example.yml', 'config/guests-vps/Caddyfile.example',
+            'config/guests-vps/turnserver.conf.example',
           ];
           const permitted = source => {
             const name = basename(source);

@@ -52,6 +52,13 @@ La réponse `AuthResult` contient `{ "token": "…", "device": { "id": "…", "n
 | Pause du média | `{"action":"media.pause"}` |
 | Reprendre le média | `{"action":"media.resume"}` |
 | Arrêter le média | `{"action":"media.stop"}` |
+| Préparer les sources des invités | `{"action":"guest.prepare","projectId":"ID_DU_PROJET"}` |
+| Accueillir l’invité 1 | `{"action":"guest.admit","guestId":"ID_INVITE_1"}` |
+| Afficher l’invité 1 | `{"action":"guest.scene","guestId":"ID_INVITE_1"}` |
+| Couper l’invité 1 | `{"action":"guest.mute","guestId":"ID_INVITE_1","muted":true}` |
+| Réactiver l’invité 1 | `{"action":"guest.mute","guestId":"ID_INVITE_1","muted":false}` |
+| Retirer l’invité 1 | `{"action":"guest.remove","guestId":"ID_INVITE_1"}` |
+| Fermer la liaison des invités | `{"action":"guest.bridge.stop","projectId":"ID_DU_PROJET"}` |
 
 **Le champ `requestId` est facultatif** : lorsqu’il est absent, le serveur génère un identifiant pour cette commande. Les corps fixes ci-dessus sont donc utilisables à chaque pression de bouton. Pour une intégration qui réessaie automatiquement une commande après un problème réseau, générer un UUID par pression et réutiliser ce même UUID uniquement pour les tentatives de cette pression. Un UUID déjà exécuté ne doit jamais identifier une nouvelle pression.
 
@@ -84,10 +91,51 @@ Créer une action GET `/api/state` avec le même en-tête Bearer. Elle renvoie `
 | `library[]` | Médias nommés et identifiants disponibles pour les boutons |
 | `projectMedia[ID_DU_PROJET]` | Médias associés et leur rôle dans la production |
 | `mediaPlayback.assetId` et `mediaPlayback.status` | Média contrôlé et état confirmé (`playing`, `paused`, `shown`, `stopped`, ou `unknown` si incertain) |
+| `guestRooms[ID_DU_PROJET].bridge.connected` / `.mediaReady` | Connexion de liaison PC / image et son de salle prêts ; une connexion seule n’est pas un média prêt |
+| `guestRooms[ID_DU_PROJET].guests[]` | Les places invitées, leurs identifiants `id`, `slot`, noms et états |
+| `guests[].joined` / `.mediaReady` | Connexion de l’invité / réception image et son dans la liaison |
+| `guests[].admitted` / `.sourceReady` | Admission / réception réelle par la source OBS ; attendre les deux pour sélectionner le plan |
+| `guests[].muted` / `.error` | Coupure du micro / indisponibilité à afficher sur les touches |
 
 Le module HTTP permet de conserver la réponse et le code HTTP dans des variables personnalisées. Configurer une requête GET de rafraîchissement et stocker la réponse JSON analysée, puis utiliser ces valeurs dans les libellés ou expressions de boutons. La [documentation Companion des variables](https://companion.free/user-guide/v4.2/config/variables/) décrit ces champs et leur utilisation. Un retour de commande HTTP ne constitue pas, à lui seul, un témoin rouge d’enregistrement ; lire `obs.recording` et vérifier la connexion.
 
 L’API possède également `/api/events` pour une intégration WebSocket dédiée. Après l’ouverture, envoyer `{"type":"auth","token":"JETON_STREAM_DECK"}` ; les messages d’état sont `{"type":"state","state":StudioState}`. Les mesures audio sont des messages distincts `{"type":"audio","frame":{"capturedAt":"…","inputs":[{"inputName":"Micro 1","rmsDb":-24,"peakDb":-18}]}}` et restent éphémères. Les secrets sont transmis dans le message d’authentification, pas dans l’URL. Le module HTTP générique n’implémente pas cette connexion persistante ; un futur module Nino pourra l’utiliser.
+
+## Boutons pour les deux invités à distance
+
+Créer les invitations depuis la production sur PC ou iPad. Préparer les sources OBS, puis ouvrir la liaison audio/vidéo sur le **PC de la salle** : caméra virtuelle OBS en mode Programme et entrée audio de salle sans voix distantes. Un Stream Deck ne fournit pas ce pont média. Voir le [parcours complet des invités](remote-guests.md).
+
+Récupérer les identifiants des places avec le GET authentifié `/api/state` :
+
+```text
+guestRooms[ID_DU_PROJET].guests
+  place 1 : entrée où slot === 1 et status !== "removed" → son champ id
+  place 2 : entrée où slot === 2 et status !== "removed" → son champ id
+```
+
+Utiliser ces `id` comme `guestId`, jamais le jeton secret du lien d’invitation. Les noms servent à l’affichage ; ils ne remplacent pas les identifiants. Après renouvellement d’une invitation ou changement de production, relire l’état et vérifier les identifiants avant de réutiliser les touches. La page **Appareils** de Nino génère également les corps JSON pour l’invité sélectionné.
+
+Dupliquer les touches **Accueillir**, **Afficher**, **Couper**, **Réactiver** et **Retirer** pour la seconde place, en remplaçant uniquement `guestId`. Garder des actions explicites avec `muted:true` et `muted:false` ; un toggle fondé sur le dernier état local pourrait inverser le son après une déconnexion.
+
+Un jeu de touches utilisable en salle :
+
+```text
+┌──────────────────┬──────────────────┬──────────────────┐
+│ Plan large       │ Afficher invité 1│ Afficher invité 2│
+├──────────────────┼──────────────────┼──────────────────┤
+│ Accueillir 1     │ Couper 1         │ Réactiver 1      │
+├──────────────────┼──────────────────┼──────────────────┤
+│ Accueillir 2     │ Couper 2         │ Réactiver 2      │
+├──────────────────┼──────────────────┼──────────────────┤
+│ Enregistrer      │ Arrêter prise    │ Fermer liaison   │
+└──────────────────┴──────────────────┴──────────────────┘
+```
+
+**Accueillir** autorise la conversation ; **Afficher** sélectionne son plan seulement après réception par OBS. Une touche **Afficher** trop tôt reçoit un refus, sans simuler une réussite. Les états de la place doivent guider les voyants : « En attente », « Connexion OBS… », « Dans OBS », « Micro coupé » ou « Déconnecté ».
+
+**Couper** agit sur le son de l’invité dans OBS et pour l’autre invité. **Retirer** coupe sa participation et révoque son accès. **Fermer la liaison** coupe le pont des invités de cette production ; cette commande n’arrête ni l’enregistrement ni le live. Prévoir des boutons distincts pour terminer ces activités.
+
+Les invités reçus et admis rejoignent la réalisation automatique quand leur micro est ouvert. Les commandes manuelles de plan, y compris `guest.scene`, gardent la priorité et suspendent le mode automatique. Le redémarrage du serveur ou la révocation de l’accès créateur ne relance pas automatiquement un appel.
 
 ## Exemples API avec identifiants de requête
 
