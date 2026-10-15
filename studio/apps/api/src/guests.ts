@@ -7,6 +7,8 @@ import { ApiFailure, object, string } from './validation.js';
 const SESSION_MS = 6 * 3600_000;
 const INVITATION_MS = 24 * 3600_000;
 const SOURCE_MS = 5 * 60_000;
+const RETIRED_PEER_MS = 30_000;
+const MAX_RETIRED_PEERS = 256;
 const tokenPattern = /^[a-zA-Z0-9_-]{43}$/;
 
 export interface GuestConfig {
@@ -28,6 +30,7 @@ export function readGuestConfig(): GuestConfig {
 }
 interface InvitationRecord { id: string; hash: string; owner: string; expiresAt: number; used: boolean; }
 interface SessionRecord { tokenHash: string; peer: GuestPeer; projectId: string; owner: string; expiresAt: number; socket: WebSocket | null; alive: boolean; }
+interface RetiredPeer { peer: GuestPeer; projectId: string; expiresAt: number; }
 interface SourceRecord { hash: string; guestId: string; owner: string; expiresAt: number; }
 interface Bucket { start: number; count: number; }
 
@@ -51,6 +54,9 @@ function iceUrls(values: string[] | undefined, protocols: readonly string[]): st
 /** Invitations persisted as hashes; live grants, media reports and sessions are deliberately ephemeral. */
 export class GuestService {
   private readonly sessions = new Map<string, SessionRecord>();
+  /** RTC callbacks can outlive a room update. Keep only bounded routing
+   * identities, never grants, to discard signals for recently closed peers. */
+  private readonly retiredPeers = new Map<string, RetiredPeer>();
   private readonly sourceTickets = new Map<string, SourceRecord>();
   /** Initial source negotiation is bounded; a confirmed source loss is immediate. */
   private readonly sourcePending = new Map<string, number>();
@@ -274,8 +280,13 @@ export class GuestService {
   }
   private drop(session: SessionRecord, revoke: boolean): void {
     const socket = session.socket; session.socket = null;
+    if (socket) {
+      this.retiredPeers.delete(session.peer.id);
+      this.retiredPeers.set(session.peer.id, { peer: session.peer, projectId: session.projectId, expiresAt: this.now() + RETIRED_PEER_MS });
+      if (this.retiredPeers.size > MAX_RETIRED_PEERS) this.retiredPeers.delete(this.retiredPeers.keys().next().value!);
+    }
     if (revoke) this.sessions.delete(session.tokenHash);
-    if (socket && socket.readyState < 2) socket.close(4001, 'Session interrompue ou révoquée');
+    if (socket && socket.readyState < 2) socket.close(revoke ? 4001 : 4000, revoke ? 'Session révoquée' : 'Connexion interrompue, reconnexion possible');
     if (session.peer.role === 'bridge' && this.bridge === session) {
       this.bridgeReady = false; this.bridgeError = 'Le retour de la salle est déconnecté.';
       if (revoke) this.bridge = null;
@@ -293,7 +304,7 @@ export class GuestService {
       }
     }
   }
-  private linked(a: SessionRecord, b: SessionRecord): boolean {
+  private linked(a: Pick<SessionRecord, 'peer' | 'projectId'>, b: Pick<SessionRecord, 'peer' | 'projectId'>): boolean {
     return a !== b && a.projectId === b.projectId && (a.peer.role === 'bridge' ? b.peer.role !== 'bridge' : b.peer.role === 'bridge');
   }
   private peers(session: SessionRecord): GuestPeer[] {
@@ -301,6 +312,7 @@ export class GuestService {
   }
   private sweep(heartbeat: boolean): void {
     let changed = false;
+    for (const [id, peer] of this.retiredPeers) if (peer.expiresAt <= this.now()) this.retiredPeers.delete(id);
     for (const [id, deadline] of this.sourcePending) if (deadline <= this.now()) {
       this.sourcePending.delete(id);
       const guest = this.store.get<GuestSlot>('guest', id);
@@ -345,6 +357,7 @@ export class GuestService {
           if (session.peer.role === 'bridge' && options.allowBridge === false) throw new ApiFailure(403, 'Le retour de la salle est réservé au PC.', 'LOCAL_BRIDGE_ONLY');
           if (session.socket?.readyState === 1) throw new ApiFailure(409, 'Cette session est déjà connectée.');
           session.socket = socket; session.alive = true;
+          this.retiredPeers.delete(session.peer.id);
           clearTimeout(authTimer);
           if (session.peer.role === 'guest') { const guest = this.getGuest(session.peer.guestId!); guest.joined = true; guest.status = 'waiting'; this.save(guest); }
           this.send(session, { type: 'welcome', peer: session.peer, peers: this.peers(session), room: this.room(session.projectId) });
@@ -371,8 +384,11 @@ export class GuestService {
       if (Object.keys(data).some(key => !['type', 'to', 'description', 'candidate'].includes(key))) throw new ApiFailure(400, 'Signal invalide.');
       const to = string(data.to, 'destinataire', 100);
       const peer = [...this.sessions.values()].find(candidate => candidate.peer.id === to);
-      if (!peer || peer.socket?.readyState !== 1 || !this.linked(session, peer)) throw new ApiFailure(403, 'Ce destinataire n’est pas autorisé.', 'GUEST_PEER_FORBIDDEN');
-      this.authenticatedByRecord(peer);
+      const retired = this.retiredPeers.get(to);
+      const live = peer?.socket?.readyState === 1;
+      const late = !live && retired && retired.expiresAt > this.now() && this.linked(session, retired);
+      if (live ? !this.linked(session, peer!) : !late) throw new ApiFailure(403, 'Ce destinataire n’est pas autorisé.', 'GUEST_PEER_FORBIDDEN');
+      if (live) this.authenticatedByRecord(peer!);
       const result: Extract<GuestServerMessage, { type: 'signal' }> = { type: 'signal', from: session.peer };
       if (data.description !== undefined) {
         const description = object(data.description);
@@ -394,7 +410,8 @@ export class GuestService {
         }
       }
       if (!result.description && !('candidate' in result)) throw new ApiFailure(400, 'Signal vide.');
-      this.send(peer, result); return;
+      if (live) this.send(peer!, result);
+      return;
     }
     if (data.type === 'media') {
       const previous = JSON.stringify(this.room(session.projectId));
@@ -411,8 +428,15 @@ export class GuestService {
         }
       } else {
         const guestId = string(data.guestId, 'invité', 100);
-        const guest = this.getGuest(guestId);
+        const guest = this.store.get<GuestSlot>('guest', guestId);
+        if (!guest) throw new ApiFailure(404, 'Invité introuvable.', 'GUEST_NOT_FOUND');
         if (guest.projectId !== session.projectId || (session.peer.role === 'source' && session.peer.guestId !== guest.id)) throw new ApiFailure(403, 'Cet invité n’est pas autorisé.', 'GUEST_MEDIA_FORBIDDEN');
+        // A decoded-frame callback may arrive after removal but before the
+        // bridge receives the new room. It cannot revive the removed slot.
+        if (guest.status === 'removed') {
+          if (session.peer.role === 'bridge') return;
+          throw new ApiFailure(404, 'Invité introuvable.', 'GUEST_NOT_FOUND');
+        }
         const ready = data.ready && data.video === true && data.audio === true && guest.joined;
         const wasSourceReady = guest.sourceReady;
         if (session.peer.role === 'source') guest.sourceReady = ready;
@@ -434,6 +458,6 @@ export class GuestService {
     if (this.closed) return;
     this.closed = true; clearInterval(this.timer);
     for (const session of [...this.sessions.values()]) this.drop(session, true);
-    this.sourceTickets.clear(); this.sourcePending.clear(); this.listeners.clear();
+    this.sourceTickets.clear(); this.sourcePending.clear(); this.retiredPeers.clear(); this.listeners.clear();
   }
 }

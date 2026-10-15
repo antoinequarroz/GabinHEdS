@@ -110,6 +110,9 @@ jobs:
         run: |
           npm install --prefix "$RUNNER_TEMP/nino-playwright" --no-save --package-lock=false "playwright@$PLAYWRIGHT_VERSION"
           node "$RUNNER_TEMP/nino-playwright/node_modules/playwright/cli.js" install --with-deps "$NINO_BROWSER_INSTALL"
+          if [ "$NINO_BROWSER_INSTALL" = "webkit" ]; then
+            node "$RUNNER_TEMP/nino-playwright/node_modules/playwright/cli.js" install --with-deps chromium
+          fi
       - name: Tester le parcours complet
         timeout-minutes: 10
         env:

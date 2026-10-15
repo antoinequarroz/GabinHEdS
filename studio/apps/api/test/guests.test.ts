@@ -43,8 +43,8 @@ class Peer {
   send(data: unknown): void { this.socket.send(JSON.stringify(data)); }
   async close(): Promise<void> { if (this.socket.readyState < 2) { const close = once(this.socket, 'close'); this.socket.close(); await close; } }
 }
-async function connect(base: string, session: GuestSession, origin?: string): Promise<Peer> {
-  const peer = new Peer(new WebSocket(`${base.replace(/^http/, 'ws')}/api/guest/events`, origin ? { origin } : {}));
+async function connect(base: string, session: GuestSession, origin?: string, socketOptions: { autoPong?: boolean } = {}): Promise<Peer> {
+  const peer = new Peer(new WebSocket(`${base.replace(/^http/, 'ws')}/api/guest/events`, { ...socketOptions, ...(origin ? { origin } : {}) }));
   await once(peer.socket, 'open');
   peer.send({ type: 'auth', token: session.token });
   const welcome = await peer.message('welcome');
@@ -281,4 +281,172 @@ test('local source and bridge credentials cannot authenticate through the public
   }
   assert.equal(guests.rooms().a!.bridge.connected, false);
   assert.equal(guests.getGuest(invitation.guestId).sourceReady, false);
+});
+
+test('late bridge media for a removed guest leaves the bridge and the second guest active', async t => {
+  const { guests, owner, base } = await fixture(t);
+  const first = guests.invite('a', 1, 'Alice', owner.device.id);
+  const second = guests.invite('a', 2, 'Bob', owner.device.id);
+  const bridgeSession = guests.bridgeSession('a', owner.device.id);
+  const firstSession = guests.join(fragment(first.url), 'Alice');
+  const secondSession = guests.join(fragment(second.url), 'Bob');
+  const bridge = await connect(base, bridgeSession);
+  const alice = await connect(base, firstSession);
+  const bob = await connect(base, secondSession);
+  await report(bridge, { type: 'media', ready: true, video: true, audio: true });
+  for (const id of [first.guestId, second.guestId]) {
+    await report(bridge, { type: 'media', guestId: id, ready: true, video: true, audio: true });
+    guests.admit(id);
+  }
+  const aliceClosed = once(alice.socket, 'close');
+  guests.remove(first.guestId);
+  assert.equal((await aliceClosed)[0], 4001, 'removal revokes the original grant');
+  const removed = guests.rooms().a!.guests.find(guest => guest.id === first.guestId)!;
+  const remaining = guests.getGuest(second.guestId);
+  bridge.messages.length = 0; bob.messages.length = 0;
+  // RTC callbacks may already be queued when the controller removes a guest.
+  for (const ready of [false, true]) bridge.send({ type: 'media', guestId: first.guestId, ready, video: true, audio: true });
+  // A later message on the same ordered WebSocket is the processing barrier.
+  bridge.send({ type: 'signal', to: secondSession.peerId, candidate: null });
+  assert.equal((await bob.message('signal')).type, 'signal');
+  assert.equal(bridge.socket.readyState, WebSocket.OPEN);
+  assert.equal(bridge.messages.some(message => message.type === 'error'), false);
+  assert.equal(guests.rooms().a!.bridge.connected, true);
+  assert.deepEqual(guests.getGuest(second.guestId), remaining);
+  assert.deepEqual(guests.rooms().a!.guests.find(guest => guest.id === first.guestId), removed);
+  assert.equal(removed.status, 'removed');
+  assert.equal(removed.admitted || removed.joined || removed.mediaReady || removed.sourceReady, false);
+  assert.equal(removed.muted, true);
+  assert.throws(() => guests.resume(firstSession.token), { statusCode: 401 });
+  await bob.close(); await bridge.close();
+});
+
+test('late signaling to known revoked guest and source peers leaves the remaining guest active', async t => {
+  const { guests, owner, base } = await fixture(t);
+  const first = guests.invite('a', 1, 'Alice', owner.device.id);
+  const second = guests.invite('a', 2, 'Bob', owner.device.id);
+  const bridgeSession = guests.bridgeSession('a', owner.device.id);
+  const firstSession = guests.join(fragment(first.url), 'Alice');
+  const secondSession = guests.join(fragment(second.url), 'Bob');
+  const sourceSession = guests.claimSource(fragment(guests.sourceTicket(first.guestId, owner.device.id).url));
+  const bridge = await connect(base, bridgeSession);
+  const alice = await connect(base, firstSession);
+  const bob = await connect(base, secondSession);
+  const source = await connect(base, sourceSession);
+  await report(bridge, { type: 'media', ready: true, video: true, audio: true });
+  await report(bridge, { type: 'media', guestId: second.guestId, ready: true, video: true, audio: true });
+  guests.admit(second.guestId);
+  const aliceClosed = once(alice.socket, 'close');
+  const sourceClosed = once(source.socket, 'close');
+  guests.remove(first.guestId);
+  await Promise.all([aliceClosed, sourceClosed]);
+  const remaining = guests.getGuest(second.guestId);
+  bridge.messages.length = 0; bob.messages.length = 0;
+  for (const to of [firstSession.peerId, sourceSession.peerId]) bridge.send({ type: 'signal', to, candidate: null });
+  bridge.send({ type: 'signal', to: secondSession.peerId, candidate: null });
+  assert.equal((await bob.message('signal')).type, 'signal');
+  assert.equal(bridge.socket.readyState, WebSocket.OPEN);
+  assert.equal(bridge.messages.some(message => message.type === 'error'), false);
+  assert.deepEqual(guests.getGuest(second.guestId), remaining);
+  assert.equal(guests.rooms().a!.guests.find(guest => guest.id === first.guestId)!.status, 'removed');
+  await bob.close(); await bridge.close();
+});
+
+test('late-message tolerance never authorizes unknown guests or foreign project media and peers', async t => {
+  for (const kind of ['unknown-media', 'foreign-media', 'foreign-removed-media', 'unknown-signal', 'foreign-revoked-signal', 'guest-to-revoked-guest'] as const) {
+    await t.test(kind, async sub => {
+      const { guests, owner, base } = await fixture(sub);
+      const first = guests.invite('a', 1, 'Alice', owner.device.id);
+      const second = guests.invite('a', 2, 'Bob', owner.device.id);
+      const foreign = guests.invite('b', 1, 'Outside', owner.device.id);
+      const bridgeSession = guests.bridgeSession('a', owner.device.id);
+      const firstSession = guests.join(fragment(first.url), 'Alice');
+      const secondSession = guests.join(fragment(second.url), 'Bob');
+      const foreignSession = guests.join(fragment(foreign.url), 'Outside');
+      const bridge = await connect(base, bridgeSession);
+      const alice = await connect(base, firstSession);
+      const bob = await connect(base, secondSession);
+      const outside = await connect(base, foreignSession);
+      if (kind === 'foreign-removed-media' || kind === 'foreign-revoked-signal') {
+        const closed = once(outside.socket, 'close'); guests.remove(foreign.guestId); await closed;
+      }
+      if (kind === 'guest-to-revoked-guest') {
+        const closed = once(alice.socket, 'close'); guests.remove(first.guestId); await closed;
+      }
+      const sender = kind === 'guest-to-revoked-guest' ? bob : bridge;
+      const closed = once(sender.socket, 'close');
+      sender.send(kind.endsWith('media')
+        ? { type: 'media', guestId: kind === 'unknown-media' ? 'unknown-guest' : foreign.guestId, ready: true, video: true, audio: true }
+        : { type: 'signal', to: kind === 'unknown-signal' ? 'unknown-peer' : kind === 'guest-to-revoked-guest' ? firstSession.peerId : foreignSession.peerId, candidate: null });
+      assert.equal((await sender.message('error')).type, 'error');
+      assert.equal((await closed)[0], 4003);
+      assert.equal(guests.getGuest(second.guestId).admitted, false);
+      await alice.close(); await bob.close(); await outside.close(); await bridge.close();
+    });
+  }
+});
+
+test('heartbeat interruption uses a resumable close without restoring admission; revocation stays final', async t => {
+  const { guests, owner, base } = await fixture(t);
+  const invitation = guests.invite('a', 1, 'Alice', owner.device.id);
+  const guestSession = guests.join(fragment(invitation.url), 'Alice');
+  const bridgeSession = guests.bridgeSession('a', owner.device.id);
+  const bridge = await connect(base, bridgeSession, undefined, { autoPong: false });
+  const guest = await connect(base, guestSession);
+  await report(bridge, { type: 'media', ready: true, video: true, audio: true });
+  await report(bridge, { type: 'media', guestId: invitation.guestId, ready: true, video: true, audio: true });
+  guests.admit(invitation.guestId);
+  // Drive the unchanged heartbeat callback directly, with a real socket that
+  // deliberately withholds pong. The other socket must remain responsive.
+  const sweep = (guests as unknown as { sweep(heartbeat: boolean): void }).sweep.bind(guests);
+  const ping = once(guest.socket, 'ping');
+  sweep(true); await ping;
+  guest.send({ type: 'signal', to: bridgeSession.peerId, candidate: null });
+  await bridge.message('signal'); // The preceding pong on this socket was processed.
+  const interrupted = once(bridge.socket, 'close');
+  sweep(true);
+  assert.equal((await interrupted)[0], 4000, 'temporary transport loss must not be reported as a revoked grant');
+  assert.equal(guests.getGuest(invitation.guestId).admitted, false);
+  assert.equal(guests.getGuest(invitation.guestId).muted, true);
+  const resumed = guests.resume(bridgeSession.token);
+  assert.equal(resumed.token, bridgeSession.token);
+  assert.equal(resumed.peerId, bridgeSession.peerId);
+  assert.equal(resumed.expiresAt, bridgeSession.expiresAt, 'reconnection never renews the grant');
+  const replacement = await connect(base, resumed);
+  assert.equal(guests.rooms().a!.bridge.connected, true);
+  assert.equal(guests.rooms().a!.bridge.mediaReady, false);
+  assert.equal(guests.getGuest(invitation.guestId).joined, true);
+  assert.equal(guests.getGuest(invitation.guestId).admitted, false);
+  const revoked = once(replacement.socket, 'close');
+  guests.stopBridge('a');
+  assert.equal((await revoked)[0], 4001);
+  assert.throws(() => guests.resume(bridgeSession.token), { statusCode: 401 });
+  await guest.close();
+});
+
+test('retired peer tolerance expires and still validates WebRTC payloads', async t => {
+  for (const kind of ['expired', 'malformed'] as const) {
+    await t.test(kind, async sub => {
+      let now = Date.now();
+      const { guests, owner, base } = await fixture(sub, { now: () => now });
+      const invitation = guests.invite('a', 1, 'Alice', owner.device.id);
+      const guestSession = guests.join(fragment(invitation.url), 'Alice');
+      const bridgeSession = guests.bridgeSession('a', owner.device.id);
+      const bridge = await connect(base, bridgeSession);
+      const guest = await connect(base, guestSession);
+      const removed = once(guest.socket, 'close');
+      guests.remove(invitation.guestId); await removed;
+      if (kind === 'expired') now += 30_001;
+      const closed = once(bridge.socket, 'close');
+      bridge.send({ type: 'signal', to: guestSession.peerId, candidate: kind === 'expired' ? null : { candidate: 25 } });
+      const error = await bridge.message('error');
+      assert.equal(error.type, 'error');
+      if (error.type === 'error') assert.match(error.error, kind === 'expired' ? /autorisé/ : /candidat WebRTC/);
+      assert.equal((await closed)[0], 4003);
+      const slot = guests.rooms().a!.guests.find(candidate => candidate.id === invitation.guestId)!;
+      assert.equal(slot.status, 'removed');
+      assert.equal(slot.admitted || slot.mediaReady || slot.sourceReady || slot.joined, false);
+      assert.throws(() => guests.resume(guestSession.token), { statusCode: 401 });
+    });
+  }
 });

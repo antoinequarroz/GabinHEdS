@@ -30,6 +30,12 @@ Le script `npm run test:browser` utilise l’interface compilée, l’API réell
 
 Le parcours `npm run test:guests:browser` exerce deux invités et un pont de salle avec de vrais `RTCPeerConnection`, les API de signalisation, les sources navigateur et WebAudio. Seuls les appareils de capture et le protocole OBS sont des fixtures : trois sinusoïdes et des mires animées permettent de vérifier les trames reçues et de mesurer chaque retour. Le retour A doit contenir la salle et B, sans A ; le retour B doit contenir la salle et A, sans B. Le test vérifie aussi les micros OBS, les commandes PC/iPad/Deck, le retrait et la nouvelle invitation, le retour après passage en arrière-plan, les petits écrans et l’isolation de la passerelle publique.
 
+Le PC, le pont, les deux invités et l’iPad utilisent le moteur choisi par `GABIN_TEST_BROWSER`. Les seules pages représentant les sources OBS utilisent toujours Chromium avec `--autoplay-policy=no-user-gesture-required`, comme [le navigateur CEF d’OBS](https://github.com/obsproject/obs-browser/blob/master/browser-app.cpp#L150). Elles ne capturent aucun périphérique ; leur lecture, leurs images décodées et leur audio restent réellement vérifiés. Le journal et le JSON de preuve indiquent `sourceEngine: chromium`. Ce choix reproduit le récepteur de production : [WebKit applique une politique distincte aux flux reçus sans capture ni geste utilisateur](https://webkit.org/blog/7763/a-closer-look-into-webrtc/), observée par un vrai rejet `NotAllowedError` lors d’une nouvelle invitation. Installer Chromium en plus de WebKit pour le parcours macOS.
+
+Les régressions de retrait vérifient les messages média et ICE encore en vol : l’autre invité reste actif, les anciens accès restent révoqués et les messages inconnus ou d’un autre projet sont refusés. Les tests couvrent aussi la reconnexion après une interruption temporaire, sans prolonger le droit d’accès ni réadmettre automatiquement les invités.
+
+Le test retarde aussi la livraison d’un vrai `getStats()` natif jusqu’à ce qu’un snapshot plus récent ait confirmé de nouvelles images : le résultat ancien ne doit pas retirer une admission valide. Un autre retrait intervient pendant un appel natif en attente, puis vérifie que le pont et l’autre invité restent actifs. Les valeurs RTC, les seuils de réception et les retours audio ne sont pas simulés.
+
 Utiliser `GABIN_GUEST_TEST_STUN=1` pour ce parcours : un petit serveur STUN de test répond réellement aux requêtes Binding sur un port UDP temporaire en boucle locale. WebKit requiert des candidats réflexifs dans ce test sans capture matérielle ; les négociations ICE, paquets vidéo/audio et analyses FFT restent natifs. Aucun appareil du Mac ni service STUN externe n’est utilisé. `GABIN_GUEST_SCREENSHOT_DIR` choisit le dossier de preuves. Le workflow exécute ce test dans les deux navigateurs, après le parcours HLS habituel.
 
 ```sh
@@ -64,7 +70,7 @@ Le workflow [Nino CI](../../.github/workflows/nino-ci.yml) est déclenché par l
 | --- | --- | --- |
 | Types, build et tests API / OBS | Ubuntu 24.04, Node.js 24, FFmpeg | Contrats, compilation, authentification, prises, affiches et protocole OBS |
 | Parcours Chromium | Ubuntu 24.04, Chrome officiel, MediaMTX et FFmpeg | Parcours PC/iPad, HLS décodé, relais live, invités WebRTC et retours mesurés |
-| Parcours WebKit | macOS 15, WebKit, MediaMTX et FFmpeg | HLS natif, mêmes commandes, invités WebRTC et retours mesurés |
+| Parcours WebKit | macOS 15, WebKit, sources OBS Chromium, MediaMTX et FFmpeg | HLS natif, mêmes commandes, invités WebRTC et retours mesurés |
 | Archive locale validée | Ubuntu 24.04, après succès des contrôles | Code, interface construite et empreinte SHA-256 de l’archive |
 
 Les binaires de navigateurs correspondent au module Playwright installé. Chrome officiel est choisi pour les codecs média ; WebKit est exécuté sur macOS pour la lecture native proche de Safari. Ce test ne remplace pas un iPad physique. Voir [les navigateurs et codecs Playwright](https://playwright.dev/docs/browsers) et [l’installation en CI](https://playwright.dev/docs/ci).

@@ -36,6 +36,9 @@ const engine = process.env.GABIN_TEST_BROWSER || 'chromium';
 if (!['chromium', 'webkit'].includes(engine)) throw new Error('GABIN_TEST_BROWSER doit être chromium ou webkit.');
 const tabletEngine = process.env.GABIN_GUEST_TABLET_BROWSER || engine;
 if (!['chromium', 'webkit'].includes(tabletEngine)) throw new Error('GABIN_GUEST_TABLET_BROWSER doit être chromium ou webkit.');
+// OBS BrowserSource runs Chromium/CEF with this autoplay policy, including on
+// macOS. WebKit still exercises the actual bridge, callers and iPad controls.
+const sourceEngine = 'chromium';
 const screenshotDir = process.env.GABIN_GUEST_SCREENSHOT_DIR || join(tmpdir(), `nino-guests-${engine}`);
 const temp = await mkdtemp(join(tmpdir(), 'nino-guests-e2e-'));
 const failures: string[] = []; const steps: string[] = [];
@@ -43,7 +46,7 @@ let fixture: Awaited<ReturnType<typeof startFakeObs>> | undefined;
 let app: Awaited<ReturnType<typeof buildApp>> | undefined;
 let publicApp: Awaited<ReturnType<typeof buildGuestApp>> | undefined;
 let stun: Awaited<ReturnType<typeof startStunFixture>> | undefined;
-let browser: any; let tabletBrowser: any; let base = ''; let token = '';
+let browser: any; let tabletBrowser: any; let sourceBrowser: any; let base = ''; let token = '';
 const pages: any[] = [];
 
 async function freePort(): Promise<number> {
@@ -72,6 +75,56 @@ async function captureFixture(context: any, frequency: number, label: string, pr
   const setup = ({ frequency, label, privateToken, base }: { frequency: number; label: string; privateToken?: string; base: string }) => {
     if (privateToken && location.origin === base) localStorage.setItem('gabin.studio.device', privateToken);
     (window as any).__fixtureCaptureCount = 0;
+    (window as any).__fixtureSocketEvents = [];
+    (window as any).__fixtureMediaEvents = [];
+    const recordMedia = (value: Record<string, unknown>) => {
+      const events = (window as any).__fixtureMediaEvents as unknown[];
+      events.push({ at: new Date().toISOString(), ...value });
+      if (events.length > 256) events.shift();
+    };
+    const nativePlay = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function observedPlay() {
+      return Reflect.apply(nativePlay, this, []).catch((failure: Error) => {
+        recordMedia({ type: 'play-error', name: failure.name, message: failure.message.replace(/[a-zA-Z0-9_-]{43}/g, '<token>'), className: this.className, muted: this.muted, paused: this.paused, readyState: this.readyState, streamId: this.srcObject instanceof MediaStream ? this.srcObject.id : null });
+        throw failure;
+      });
+    };
+    const NativeWebSocket = WebSocket;
+    // Observe the original socket's events without changing signalling,
+    // authentication, ping/pong, close codes or transport behaviour.
+    (window as any).WebSocket = new Proxy(NativeWebSocket, { construct(target, args, newTarget) {
+      const socket = Reflect.construct(target, args, newTarget) as WebSocket;
+      const route = new URL(String(args[0]), location.href).pathname; let role = ''; let previousRoom = '';
+      const record = (value: Record<string, unknown>) => {
+        const events = (window as any).__fixtureSocketEvents as unknown[];
+        events.push({ at: new Date().toISOString(), route, role, ...value });
+        if (events.length > 32) events.shift();
+      };
+      socket.addEventListener('message', event => {
+        if (typeof event.data !== 'string') return;
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'welcome') role = String(data.peer?.role ?? '');
+          if (data.type === 'error') record({ type: 'error', message: String(data.error ?? '').replace(/[a-zA-Z0-9_-]{43}/g, '<token>') });
+          if ((data.type === 'welcome' || data.type === 'room') && data.room) {
+            const summary = { bridge: { connected: data.room.bridge.connected, mediaReady: data.room.bridge.mediaReady }, guests: data.room.guests.map((guest: GuestSlot) => ({ id: guest.id, status: guest.status, admitted: guest.admitted, muted: guest.muted, joined: guest.joined, mediaReady: guest.mediaReady, sourceReady: guest.sourceReady })) };
+            const key = JSON.stringify(summary);
+            if (key !== previousRoom) { previousRoom = key; recordMedia({ type: 'room', role, ...summary }); }
+          }
+        } catch { /* Binary or other protocol messages are not diagnostics. */ }
+      });
+      const nativeSend = socket.send;
+      socket.send = function observedSend(data) {
+        const result = Reflect.apply(nativeSend, this, [data]);
+        if (typeof data === 'string') {
+          try { const message = JSON.parse(data); if (message.type === 'media') recordMedia({ type: 'media-report', role, guestId: message.guestId, ready: message.ready, audio: message.audio, video: message.video }); }
+          catch { /* Only the readiness booleans, never auth/SDP, are recorded. */ }
+        }
+        return result;
+      };
+      socket.addEventListener('close', event => record({ type: 'close', code: event.code, reason: event.reason.replace(/[a-zA-Z0-9_-]{43}/g, '<token>') }));
+      return socket;
+    } });
     // Observe real native peers for failure diagnostics; signalling, transport,
     // tracks and every return value remain the browser's own implementation.
     (window as any).__fixturePeers = [];
@@ -83,6 +136,16 @@ async function captureFixture(context: any, frequency: number, label: string, pr
         return Reflect.apply(native, this, args);
       };
     }
+    const nativeStats = prototype.getStats;
+    prototype.getStats = function observedStats(...args: unknown[]) {
+      const startedAt = Date.now(); const peer = this;
+      return Reflect.apply(nativeStats, peer, args).then((stats: RTCStatsReport) => {
+        const rtp: unknown[] = [];
+        stats.forEach(stat => { if (stat.type === 'inbound-rtp' || stat.type === 'outbound-rtp') rtp.push({ type: stat.type, kind: stat.kind ?? stat.mediaType, timestamp: stat.timestamp, bytesReceived: stat.bytesReceived, bytesSent: stat.bytesSent, framesDecoded: stat.framesDecoded, framesEncoded: stat.framesEncoded }); });
+        recordMedia({ type: 'rtc-stats', startedAt, endedAt: Date.now(), peer: (window as any).__fixturePeers.indexOf(peer), state: peer.connectionState, rtp });
+        return stats;
+      });
+    };
     const mediaDevices = navigator.mediaDevices || {};
     Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: mediaDevices });
     Object.defineProperty(mediaDevices, 'enumerateDevices', { configurable: true, value: async () => [
@@ -199,20 +262,21 @@ try {
   const pairing = await request<PairingCode>('/pairing', { role: 'operator', kind: 'ipad' });
   const paired = await request<AuthResult>('/auth/pair', { code: pairing.code, name: 'iPad de validation', kind: 'ipad' });
   const deck = await request<AuthResult>('/devices', { role: 'operator', kind: 'streamdeck', name: 'Stream Deck de validation' });
-  const options = engine === 'chromium' ? { headless: true, ...(process.env.GABIN_CHROMIUM_CHANNEL ? { channel: process.env.GABIN_CHROMIUM_CHANNEL } : {}), args: ['--autoplay-policy=no-user-gesture-required', '--disable-background-timer-throttling', '--disable-renderer-backgrounding'] } : { headless: true };
-  browser = await playwright[engine].launch(options);
+  const chromiumOptions = { headless: true, ...(process.env.GABIN_CHROMIUM_CHANNEL ? { channel: process.env.GABIN_CHROMIUM_CHANNEL } : {}), args: ['--autoplay-policy=no-user-gesture-required', '--disable-background-timer-throttling', '--disable-renderer-backgrounding'] };
+  browser = await playwright[engine].launch(engine === 'chromium' ? chromiumOptions : { headless: true });
   const pcContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } }); await captureFixture(pcContext, 440, 'SALLE · 440 Hz', token);
   if (tabletEngine !== engine) tabletBrowser = await playwright[tabletEngine].launch({ headless: true });
   const ipadContext = await (tabletBrowser || browser).newContext({ viewport: { width: 1024, height: 768 }, isMobile: true, hasTouch: true }); await captureFixture(ipadContext, 0, 'IPAD CONTRÔLE', paired.token);
   const contexts = await Promise.all([browser.newContext({ viewport: { width: 1280, height: 850 } }), browser.newContext({ viewport: { width: 1280, height: 850 } })]);
   await captureFixture(contexts[0], 660, 'CAMILLE À DISTANCE · 660 Hz'); await captureFixture(contexts[1], 880, 'LOUIS À DISTANCE · 880 Hz');
-  const sourceContext = await browser.newContext({ viewport: { width: 640, height: 360 } }); await captureFixture(sourceContext, 0, 'OBS SOURCE');
+  if (engine !== sourceEngine) sourceBrowser = await playwright.chromium.launch(chromiumOptions);
+  const sourceContext = await (sourceBrowser || browser).newContext({ viewport: { width: 640, height: 360 } }); await captureFixture(sourceContext, 0, 'OBS SOURCE');
   if (engine === 'webkit') {
     // WebKit withholds host ICE candidates from untrusted capture origins even
     // when our synthetic MediaStreams are valid. These grants affect only the
     // disposable browser contexts; native hardware remains replaced by fixtures.
     await pcContext.grantPermissions(['camera', 'microphone'], { origin: base });
-    for (const context of [...contexts, sourceContext]) await context.grantPermissions(['camera', 'microphone'], { origin: `http://127.0.0.1:${guestPort}` });
+    for (const context of contexts) await context.grantPermissions(['camera', 'microphone'], { origin: `http://127.0.0.1:${guestPort}` });
   }
   const pc = observe(await pcContext.newPage()); const ipad = observe(await ipadContext.newPage());
   await pc.goto(`${base}/#project/${project.id}`); await pc.getByRole('button', { name: 'Enregistrer et diffuser', exact: true }).click();
@@ -261,6 +325,48 @@ try {
   await toneProof(guestPages[1], '.guest-programme video', [440, 660], [880], 'Retour invité 2 : salle + invité 1, aucune voix propre');
   await toneProof(sourcePages[0], '.guest-source video', [660], [440, 880], 'Source OBS 1 : uniquement la voix invité 1');
   await toneProof(sourcePages[1], '.guest-source video', [880], [440, 660], 'Source OBS 2 : uniquement la voix invité 2');
+  // Force two real readiness polls to complete in reverse order. A late native
+  // snapshot must never turn a still-decoding OBS source into a false failure.
+  const holdSourceSnapshot = () => {
+    const video = document.querySelector('.guest-source video') as HTMLVideoElement;
+    const track = (video.srcObject as MediaStream | null)?.getVideoTracks()[0];
+    const peer = ((window as any).__fixturePeers as RTCPeerConnection[]).find(candidate => candidate.getReceivers().some(receiver => receiver.track === track));
+    if (!track || !peer) throw new Error('The active OBS source must receive a real native video track.');
+    const original = peer.getStats; const nativeStats = original.bind(peer);
+    const gate: any = { waiting: false, resumed: false, older: null, newer: null, release: () => {}, restore: () => { peer.getStats = original; } };
+    (window as any).__fixtureSourceStatsGate = gate;
+    peer.getStats = async function delayedSourceSnapshot() {
+      const stats = await nativeStats(); let sample: { timestamp: number; framesDecoded: number } | undefined;
+      stats.forEach(stat => { if (stat.type === 'inbound-rtp' && (stat.kind ?? stat.mediaType) === 'video') sample = { timestamp: stat.timestamp, framesDecoded: stat.framesDecoded }; });
+      if (!sample || !Number.isFinite(sample.timestamp) || !Number.isFinite(sample.framesDecoded)) throw new Error('The native inbound video report must expose its real timestamp and decoded frames.');
+      if (!gate.waiting) {
+        gate.waiting = true; gate.older = sample;
+        await new Promise<void>(resolve => { gate.release = resolve; });
+        gate.resumed = true;
+      } else if (!gate.newer && sample.timestamp > gate.older.timestamp && sample.framesDecoded > gate.older.framesDecoded) {
+        gate.newer = { ...sample, eventIndex: (window as any).__fixtureMediaEvents.length };
+      }
+      return stats;
+    };
+  };
+  await sourcePages[0].evaluate(`(() => { const __name = value => value; (${holdSourceSnapshot.toString()})(); })();`);
+  try {
+    await sourcePages[0].waitForFunction(() => (window as any).__fixtureSourceStatsGate.waiting, null, { timeout: 6_000 });
+    await sourcePages[0].waitForFunction(() => {
+      const gate = (window as any).__fixtureSourceStatsGate;
+      return gate.newer && (window as any).__fixtureMediaEvents.slice(gate.newer.eventIndex).some((event: any) => event.type === 'media-report' && event.ready);
+    }, null, { timeout: 6_000 });
+  } finally {
+    await sourcePages[0].evaluate(() => { const gate = (window as any).__fixtureSourceStatsGate; gate.release(); gate.restore(); });
+  }
+  await sourcePages[0].waitForFunction(() => (window as any).__fixtureSourceStatsGate.resumed, null, { timeout: 2_000 });
+  await sourcePages[0].waitForTimeout(500);
+  const ordered = await request<StudioState>('/state');
+  const snapshots = await sourcePages[0].evaluate(() => { const gate = (window as any).__fixtureSourceStatsGate; return { older: gate.older, newer: gate.newer }; });
+  console.info('Snapshots natifs délivrés dans l’ordre inverse', JSON.stringify(snapshots));
+  assert.equal(ordered.guestRooms![project.id].guests[0].admitted && ordered.guestRooms![project.id].guests[0].sourceReady, true, 'An older native getStats result must not revoke an OBS source after newer decoded frames were confirmed.');
+  steps.push(`Snapshots natifs inversés : admission et réception OBS conservées ${JSON.stringify(snapshots)}`);
+  await toneProof(guestPages[1], '.guest-programme video', [440, 660], [880], 'Snapshot ancien retardé : retour invité 2 conserve salle + invité 1 sans écho');
   await screenshot(pc, 'nino-invites-pc.png', true); await screenshot(ipad, 'nino-invites-ipad.png', true); await screenshot(guestPages[0], 'nino-invite-en-conversation.png'); await screenshot(bridge, 'nino-liaison-salle.png');
   await ipad.locator('.guest-slot').nth(0).getByRole('button', { name: 'Couper le micro', exact: true }).click();
   await stateWhen(state => !!state.guestRooms![project.id].guests[0].muted && state.obs.inputs.find(input => input.name === guests[0].inputName)?.muted === true, 'Le contrôle iPad coupe réellement le micro dans OBS');
@@ -268,10 +374,46 @@ try {
   await toneProof(sourcePages[0], '.guest-source video', [], [440, 660, 880], 'Micro invité 1 coupé : source OBS silencieuse');
   await request<StudioState>('/control', { action: 'guest.scene', guestId: guests[1].id }, deck.token);
   assert.equal(fixture.snapshot().currentScene, guests[1].sceneName); steps.push('Stream Deck affiche le plan invité 2, confirmé par OBS');
-  await request<StudioState>('/control', { action: 'guest.remove', guestId: guests[0].id }, deck.token);
-  await stateWhen(state => state.guestRooms![project.id].guests[0].status === 'removed', 'Stream Deck retire l’invité et révoque ses sessions');
+  // Hold one genuine native stats result across the removal. This forces the
+  // asynchronous callback race without inventing media, reports or RTC values.
+  const deferNativeStats = () => {
+    const video = document.querySelector('.bridge-guests article video') as HTMLVideoElement;
+    const track = (video.srcObject as MediaStream | null)?.getVideoTracks()[0];
+    const peer = ((window as any).__fixturePeers as RTCPeerConnection[]).find(candidate => candidate.getReceivers().some(receiver => receiver.track === track));
+    if (!track || !peer) throw new Error('The removed guest must have a real native receiver in the bridge.');
+    const original = peer.getStats; const nativeStats = original.bind(peer);
+    const gate = { waiting: false, released: false, resumed: false, peer, release: () => {}, restore: () => { peer.getStats = original; } };
+    (window as any).__fixtureStatsGate = gate;
+    peer.getStats = async function heldNativeStats() {
+      const stats = await nativeStats();
+      if (!gate.waiting) {
+        gate.waiting = true;
+        await new Promise<void>(resolve => { gate.release = () => { gate.released = true; resolve(); }; });
+        gate.resumed = true;
+      }
+      return stats;
+    };
+  };
+  await bridge.evaluate(`(() => { const __name = value => value; (${deferNativeStats.toString()})(); })();`);
+  try {
+    await bridge.waitForFunction(() => (window as any).__fixtureStatsGate.waiting, null, { timeout: 6_000 });
+    await request<StudioState>('/control', { action: 'guest.remove', guestId: guests[0].id }, deck.token);
+    await stateWhen(state => state.guestRooms![project.id].guests[0].status === 'removed', 'Stream Deck retire l’invité et révoque ses sessions');
+    await bridge.waitForFunction(() => (window as any).__fixtureStatsGate.peer.connectionState === 'closed', null, { timeout: 6_000 });
+  } finally {
+    await bridge.evaluate(() => { const gate = (window as any).__fixtureStatsGate; gate.release(); gate.restore(); });
+  }
+  await bridge.waitForFunction(() => { const gate = (window as any).__fixtureStatsGate; return gate.released && gate.resumed; }, null, { timeout: 2_000 });
+  steps.push('Retrait pendant getStats natif en attente : résultat réel libéré après fermeture du pair');
   await guestPages[0].getByRole('alert').filter({ hasText: /retiré|expiré/ }).waitFor({ timeout: 10_000 });
   await sourcePages[0].waitForFunction(() => (document.querySelector('.guest-source video') as HTMLVideoElement)?.srcObject === null, null, { timeout: 10_000 });
+  await bridge.waitForTimeout(2500);
+  await stateWhen(state => {
+    const room = state.guestRooms![project.id]; const other = room.guests.find(guest => guest.id === guests[1].id);
+    return room.bridge.connected && room.bridge.mediaReady && !!other?.admitted && other.sourceReady && !other.muted;
+  }, 'Le retrait du premier invité conserve le pont et le second invité admis dans OBS');
+  await liveFrames(guestPages[1], '.guest-programme video', 'Retour invité 2 conservé après retrait invité 1');
+  await toneProof(guestPages[1], '.guest-programme video', [440], [660, 880], 'Après retrait invité 1 : retour invité 2 conserve la salle sans écho');
   // Reusing a slot after removal must receive a new one-time source grant.
   // Fake OBS records the same URL update that reloads a real BrowserSource.
   const reinvitation = await request<{ url: string }>(`/projects/${project.id}/guests/invitations`, { slot: 1, name: 'Camille reconnectée' });
@@ -291,6 +433,9 @@ try {
   for (const path of ['/api/state', '/api/projects', '/api/devices', '/api/room']) { const response = await fetch(`${publicOrigin}${path}`, { headers: { Authorization: `Bearer ${token}` } }); assert.equal(response.status, 404, `guest listener cannot expose ${path}`); }
   assert.equal(await ipad.evaluate(() => (window as any).__fixtureCaptureCount), 0);
   for (const page of sourcePages) assert.equal(await page.evaluate(() => (window as any).__fixtureCaptureCount), 0);
+  const bridgeSockets = await bridge.evaluate(() => (window as any).__fixtureSocketEvents);
+  assert.equal(bridgeSockets.some((event: { type: string; code?: number }) => event.type === 'error' || event.code === 4003), false,
+    `The room bridge must survive guest replacement without a signalling rejection: ${JSON.stringify(bridgeSockets)}`);
   await bridge.getByRole('button', { name: 'Fermer la liaison', exact: true }).click();
   await stateWhen(state => !state.guestRooms![project.id].bridge.connected && state.guestRooms![project.id].guests.every(guest => !guest.admitted)
     && guests.every(guest => state.obs.inputs.find(input => input.name === guest.inputName)?.muted === true), 'Fermeture pont : admissions retirées et micros remis en sourdine dans OBS');
@@ -298,8 +443,9 @@ try {
   assert.equal(fixture.snapshot().inputs[guests[1].inputName].muted, true);
   assert.deepEqual(failures, [], 'aucune erreur navigateur inattendue');
   if (stun) { assert.ok(stun.count() > 0, 'the browser must use the real STUN UDP responder'); steps.push(`STUN loopback : ${stun.count()} Binding requests réelles`); }
-  await writeFile(join(screenshotDir, `nino-guests-${engine}-proof.json`), JSON.stringify({ engine, tabletEngine, capture: 'synthetic devices, real WebRTC and WebAudio', steps }, null, 2));
-  console.info(JSON.stringify({ engine, tabletEngine, passed: steps.length, stunBindings: stun?.count() ?? 0, screenshotDir }));
+  const playbackErrors = await Promise.all(pages.map(async (page, index) => ({ page: index, errors: await page.evaluate(() => (window as any).__fixtureMediaEvents.filter((event: any) => event.type === 'play-error')) })));
+  await writeFile(join(screenshotDir, `nino-guests-${engine}-proof.json`), JSON.stringify({ engine, tabletEngine, sourceEngine, capture: 'synthetic devices, real WebRTC and WebAudio', playbackErrors, steps }, null, 2));
+  console.info(JSON.stringify({ engine, tabletEngine, sourceEngine, passed: steps.length, stunBindings: stun?.count() ?? 0, screenshotDir }));
 } catch (failure) {
   console.error('Échec de la vérification WebRTC', String(failure).replace(/[a-zA-Z0-9_-]{43}/g, '<token>'));
   console.info('Erreurs navigateur', failures);
@@ -311,6 +457,10 @@ try {
     console.info(`Page ${index}`, body.replace(/[a-zA-Z0-9_-]{43}/g, '<token>').slice(-1800));
     console.info(`Capture fixture ${index}`, await pages[index].evaluate(() => ({ stage: (window as any).__fixtureCaptureStage, captureCount: (window as any).__fixtureCaptureCount,
       secure: isSecureContext, fixtureGum: !!navigator.mediaDevices?.getUserMedia?.toString().includes('__fixtureCaptureCount') })));
+    console.info(`WS fixture ${index}`, JSON.stringify(await pages[index].evaluate(() => (window as any).__fixtureSocketEvents)));
+    const mediaEvents = await pages[index].evaluate(() => (window as any).__fixtureMediaEvents);
+    await writeFile(join(screenshotDir, `failure-media-${index}.json`), JSON.stringify(mediaEvents, null, 2));
+    console.info(`Media fixture ${index}`, JSON.stringify(mediaEvents.slice(-8)));
     const rtc = await pages[index].evaluate(async () => Promise.all(((window as any).__fixturePeers || []).map(async (peer: RTCPeerConnection) => {
       const stats = await peer.getStats(); const packets: unknown[] = []; stats.forEach(value => { if (['inbound-rtp', 'outbound-rtp', 'candidate-pair'].includes(value.type)) packets.push({ type: value.type, kind: value.kind, state: value.state, selected: value.selected, bytesReceived: value.bytesReceived, bytesSent: value.bytesSent, framesDecoded: value.framesDecoded, framesEncoded: value.framesEncoded }); });
       return { state: peer.connectionState, ice: peer.iceConnectionState, gathering: peer.iceGatheringState, signalling: peer.signalingState,
@@ -320,5 +470,5 @@ try {
   }
   throw new Error(String(failure).replace(/[a-zA-Z0-9_-]{43}/g, '<token>'));
 } finally {
-  await browser?.close(); await tabletBrowser?.close(); await publicApp?.close().catch(() => undefined); await app?.close().catch(() => undefined); await fixture?.close(); await stun?.close(); await rm(temp, { recursive: true, force: true });
+  await browser?.close(); await tabletBrowser?.close(); await sourceBrowser?.close(); await publicApp?.close().catch(() => undefined); await app?.close().catch(() => undefined); await fixture?.close(); await stun?.close(); await rm(temp, { recursive: true, force: true });
 }

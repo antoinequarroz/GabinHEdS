@@ -2,7 +2,7 @@ import type { GuestPeer, GuestRoomState, GuestSession, GuestServerMessage, Guest
 import { MixMinus } from './mixMinus';
 import { validSession } from './guestApi';
 
-interface Link { peer: GuestPeer; pc: RTCPeerConnection; video: RTCRtpTransceiver | null; audio: RTCRtpTransceiver | null; stream: MediaStream; candidates: RTCIceCandidateInit[]; makingOffer: boolean; changed: boolean; audioBytes: number; audioAt: number; videoFrames: number; outboundFrames: number; outboundAt: number; programStartedAt: number; ready: boolean; }
+interface Link { peer: GuestPeer; pc: RTCPeerConnection; video: RTCRtpTransceiver | null; audio: RTCRtpTransceiver | null; stream: MediaStream; candidates: RTCIceCandidateInit[]; makingOffer: boolean; changed: boolean; statsTimestamp: number; audioBytes: number; audioAt: number; videoFrames: number; outboundFrames: number; outboundAt: number; programStartedAt: number; ready: boolean; }
 export interface ConnectionHooks {
   room: (room: GuestRoomState) => void;
   stream: (peer: GuestPeer, stream: MediaStream | null) => void;
@@ -36,6 +36,7 @@ export class GuestConnection {
   }
   setLocalReady(ready: boolean): void { this.localReady = ready; }
   monitor(enabled: boolean): void { if (this.closed) return; this.mix?.setMonitor(enabled); void this.mix?.resume().catch(error => this.hooks.error(error instanceof Error ? error.message : 'L’écoute des invités n’a pas pu démarrer.')); }
+  private current(link: Link): boolean { return !this.closed && this.links.get(link.peer.id) === link; }
   private send(message: GuestClientMessage): void { if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify(message)); }
   private connect(): void {
     if (this.closed) return;
@@ -78,25 +79,27 @@ export class GuestConnection {
     const direction = peer.role === 'source' ? 'sendonly' : 'sendrecv';
     const video = this.session.role === 'bridge' ? pc.addTransceiver('video', { direction }) : null;
     const audio = this.session.role === 'bridge' ? pc.addTransceiver('audio', { direction }) : null;
-    const link: Link = { peer, pc, video, audio, stream: new MediaStream(), candidates: [], makingOffer: false, changed: false, audioBytes: 0, audioAt: 0, videoFrames: 0, outboundFrames: 0, outboundAt: 0, programStartedAt: 0, ready: false };
+    const link: Link = { peer, pc, video, audio, stream: new MediaStream(), candidates: [], makingOffer: false, changed: false, statsTimestamp: -1, audioBytes: 0, audioAt: 0, videoFrames: 0, outboundFrames: 0, outboundAt: 0, programStartedAt: 0, ready: false };
     this.links.set(peer.id, link);
-    pc.onicecandidate = event => this.send({ type: 'signal', to: peer.id, candidate: event.candidate ? { candidate: event.candidate.candidate, sdpMid: event.candidate.sdpMid, sdpMLineIndex: event.candidate.sdpMLineIndex } : null });
+    pc.onicecandidate = event => { if (this.current(link)) this.send({ type: 'signal', to: peer.id, candidate: event.candidate ? { candidate: event.candidate.candidate, sdpMid: event.candidate.sdpMid, sdpMLineIndex: event.candidate.sdpMLineIndex } : null }); };
     pc.ontrack = event => {
+      if (!this.current(link)) return;
       if (!link.stream.getTracks().some(track => track.id === event.track.id)) link.stream.addTrack(event.track);
-      event.track.onended = () => { link.ready = false; this.hooks.stream(peer, null); this.report(); };
+      event.track.onended = () => { if (!this.current(link)) return; link.ready = false; this.hooks.stream(peer, null); this.report(); };
       if (this.mix && peer.role === 'guest' && peer.guestId && link.stream.getAudioTracks().length) this.mix.setRemote(peer.guestId, link.stream);
       this.hooks.stream(peer, link.stream);
       if (this.session.role === 'bridge') { void this.syncPeers().catch(error => { if (!this.closed) this.hooks.error(error instanceof Error ? error.message : 'La liaison vidéo a échoué.'); }); }
     };
     pc.onconnectionstatechange = () => {
+      if (!this.current(link)) return;
       if (['failed', 'disconnected', 'closed'].includes(pc.connectionState)) { link.ready = false; this.hooks.stream(peer, null); this.report(); }
       if (pc.connectionState === 'failed' && this.session.role === 'bridge' && !this.closed) { pc.restartIce(); void this.offer(link).catch(error => { if (!this.closed) this.hooks.error(error instanceof Error ? error.message : 'La reconnexion vidéo a échoué.'); }); }
     };
-    pc.onnegotiationneeded = () => { if (this.session.role === 'bridge' && pc.localDescription) void this.offer(link).catch(error => { if (!this.closed) this.hooks.error(error instanceof Error ? error.message : 'La liaison vidéo a échoué.'); }); };
+    pc.onnegotiationneeded = () => { if (this.current(link) && this.session.role === 'bridge' && pc.localDescription) void this.offer(link).catch(error => { if (this.current(link)) this.hooks.error(error instanceof Error ? error.message : 'La liaison vidéo a échoué.'); }); };
     return link;
   }
   private async updateTracks(link: Link): Promise<void> {
-    if (!link.video || !link.audio) return;
+    if (!this.current(link) || !link.video || !link.audio) return;
     let video: MediaStreamTrack | null = null; let audio: MediaStreamTrack | null = null;
     if (this.session.role === 'bridge' && link.peer.guestId && this.mix) {
       const guest = this.room.guests.find(item => item.id === link.peer.guestId);
@@ -112,32 +115,41 @@ export class GuestConnection {
       video = this.local?.getVideoTracks()[0] ?? null; audio = this.local?.getAudioTracks()[0] ?? null;
     }
     if (link.video.sender.track !== video) {
-      await link.video.sender.replaceTrack(video);
+      try { await link.video.sender.replaceTrack(video); } catch (error) { if (this.current(link)) throw error; return; }
+      if (!this.current(link)) return;
       if (this.session.role === 'bridge' && link.peer.role === 'guest') {
         link.programStartedAt = video ? performance.now() : 0;
         link.outboundFrames = 0; link.outboundAt = 0;
       }
     }
-    if (link.audio.sender.track !== audio) await link.audio.sender.replaceTrack(audio);
+    if (link.audio.sender.track !== audio) {
+      try { await link.audio.sender.replaceTrack(audio); } catch (error) { if (this.current(link)) throw error; }
+    }
   }
   private async offer(link: Link): Promise<void> {
+    if (!this.current(link) || link.pc.signalingState === 'closed') return;
     if (link.makingOffer || link.pc.signalingState !== 'stable' || this.closed) { link.changed = true; return; }
     link.makingOffer = true; link.changed = false;
     try {
-      await this.updateTracks(link); await link.pc.setLocalDescription(await link.pc.createOffer());
+      await this.updateTracks(link); if (!this.current(link)) return;
+      const offer = await link.pc.createOffer(); if (!this.current(link)) return;
+      await link.pc.setLocalDescription(offer); if (!this.current(link)) return;
       this.send({ type: 'signal', to: link.peer.id, description: { type: 'offer', sdp: link.pc.localDescription!.sdp } });
-    } finally { link.makingOffer = false; }
+    } catch (error) { if (this.current(link)) throw error; }
+    finally { link.makingOffer = false; }
   }
   private async signal(message: Extract<GuestServerMessage, { type: 'signal' }>): Promise<void> {
     let link = this.links.get(message.from.id);
     if (!link) {
-      if (this.session.role === 'bridge' || message.from.role !== 'bridge') return;
+      if (this.session.role === 'bridge' || message.from.role !== 'bridge' || !this.peers.some(peer => peer.id === message.from.id && peer.role === 'bridge')) return;
       link = this.createLink(message.from);
     }
+    if (!this.current(link)) return;
     if (message.description) {
       if (this.session.role === 'bridge' && message.description.type !== 'answer') return;
       if (this.session.role !== 'bridge' && message.description.type !== 'offer') return;
-      await link.pc.setRemoteDescription(message.description);
+      try { await link.pc.setRemoteDescription(message.description); } catch (error) { if (this.current(link)) throw error; return; }
+      if (!this.current(link)) return;
       // Remote SDP transceivers, not separately created m-lines, define the answer's senders.
       if (this.session.role !== 'bridge') {
         const transceivers = link.pc.getTransceivers();
@@ -147,26 +159,43 @@ export class GuestConnection {
         link.video.direction = this.session.role === 'guest' ? 'sendrecv' : 'recvonly';
         link.audio.direction = this.session.role === 'guest' ? 'sendrecv' : 'recvonly';
       }
-      for (const candidate of link.candidates.splice(0)) await link.pc.addIceCandidate(candidate);
+      for (const candidate of link.candidates.splice(0)) {
+        try { await link.pc.addIceCandidate(candidate); } catch (error) { if (this.current(link)) throw error; return; }
+        if (!this.current(link)) return;
+      }
       if (message.description.type === 'offer') {
-        await this.updateTracks(link); await link.pc.setLocalDescription(await link.pc.createAnswer());
+        await this.updateTracks(link); if (!this.current(link)) return;
+        try { const answer = await link.pc.createAnswer(); if (!this.current(link)) return; await link.pc.setLocalDescription(answer); }
+        catch (error) { if (this.current(link)) throw error; return; }
+        if (!this.current(link)) return;
         this.send({ type: 'signal', to: message.from.id, description: { type: 'answer', sdp: link.pc.localDescription!.sdp } });
       } else if (link.changed) await this.offer(link);
     } else if (message.candidate) {
-      if (link.pc.remoteDescription) await link.pc.addIceCandidate(message.candidate);
+      if (link.pc.remoteDescription) { try { await link.pc.addIceCandidate(message.candidate); } catch (error) { if (this.current(link)) throw error; } }
       else link.candidates.push(message.candidate);
     }
   }
   private async checkMedia(): Promise<void> {
     for (const link of this.links.values()) {
+      if (!this.current(link)) continue;
       if (link.pc.connectionState !== 'connected') { if (link.ready) this.hooks.stream(link.peer, null); link.ready = false; continue; }
-      const stats = await link.pc.getStats(); let audioBytes = 0; let videoFrames = 0; let outboundFrames = 0;
+      let stats: RTCStatsReport;
+      try { stats = await link.pc.getStats(); } catch (error) { if (this.current(link)) throw error; continue; }
+      if (!this.current(link)) continue;
+      let audioBytes = 0; let videoFrames = 0; let outboundFrames = 0; let statsTimestamp = -1;
       stats.forEach(stat => {
+        if (['inbound-rtp', 'outbound-rtp'].includes(stat.type) && typeof stat.timestamp === 'number' && Number.isFinite(stat.timestamp) && stat.timestamp >= 0) statsTimestamp = Math.max(statsTimestamp, stat.timestamp);
         if (stat.type === 'outbound-rtp' && (stat.kind ?? stat.mediaType) === 'video') outboundFrames += Number(stat.framesEncoded ?? 0);
         if (stat.type !== 'inbound-rtp') return;
         if ((stat.kind ?? stat.mediaType) === 'audio') audioBytes += Number(stat.bytesReceived ?? 0);
         if ((stat.kind ?? stat.mediaType) === 'video') videoFrames += Number(stat.framesDecoded ?? 0);
       });
+      // Native getStats promises may resolve out of order. A delayed snapshot
+      // must not overwrite newer counters and revoke a live source's admission.
+      // Use the browser's measurement time, never a fabricated delivery time.
+      if (statsTimestamp < 0) { if (link.ready) this.hooks.stream(link.peer, null); link.ready = false; continue; }
+      if (statsTimestamp < link.statsTimestamp) continue;
+      link.statsTimestamp = statsTimestamp;
       if (outboundFrames > link.outboundFrames) link.outboundAt = performance.now();
       link.outboundFrames = outboundFrames;
       if (audioBytes > link.audioBytes) link.audioAt = performance.now();
@@ -188,7 +217,8 @@ export class GuestConnection {
       && this.mix?.context.state === 'running' && programFresh;
     if (this.session.role === 'bridge') {
       this.send({ type: 'media', ready: captureReady, audio: captureReady, video: captureReady });
-      for (const link of this.links.values()) if (link.peer.role === 'guest' && link.peer.guestId) this.send({ type: 'media', guestId: link.peer.guestId, ready: link.ready, audio: link.ready, video: link.ready });
+      for (const link of this.links.values()) if (this.current(link) && link.peer.role === 'guest' && link.peer.guestId
+        && this.room.guests.some(guest => guest.id === link.peer.guestId && guest.status !== 'removed')) this.send({ type: 'media', guestId: link.peer.guestId, ready: link.ready, audio: link.ready, video: link.ready });
     } else if (this.session.role === 'source') {
       // Source visibility is controlled by OBS. Reception and successful media
       // playback, rather than a visible preview element, establish readiness.
@@ -199,8 +229,13 @@ export class GuestConnection {
     if (key !== this.observedRoom) { this.observedRoom = key; this.hooks.room(this.room); }
   }
   private removeLink(link: Link): void {
-    link.pc.ontrack = null; link.pc.onconnectionstatechange = null; link.pc.onnegotiationneeded = null;
-    link.pc.close(); this.links.delete(link.peer.id); this.hooks.stream(link.peer, null);
+    if (this.links.get(link.peer.id) !== link) return;
+    // Native close/track-ended callbacks and pending promises can complete
+    // after removal. Invalidate the identity before releasing any resources.
+    this.links.delete(link.peer.id);
+    link.pc.onicecandidate = null; link.pc.ontrack = null; link.pc.onconnectionstatechange = null; link.pc.onnegotiationneeded = null;
+    link.stream.getTracks().forEach(track => { track.onended = null; });
+    link.pc.close(); this.hooks.stream(link.peer, null);
     link.stream.getTracks().forEach(track => track.stop());
     if (link.peer.role === 'guest' && link.peer.guestId) this.mix?.removeRemote(link.peer.guestId);
   }
