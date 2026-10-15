@@ -22,8 +22,10 @@ Archiver un média le retire des nouvelles sélections. Son fichier et ses assoc
 1. Terminer la prise et attendre la confirmation d’OBS.
 2. Ouvrir les prises de cette production et lancer la lecture de la prise terminée.
 3. Si nécessaire, attendre la préparation de la copie MP4 de lecture. FFmpeg doit être installé sur le PC. Cette préparation ne modifie pas l’original.
-4. Télécharger l’original pour le montage ou choisir **Récupérer le dossier complet**.
-5. Attendre la fin du téléchargement dans le navigateur. Sur iPad, retrouver le ZIP dans **Fichiers → Téléchargements**, puis le décompresser.
+4. Choisir **Télécharger en MP4** pour obtenir un fichier vidéo compatible à copier sur une clé USB, **Télécharger le fichier** pour conserver l’original OBS, ou **Récupérer le dossier complet** pour réunir les pièces de la production.
+5. Attendre la fin du téléchargement dans le navigateur. Sur iPad, retrouver le fichier dans **Fichiers → Téléchargements**. Décompresser le ZIP si vous avez choisi le dossier complet.
+
+**Télécharger en MP4** prépare uniquement la prise choisie, sans ZIP ni timeline. Le PC réutilise la copie MP4 compatible déjà disponible ou la prépare avec le même traitement que la lecture et Resolve. Attendre **Préparation du MP4…** si nécessaire ; **Annuler l’attente** arrête l’attente du navigateur, sans toucher à la prise originale. Le message de lancement ne confirme pas la fin du transfert : vérifier les téléchargements, puis copier le fichier `.mp4` sur la clé USB. DaVinci n’est pas nécessaire sur le PC de la salle.
 
 Le ZIP regroupe les prises terminées originales, les médias associés, les métadonnées de la production, les repères et le journal `scene-changes.json` des plans confirmés par OBS.
 

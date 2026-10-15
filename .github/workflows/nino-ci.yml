@@ -121,6 +121,14 @@ jobs:
         run: |
           mkdir -p "$GABIN_SCREENSHOT_DIR"
           npm run test:browser 2>&1 | tee "$GABIN_SCREENSHOT_DIR/browser.log"
+      - name: Tester le téléchargement MP4 sur PC et iPad
+        timeout-minutes: 5
+        env:
+          GABIN_PLAYWRIGHT_MODULE: ${{ runner.temp }}/nino-playwright/node_modules/playwright
+          GABIN_SCREENSHOT_DIR: ${{ runner.temp }}/nino-artifacts/${{ matrix.browser }}/mp4
+        run: |
+          mkdir -p "$GABIN_SCREENSHOT_DIR"
+          npm run test:mp4:browser 2>&1 | tee "$GABIN_SCREENSHOT_DIR/mp4.log"
       - name: Tester les invités WebRTC et le retour audio sans voix propre
         timeout-minutes: 10
         env:
@@ -138,6 +146,8 @@ jobs:
           path: |
             ${{ runner.temp }}/nino-artifacts/${{ matrix.browser }}/*.png
             ${{ runner.temp }}/nino-artifacts/${{ matrix.browser }}/browser.log
+            ${{ runner.temp }}/nino-artifacts/${{ matrix.browser }}/mp4/*.png
+            ${{ runner.temp }}/nino-artifacts/${{ matrix.browser }}/mp4/mp4.log
             ${{ runner.temp }}/nino-artifacts/${{ matrix.browser }}/guests/*.png
             ${{ runner.temp }}/nino-artifacts/${{ matrix.browser }}/guests/*.json
             ${{ runner.temp }}/nino-artifacts/${{ matrix.browser }}/guests/guests.log

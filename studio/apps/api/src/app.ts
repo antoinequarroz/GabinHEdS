@@ -122,7 +122,7 @@ export async function buildApp(options: AppOptions) {
     if (!sameOrigin(request)) throw new ApiFailure(403, 'Origine de la requête non autorisée.', 'ORIGIN_REJECTED');
     const route = request.url.split('?')[0];
     if (['/api/auth/local', '/api/auth/pair', '/api/events', '/api/guest/config'].includes(route) || /^\/api\/downloads\/[a-zA-Z0-9_-]{43}$/.test(route)
-      || /^\/api\/(?:library-files|playback-files|production-exports|resolve-exports)\/[a-zA-Z0-9_-]{43}$/.test(route)
+      || /^\/api\/(?:library-files|playback-files|mp4-downloads|production-exports|resolve-exports)\/[a-zA-Z0-9_-]{43}$/.test(route)
       || /^\/api\/monitor\/[a-zA-Z0-9_-]{43}\/[a-zA-Z0-9_.-]+$/.test(route)) return;
     const authorization = request.headers.authorization;
     if (!authorization?.startsWith('Bearer ') || authorization.length > 512) throw new ApiFailure(401, 'Connectez cet appareil à la salle.', 'UNAUTHENTICATED');

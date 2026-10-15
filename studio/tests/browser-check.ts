@@ -60,7 +60,7 @@ const track = (page: any) => {
   page.on('pageerror', (error: Error) => pageErrors.push(error.message));
   page.on('response', async (response: any) => {
     if (response.url().includes('/api/') && response.status() >= 400) {
-      const pathname = new URL(response.url()).pathname.replace(/\/(monitor|library-files|playback-files|production-exports|resolve-exports|downloads)\/[^/]+/, '/$1/<session>');
+      const pathname = new URL(response.url()).pathname.replace(/\/(monitor|library-files|playback-files|production-exports|resolve-exports|mp4-downloads|downloads)\/[^/]+/, '/$1/<session>');
       failedApi.push(`${response.status()} ${pathname} ${(await response.text().catch(() => '')).slice(0, 500)}`);
     }
   });
@@ -451,6 +451,23 @@ try {
     await download.saveAs(saved);
     assert.deepEqual(await readFile(saved), await readFile(encodedFixture.mkv), 'Téléchargement complet correspond exactement au fichier de mire encodée retourné par OBS de test');
     steps.push('Récupération : téléchargement navigateur complet via ticket autorisé, fichier identique');
+
+    const pendingMp4 = pc.waitForEvent('download', { timeout: 45_000 });
+    await pc.getByRole('button', { name: 'Télécharger en MP4', exact: true }).click();
+    const mp4Download = await pendingMp4;
+    assert.equal(await mp4Download.failure(), null, 'Le téléchargement MP4 aboutit réellement dans le navigateur');
+    assert.equal(mp4Download.suggestedFilename().normalize('NFC'), `${ended.takes[0]!.title}.mp4`.normalize('NFC'), 'Le MP4 reprend le nom de la prise (Unicode canonique)');
+    const mp4File = join(temp, 'download.mp4');
+    await mp4Download.saveAs(mp4File);
+    assert((await readFile(mp4File)).subarray(0, 32).includes(Buffer.from('ftyp')), 'Le bouton fournit directement un MP4, sans ZIP');
+    const ffprobe = process.env.GABIN_FFPROBE_PATH ?? (existsSync('/opt/homebrew/bin/ffprobe') ? '/opt/homebrew/bin/ffprobe' : 'ffprobe');
+    const { stdout: probeJson } = await execute(ffprobe, ['-v', 'error', '-show_streams', '-show_format', '-of', 'json', mp4File], { timeout: 15_000 });
+    const probe = JSON.parse(probeJson);
+    assert(probe.streams.some((stream: any) => stream.codec_type === 'video' && stream.codec_name === 'h264' && stream.width === 640 && stream.height === 360), 'Vidéo H.264 complète dans le MP4');
+    assert(probe.streams.some((stream: any) => stream.codec_type === 'audio' && stream.codec_name === 'aac'), 'Audio AAC présent dans le MP4');
+    assert(Math.abs(Number(probe.format.duration) - 4) < .15, 'La copie MP4 conserve les quatre secondes de la prise fixture');
+    assert.deepEqual(await readFile(ended.takes[0]!.outputPath!), await readFile(encodedFixture.mkv), 'Le téléchargement MP4 conserve l’original OBS');
+    steps.push('MP4 direct : clic par prise, fichier nommé sans ZIP, vidéo H.264 640×360 et audio AAC de 4 s, original conservé');
   }
 
   await pc.getByRole('button', { name: 'Lire la prise', exact: true }).click();

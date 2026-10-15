@@ -2,7 +2,7 @@ import { computed, ref, shallowRef } from 'vue';
 import type {
   AudioFrame, AuthResult, ClientMessage, ControlCommand, Device, DownloadTicket, PairingCode, Preparation,
   PreviewSession, Project, ProjectInput, RoomConfig, RoomConfigInput, SceneThumbnail, ServerMessage, StudioState,
-  MediaAsset, ProjectMediaLink, FilePlaybackSession, TakePlaybackStatus, ResolveExportStatus, GuestInvitation, GuestSession,
+  MediaAsset, ProjectMediaLink, FilePlaybackSession, TakePlaybackStatus, TakeMp4DownloadStatus, ResolveExportStatus, GuestInvitation, GuestSession,
 } from '@gabin/shared';
 
 const tokenKey = 'gabin.studio.device';
@@ -24,6 +24,7 @@ let reconnectDelay = 1000;
 let noticeTimer: ReturnType<typeof setTimeout> | undefined;
 let controllerEnabled = false;
 const resolvePreparations = new Map<string, AbortController>();
+const mp4Preparations = new Map<string, AbortController>();
 const guestInvitations = shallowRef<Record<string, Record<number, GuestInvitation>>>({});
 window.addEventListener('offline', () => { live.value = false; socket?.close(); });
 window.addEventListener('online', () => { if (controllerEnabled && token.value) connectEvents(); });
@@ -110,6 +111,7 @@ function stopEvents(): void {
 
 function forgetDevice(): void {
   for (const controller of resolvePreparations.values()) controller.abort();
+  for (const controller of mp4Preparations.values()) controller.abort();
   token.value = '';
   localStorage.removeItem(tokenKey);
   device.value = null;
@@ -313,10 +315,67 @@ async function saveProjectMedia(projectId: string, links: ProjectMediaLink[]): P
 
 function safeSession<T extends { url: string }>(session: T, prefix: string): T {
   const url = new URL(session.url, location.origin);
-  if (url.origin !== location.origin || !new RegExp(`^/api/${prefix}/[A-Za-z0-9_-]{43}$`).test(url.pathname) || url.search || url.hash) {
+  const hasCredentials = url.username.length + url.password.length > 0;
+  const validPath = new RegExp(`^/api/${prefix}/[A-Za-z0-9_-]{43}$`).test(url.pathname);
+  if (url.origin !== location.origin || hasCredentials || !validPath || url.search || url.hash) {
     throw new Error('Le lien transmis par le studio est invalide.');
   }
   return session;
+}
+
+function cancelTakeMp4Download(id: string): void { mp4Preparations.get(id)?.abort(); }
+
+async function downloadTakeMp4(id: string): Promise<void> {
+  await run(`mp4-download:${id}`, async () => {
+    const controller = new AbortController();
+    mp4Preparations.set(id, controller);
+    const deadline = Date.now() + 30 * 60_000;
+    const timer = setTimeout(() => controller.abort(), 30 * 60_000);
+    try {
+      while (Date.now() < deadline) {
+        const result = await api<TakeMp4DownloadStatus>(`/takes/${encodeURIComponent(id)}/mp4-download-ticket`, { method: 'POST', signal: controller.signal });
+        if (controller.signal.aborted) throw new DOMException('Demande interrompue.', 'AbortError');
+        if (result.status === 'failed') throw new Error(result.error ?? 'La préparation du MP4 a échoué. Vous pouvez toujours récupérer l’original.');
+        if (result.status === 'ready') {
+          if (!result.ticket) throw new Error('Le studio n’a pas transmis le fichier MP4 préparé.');
+          const ticket = safeSession(result.ticket, 'mp4-downloads');
+          const headAbort = new AbortController();
+          const headTimer = setTimeout(() => headAbort.abort(), 30_000);
+          const cancelHead = () => headAbort.abort();
+          controller.signal.addEventListener('abort', cancelHead, { once: true });
+          try {
+            if (controller.signal.aborted) throw new DOMException('Demande interrompue.', 'AbortError');
+            const response = await fetch(ticket.url, { method: 'HEAD', signal: headAbort.signal, redirect: 'error' });
+            if (!response.ok) throw new Error('Le fichier MP4 n’est plus disponible ou le lien a expiré. Réessayez depuis cette prise.');
+            if (response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() !== 'video/mp4'
+              || !/^attachment(?:\s*;|$)/i.test(response.headers.get('content-disposition') ?? '')) {
+              throw new Error('Le studio n’a pas confirmé un fichier MP4 téléchargeable. Réessayez depuis cette prise.');
+            }
+          } finally { clearTimeout(headTimer); controller.signal.removeEventListener('abort', cancelHead); }
+          if (controller.signal.aborted) throw new DOMException('Demande interrompue.', 'AbortError');
+          const anchor = document.createElement('a');
+          anchor.href = ticket.url; anchor.download = ''; anchor.rel = 'noreferrer';
+          document.body.append(anchor); anchor.click(); anchor.remove();
+          notify('Le téléchargement du MP4 a été lancé. Consultez les téléchargements de votre navigateur ; l’original est conservé.');
+          return;
+        }
+        if (result.status !== 'preparing') throw new Error('Le studio a transmis un état de préparation MP4 invalide.');
+        await new Promise<void>((resolve, reject) => {
+          const finish = () => { controller.signal.removeEventListener('abort', cancelWait); resolve(); };
+          const wait = setTimeout(finish, 1500);
+          const cancelWait = () => { clearTimeout(wait); controller.signal.removeEventListener('abort', cancelWait); reject(new DOMException('Demande interrompue.', 'AbortError')); };
+          controller.signal.addEventListener('abort', cancelWait, { once: true });
+          if (controller.signal.aborted) cancelWait();
+        });
+      }
+      throw new Error('La préparation du MP4 est trop longue. Vérifiez le PC puis réessayez.');
+    } catch (failure) {
+      if (!controller.signal.aborted || failure instanceof ApiFailure) throw failure;
+      notify(Date.now() >= deadline
+        ? 'La préparation du MP4 est trop longue. Vérifiez le PC puis réessayez.'
+        : 'Attente du MP4 interrompue. Le PC peut continuer la préparation ; relancez le téléchargement quand vous le souhaitez.');
+    } finally { clearTimeout(timer); mp4Preparations.delete(id); }
+  });
 }
 
 async function mediaFileSession(id: string): Promise<FilePlaybackSession> {
@@ -439,7 +498,7 @@ const mediaThumbnail = (id: string) => imageThumbnail(`/library/${encodeURICompo
 export function useStudio() {
   return {
     device, state, initialized, live, audioFrame, audioReceivedAt, error, notice, busy, canEdit, technician, guestInvitations,
-    initialize, pair, forgetDevice, saveProject, preparation, control, connectObs, saveRoom, downloadTake, sceneThumbnail, takeThumbnail,
+    initialize, pair, forgetDevice, saveProject, preparation, control, connectObs, saveRoom, downloadTake, downloadTakeMp4, cancelTakeMp4Download, sceneThumbnail, takeThumbnail,
     suspendStudioConnection: () => { controllerEnabled = false; stopEvents(); },
     uploadMedia, updateMedia, saveProjectMedia, mediaFileSession, takePlaybackSession, exportProject, exportResolve, cancelResolveExport, mediaThumbnail,
     getDevices: () => run('devices', () => api<Device[]>('/devices')),

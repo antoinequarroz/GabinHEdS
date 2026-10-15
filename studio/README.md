@@ -18,7 +18,7 @@ Le [guide des invités à distance](docs/remote-guests.md) complète ces PDF ave
 - Commandes centralisées de démarrage, arrêt, pause, reprise, changement de scène, mute et ajout de repères.
 - Retour du programme OBS en HLS sur PC/iPad, activation du son par l’utilisateur et vumètres provenant des événements OBS.
 - Diffusion RTMP/RTMPS vers une destination configurée par le technicien, avec des commandes séparées de l’enregistrement.
-- Historique des prises, chemin du fichier retourné par OBS et téléchargement authentifié du fichier complet.
+- Historique des prises, chemin du fichier retourné par OBS et téléchargement authentifié de l’original ou d’une copie MP4 compatible.
 - Bibliothèque locale d’images, vidéos, sons et PDF, import depuis PC/iPad, noms, archivage et association aux productions.
 - Lecture des médias dans OBS depuis la régie et l’API Stream Deck, avec confirmation de leur état.
 - Lecture des prises terminées sur PC/iPad et récupération d’un ZIP contenant les originaux, les médias associés et les repères de montage.
@@ -103,6 +103,8 @@ Installer [FFmpeg](https://ffmpeg.org/download.html) et rendre son exécutable a
 7. Arrêter et attendre la confirmation d’OBS. La prise terminée apparaît avec le fichier réellement produit ; récupérer celui-ci depuis la page du projet.
 
 Les noms de projet organisent les dossiers et les prises. Le nom et le format du fichier média à l’intérieur du dossier restent ceux des réglages OBS. Changer le titre d’un projet ne renomme pas les fichiers déjà enregistrés.
+
+Dans **Retrouver les prises**, **Télécharger en MP4** récupère une vidéo entière nommée d’après la prise, sans télécharger le dossier Resolve. Attendre la préparation si nécessaire, puis la fin du téléchargement dans le navigateur. Copier ensuite ce fichier sur une clé USB pour le lire ou l’importer dans DaVinci sur un autre ordinateur. **Télécharger le fichier** conserve le téléchargement de l’original OBS. L’original reste inchangé sur le PC ; une copie MP4 déjà préparée pour la lecture ou Resolve est réutilisée. Aucun logiciel de montage n’est lancé automatiquement.
 
 Si la connexion OBS est interrompue, l’état de la capture devient incertain : contrôler OBS sur le PC. La prise est marquée **interrompue** ; Nino ne réattribue pas automatiquement un enregistrement OBS après une rupture de connexion ou un redémarrage du contrôleur. Si OBS enregistre toujours, terminer cette capture directement dans OBS et récupérer son fichier depuis le dossier de la prise sur le PC. Reconnecter ensuite Nino avant une nouvelle prise.
 

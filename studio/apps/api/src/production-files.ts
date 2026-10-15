@@ -1,11 +1,11 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { createHash, randomBytes } from 'node:crypto';
 import { constants, type Stats } from 'node:fs';
-import { open, stat } from 'node:fs/promises';
+import { lstat, open, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { ZipFile } from 'yazl';
-import type { Device, DeviceRole, DownloadTicket, FilePlaybackSession, MediaAsset, Project, ProjectMediaLink, ResolveExportStatus, Take, TakePlaybackStatus } from '@gabin/shared';
+import type { Device, DeviceRole, DownloadTicket, FilePlaybackSession, MediaAsset, Project, ProjectMediaLink, ResolveExportStatus, Take, TakeMp4DownloadStatus, TakePlaybackStatus } from '@gabin/shared';
 import { libraryFile } from './library.js';
 import { hashSecret, type Store } from './store.js';
 import type { Studio } from './studio.js';
@@ -41,6 +41,7 @@ export function registerProductionFileRoutes(app: FastifyInstance, options: Prod
   const playback = new TakePlayback(store.dataDir, options.playback);
   const resolveProbe = new ResolveProbe(options.playback?.ffprobePath);
   const playbackTickets = new Map<string, PlaybackTicket>();
+  const mp4Tickets = new Map<string, PlaybackTicket>();
   const exportTickets = new Map<string, ExportTicket>();
   const resolveTickets = new Map<string, ResolveTicket>();
   const transfers = new Set<Readable>();
@@ -53,7 +54,8 @@ export function registerProductionFileRoutes(app: FastifyInstance, options: Prod
     while (tickets.size >= maximum) { const [key, ticket] = tickets.entries().next().value!; remove(key, ticket); }
   };
   const releaseResolve = (ticket: ResolveTicket) => { for (const copy of ticket.copies.values()) playback.unpin(copy.file); };
-  const prune = setInterval(() => { trim(playbackTickets, ticket => playback.unpin(ticket.playback.file)); trim(exportTickets); trim(resolveTickets, releaseResolve, 17); }, 30_000);
+  const releasePlayback = (ticket: PlaybackTicket) => playback.unpin(ticket.playback.file);
+  const prune = setInterval(() => { trim(playbackTickets, releasePlayback); trim(mp4Tickets, releasePlayback); trim(exportTickets); trim(resolveTickets, releaseResolve, 17); }, 30_000);
   prune.unref();
 
   const projectIdle = (id: string): void => {
@@ -112,6 +114,69 @@ export function registerProductionFileRoutes(app: FastifyInstance, options: Prod
     const complete = () => { clearInterval(guard); transfers.delete(stream); };
     stream.once('end', complete); stream.once('close', complete);
   };
+
+  const resolveMp4Source = async (takeId: string): Promise<ResolvedTakeFile> => {
+    const source = await resolveTakeFile(takeId);
+    const original = source.take.outputPath ? await lstat(source.take.outputPath).catch(() => null) : null;
+    if (!original) throw new ApiFailure(404, 'Le fichier original n’est plus disponible.', 'FILE_NOT_FOUND');
+    if (original.isSymbolicLink()) throw new ApiFailure(403, 'Le fichier original doit être une vidéo de cette prise, pas un lien symbolique.', 'FILE_OUTSIDE_TAKE');
+    if (!sameFile(original, source.fileStat)) throw new ApiFailure(409, 'Le fichier original a changé. Rouvrez cette prise.', 'PLAYBACK_SOURCE_CHANGED');
+    return source;
+  };
+
+  app.post<{ Params: { id: string } }>('/api/takes/:id/mp4-download-ticket', { config: { rateLimit: { max: 90, timeWindow: '1 minute' } } }, async (request, reply): Promise<TakeMp4DownloadStatus> => {
+    const device = requireRole(request, 'viewer');
+    if (request.body !== undefined && Object.keys(object(request.body)).length) throw new ApiFailure(400, 'Aucun réglage supplémentaire n’est nécessaire pour ce téléchargement.', 'INVALID_MP4_DOWNLOAD');
+    const source = await resolveMp4Source(request.params.id);
+    assertDevice(device.id);
+    // The same source and preference share the playback/Resolve worker and cache.
+    const job = playback.request(source, true);
+    if (job.status === 'failed') return { status: 'failed', error: job.error };
+    if (job.status === 'preparing' || !job.result) { reply.code(202); return { status: 'preparing' }; }
+    try { await playback.verify(job.result, source); }
+    catch (error) {
+      if (!(error instanceof ApiFailure) || error.statusCode !== 404) throw error;
+      playback.forget(source, true); playback.request(source, true);
+      reply.code(202); return { status: 'preparing' };
+    }
+    const current = await resolveMp4Source(source.take.id);
+    if (takeFileKey(current, true) !== takeFileKey(source, true)) throw new ApiFailure(409, 'Le fichier original a changé. Rouvrez cette prise.', 'PLAYBACK_SOURCE_CHANGED');
+    if (job.result.mimeType !== 'video/mp4') throw new ApiFailure(422, 'La copie MP4 n’est pas disponible.', 'PLAYBACK_FORMAT_UNSUPPORTED');
+    assertDevice(device.id);
+    trim(mp4Tickets, releasePlayback);
+    const token = randomBytes(32).toString('base64url');
+    const expiresAt = Date.now() + 5 * 60_000;
+    playback.pin(job.result.file);
+    mp4Tickets.set(hashSecret(token), { deviceId: device.id, takeId: source.take.id, preferMp4: true,
+      sourceKey: takeFileKey(source, true), playback: job.result, expiresAt });
+    return { status: 'ready', ticket: { url: `/api/mp4-downloads/${token}`, expiresAt: new Date(expiresAt).toISOString() } };
+  });
+
+  app.route<{ Params: { token: string } }>({ method: ['GET', 'HEAD'], url: '/api/mp4-downloads/:token', handler: async (request, reply) => {
+    const key = tokenPattern.test(request.params.token) ? hashSecret(request.params.token) : '';
+    const ticket = mp4Tickets.get(key);
+    const remove = () => { if (ticket && mp4Tickets.delete(key)) releasePlayback(ticket); };
+    if (!ticket || ticket.expiresAt <= Date.now()) { remove(); throw new ApiFailure(401, 'Ce lien de téléchargement MP4 a expiré.', 'DOWNLOAD_EXPIRED'); }
+    try {
+      assertDevice(ticket.deviceId);
+      const source = await resolveMp4Source(ticket.takeId);
+      if (takeFileKey(source, true) !== ticket.sourceKey) throw new ApiFailure(409, 'Le fichier original a changé. Préparez un nouveau téléchargement MP4.', 'PLAYBACK_SOURCE_CHANGED');
+      await playback.verify(ticket.playback, source);
+      assertDevice(ticket.deviceId);
+      // Transfer ownership is independent of the five-minute ticket lease.
+      playback.pin(ticket.playback.file);
+      let transferred = false;
+      try {
+        return await sendVideo(ticket.playback, source.take.title, request, reply, stream => {
+          let released = false;
+          const release = () => { if (!released) { released = true; playback.unpin(ticket.playback.file); } };
+          stream.once('end', release); stream.once('close', release);
+          transferred = true;
+          monitorTransfer(stream, ticket.deviceId);
+        }, true);
+      } finally { if (!transferred) playback.unpin(ticket.playback.file); }
+    } catch (error) { remove(); throw error; }
+  } });
 
   app.post<{ Params: { id: string } }>('/api/takes/:id/playback-session', { config: { rateLimit: { max: 90, timeWindow: '1 minute' } } }, async (request, reply): Promise<TakePlaybackStatus> => {
     const device = requireRole(request, 'viewer');
@@ -266,7 +331,7 @@ export function registerProductionFileRoutes(app: FastifyInstance, options: Prod
     await playback.close();
   });
   app.addHook('onClose', async () => {
-    clearInterval(prune); playbackTickets.clear(); exportTickets.clear(); resolveTickets.clear();
+    clearInterval(prune); playbackTickets.clear(); mp4Tickets.clear(); exportTickets.clear(); resolveTickets.clear();
   });
 }
 
@@ -278,10 +343,12 @@ async function openVerified(file: string, expected: Stats) {
   } catch (error) { await handle.close(); throw error; }
 }
 
-async function sendVideo(playback: PlaybackFile, title: string, request: FastifyRequest, reply: FastifyReply, monitor: (stream: Readable) => void) {
+async function sendVideo(playback: PlaybackFile, title: string, request: FastifyRequest, reply: FastifyReply, monitor: (stream: Readable) => void, attachment = false) {
   const total = playback.fileStat.size;
   reply.type(playback.mimeType).header('Cache-Control', 'no-store').header('Accept-Ranges', 'bytes')
-    .header('Content-Disposition', `inline; filename="${slug(title)}${playback.mimeType === 'video/webm' ? '.webm' : '.mp4'}"`);
+    .header('Content-Disposition', attachment
+      ? `attachment; filename="${slug(title)}.mp4"; filename*=UTF-8''${encodeURIComponent(title.replace(/[\x00-\x1f\x7f/\\]/g, '_') + '.mp4').replace(/['()*]/g, character => '%' + character.charCodeAt(0).toString(16).toUpperCase())}`
+      : `inline; filename="${slug(title)}${playback.mimeType === 'video/webm' ? '.webm' : '.mp4'}"`);
   let start = 0, end = total - 1;
   if (request.headers.range) {
     const range = /^bytes=(\d*)-(\d*)$/.exec(request.headers.range);

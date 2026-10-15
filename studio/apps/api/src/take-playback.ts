@@ -10,7 +10,7 @@ export interface ResolvedTakeFile { take: Take; file: string; fileStat: Stats; }
 export interface PlaybackFile { file: string; fileStat: Stats; mimeType: string; sourceKey: string; }
 type PlaybackJob = { status: 'preparing' | 'ready' | 'failed'; source: ResolvedTakeFile; preferMp4: boolean;
   lastUsedAt: number; result?: PlaybackFile; error?: string; promise?: Promise<void> };
-interface ProbeStream { codec_type?: string; codec_name?: string; pix_fmt?: string; }
+interface ProbeStream { codec_type?: string; codec_name?: string; pix_fmt?: string; duration?: string; }
 interface ProbeResult { streams?: ProbeStream[]; format?: { duration?: string }; }
 const demuxers: Record<string, string> = { '.mkv': 'matroska', '.webm': 'matroska', '.mp4': 'mov', '.m4v': 'mov', '.mov': 'mov',
   '.flv': 'flv', '.avi': 'avi', '.ts': 'mpegts', '.mts': 'mpegts', '.ogv': 'ogg', '.wmv': 'asf' };
@@ -20,8 +20,11 @@ const safeCacheName = /^[a-f0-9]{64}\.mp4$/;
 const safePartialName = /^[a-f0-9]{64}\.[a-f0-9-]{36}\.partial\.mp4$/;
 
 export function takeFileKey(source: ResolvedTakeFile, preferMp4 = true): string {
+  // WebM is the only native alternative. Other containers always yield the
+  // same MP4, whether requested by a PC player, Safari, download or Resolve.
+  const mp4 = preferMp4 || path.extname(source.file).toLowerCase() !== '.webm';
   return createHash('sha256').update(JSON.stringify([source.take.id, source.file, source.fileStat.size,
-    source.fileStat.mtimeMs, source.fileStat.ino, source.fileStat.dev, preferMp4])).digest('hex');
+    source.fileStat.mtimeMs, source.fileStat.ino, source.fileStat.dev, mp4])).digest('hex');
 }
 export function sameFile(a: Stats, b: Stats): boolean {
   return a.isFile() && b.isFile() && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ino === b.ino && a.dev === b.dev;
@@ -158,12 +161,9 @@ export class TakePlayback {
     const sourceKey = takeFileKey(source, job.preferMp4);
     const cached = path.join(directory, `${sourceKey}.mp4`);
     const cachedStat = await lstat(cached).catch(() => null);
-    if (cachedStat?.isFile() && !cachedStat.isSymbolicLink() && cachedStat.size > 0) {
-      return { file: cached, fileStat: cachedStat, mimeType: 'video/mp4', sourceKey };
-    }
     await this.confirmSource(source);
     const data = await this.run(this.ffprobe, ['-v', 'error', '-protocol_whitelist', 'file,pipe', '-f', format,
-      '-show_entries', 'stream=codec_type,codec_name,pix_fmt:format=duration', '-of', 'json', source.file], 10_000, 128 * 1024);
+      '-show_entries', 'stream=codec_type,codec_name,pix_fmt,duration:format=duration', '-of', 'json', source.file], 10_000, 128 * 1024);
     let probe: ProbeResult;
     try { probe = JSON.parse(data.toString()) as ProbeResult; } catch { throw new Error('Invalid probe output'); }
     const video = probe.streams?.find(stream => stream.codec_type === 'video');
@@ -172,7 +172,15 @@ export class TakePlayback {
     const h264 = video.codec_name === 'h264' && (!video.pix_fmt || ['yuv420p', 'yuvj420p'].includes(video.pix_fmt));
     const mp4Audio = !audio || audio.codec_name === 'aac';
     const webm = ['vp8', 'vp9'].includes(video.codec_name ?? '') && (!audio || ['opus', 'vorbis'].includes(audio.codec_name ?? ''));
+    if (cachedStat) {
+      if (!cachedStat.isFile() || cachedStat.isSymbolicLink()) throw new ApiFailure(403, 'La copie MP4 privée n’est pas valide.', 'PLAYBACK_CACHE_UNSAFE');
+      const cachedProbe = await this.probeMp4(cached);
+      this.assertCompatibleMp4(cachedProbe, probe, source);
+      await this.confirmSource(source);
+      return { file: cached, fileStat: cachedStat, mimeType: 'video/mp4', sourceKey };
+    }
     if (extension === '.mp4' && h264 && mp4Audio || extension === '.webm' && webm && !job.preferMp4) {
+      if (extension === '.mp4') this.assertCompatibleMp4(probe, probe, source);
       await this.confirmSource(source);
       return { file: source.file, fileStat: source.fileStat, mimeType: extension === '.webm' ? 'video/webm' : 'video/mp4', sourceKey };
     }
@@ -198,18 +206,40 @@ export class TakePlayback {
       const info = await lstat(partial);
       if (!info.isFile() || info.isSymbolicLink() || info.size <= 0 || info.size > outputBudget) throw new ApiFailure(507,
         'La copie de lecture dépasse l’espace disponible. Téléchargez le fichier original.', 'PLAYBACK_CACHE_FULL');
-      const completed = JSON.parse((await this.run(this.ffprobe, ['-v', 'error', '-protocol_whitelist', 'file,pipe', '-f', 'mov',
-        '-show_entries', 'format=duration', '-of', 'json', partial], 10_000, 128 * 1024)).toString()) as ProbeResult;
-      const expectedDuration = Number(probe.format?.duration) || source.take.durationMs / 1000;
-      const actualDuration = Number(completed.format?.duration);
-      if (!Number.isFinite(actualDuration) || actualDuration <= 0 || expectedDuration > 0 && actualDuration + Math.min(1, Math.max(.25, expectedDuration * .0001)) < expectedDuration) {
-        throw new ApiFailure(507, 'La préparation n’a pas conservé la vidéo entière. Téléchargez le fichier original.', 'PLAYBACK_INCOMPLETE');
-      }
+      this.assertCompatibleMp4(await this.probeMp4(partial), probe, source);
+      await this.confirmSource(source);
       await this.directory();
       await this.prune(directory, info.size);
       await rename(partial, cached);
       return { file: cached, fileStat: await stat(cached), mimeType: 'video/mp4', sourceKey };
     } finally { this.activeFiles.delete(partial); await rm(partial, { force: true }).catch(() => undefined); }
+  }
+
+  private async probeMp4(file: string): Promise<ProbeResult> {
+    return JSON.parse((await this.run(this.ffprobe, ['-v', 'error', '-protocol_whitelist', 'file,pipe', '-f', 'mov',
+      '-show_entries', 'stream=codec_type,codec_name,pix_fmt,duration:format=duration', '-of', 'json', file], 10_000, 128 * 1024)).toString()) as ProbeResult;
+  }
+
+  private assertCompatibleMp4(result: ProbeResult, original: ProbeResult, source: ResolvedTakeFile): void {
+    const video = result.streams?.find(stream => stream.codec_type === 'video');
+    const audio = result.streams?.find(stream => stream.codec_type === 'audio');
+    const originalAudio = original.streams?.find(stream => stream.codec_type === 'audio');
+    if (video?.codec_name !== 'h264' || video.pix_fmt && !['yuv420p', 'yuvj420p'].includes(video.pix_fmt)
+      || audio && audio.codec_name !== 'aac' || originalAudio && !audio) {
+      throw new ApiFailure(422, 'La copie MP4 ne conserve pas une vidéo H.264 et son audio compatible. Le fichier original reste disponible.', 'PLAYBACK_FORMAT_UNSUPPORTED');
+    }
+    const expected = Number(original.format?.duration) || source.take.durationMs / 1000;
+    const actual = Number(result.format?.duration);
+    const tolerance = Math.min(1, Math.max(.25, expected * .0001));
+    const expectedVideo = Number(original.streams?.find(stream => stream.codec_type === 'video')?.duration) || expected;
+    const actualVideo = Number(video?.duration);
+    const expectedAudio = Number(originalAudio?.duration) || (originalAudio ? expected : 0);
+    const actualAudio = Number(audio?.duration);
+    if (!Number.isFinite(actual) || actual <= 0 || expected > 0 && actual + tolerance < expected
+      || expectedVideo > 0 && (!Number.isFinite(actualVideo) || actualVideo + tolerance < expectedVideo)
+      || expectedAudio > 0 && (!Number.isFinite(actualAudio) || actualAudio + tolerance < expectedAudio)) {
+      throw new ApiFailure(507, 'La préparation n’a pas conservé la vidéo et le son entiers. Téléchargez le fichier original.', 'PLAYBACK_INCOMPLETE');
+    }
   }
 
   private async confirmSource(source: ResolvedTakeFile): Promise<void> {
