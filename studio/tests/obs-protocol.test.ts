@@ -73,14 +73,16 @@ test('real OBS protocol through the authenticated API, with iPad updates and sav
 
     console.info('wire test: create project');
     const created = await app.inject({ method: 'POST', url: '/api/projects', headers, payload: {
-      title: 'Entretien de validation', owner: 'Technicien', format: 'roundtable',
+      title: 'Démonstration de logiciel', owner: 'Technicien', format: 'slides',
       participants: [{ id: randomUUID(), name: 'Camille', micInput: 'Micro 1', sceneName: 'Caméra 1' }],
     } });
     assert.ok(created.statusCode >= 200 && created.statusCode < 300, created.body);
     const project = created.json<Project>();
+    assert.equal(project.format, 'slides', 'Presentation projects keep the persisted format identifier');
     const preparation = await app.inject({ method: 'GET', url: `/api/preparation/${project.id}`, headers });
     assert.equal(preparation.statusCode, 200);
     assert.equal(preparation.json().canStart, true, preparation.body);
+    assert.equal(preparation.json().sceneName, 'PowerPoint', 'An existing OBS scene remains usable after the format label changes');
 
     console.info('wire test: pairing');
     const codeResponse = await app.inject({ method: 'POST', url: '/api/pairing', headers, payload: { role: 'operator', kind: 'ipad' } });
@@ -123,6 +125,7 @@ test('real OBS protocol through the authenticated API, with iPad updates and sav
     for (const response of starts) assert.equal(response.statusCode, 200, response.body);
     const active = starts[0]!.json<StudioState>().activeTake;
     assert.ok(active);
+    assert.equal(starts[0]!.json<StudioState>().obs.currentScene, 'PowerPoint');
     assert.equal(obs.requests.filter(request => request.requestType === 'StartRecord').length, 1);
     await waitUntil(() => tabletStates.some(state => state.activeTake?.id === active.id && state.obs.recording));
 

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,12 +8,27 @@ import { join } from 'node:path';
 export async function renderedLayout(page: any): Promise<void> {
   await page.bringToFront();
   const viewport = page.viewportSize();
-  await page.waitForFunction((expected: { width: number; height: number } | null) =>
-    document.readyState !== 'loading' && document.fonts.status === 'loaded'
-      && (!expected || (innerWidth === expected.width && innerHeight === expected.height
-        && document.documentElement.clientWidth > 0 && document.documentElement.clientWidth <= expected.width)),
-  viewport, { timeout: 10_000, polling: 'raf' });
-  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  const key = `__ninoPaintProbe_${randomUUID()}`;
+  try {
+    await page.waitForFunction(({ expected, key }: { expected: { width: number; height: number } | null; key: string }) => {
+      const probes = document as unknown as Record<string, { signature: string; frames: number }>;
+      const probe = probes[key] ??= { signature: '', frames: 0 };
+      if (document.readyState === 'loading' || document.fonts.status !== 'loaded'
+        || (expected && (innerWidth !== expected.width || innerHeight !== expected.height
+          || document.documentElement.clientWidth <= 0 || document.documentElement.clientWidth > expected.width))) {
+        probe.frames = 0; probe.signature = ''; return false;
+      }
+      const signature = [innerWidth, innerHeight, document.documentElement.clientWidth,
+        document.documentElement.scrollWidth, document.documentElement.scrollHeight, document.body.scrollHeight,
+        visualViewport?.width, visualViewport?.height].join(',');
+      if (signature !== probe.signature) { probe.signature = signature; probe.frames = 0; return false; }
+      return ++probe.frames >= 2;
+    }, { expected: viewport, key }, { timeout: 10_000, polling: 'raf' });
+  } finally {
+    await page.evaluate((key: string) => { delete (document as unknown as Record<string, unknown>)[key]; }, key).catch(() => undefined);
+  }
+  // Keep both paint frames inside waitForFunction: Playwright recreates that
+  // wait and its document-scoped probe when navigation destroys the context.
 }
 
 export async function noOverflow(page: any, label: string, timeout = 5_000): Promise<void> {
@@ -43,18 +59,70 @@ export async function decodedImagePreviews(page: any, selector: string, expected
 }
 
 async function settledScroll(page: any, position: { x: number; y: number }): Promise<void> {
-  const target = await page.evaluate(({ x, y }: { x: number; y: number }) => {
-    const height = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
-    const left = Math.min(Math.max(0, x), Math.max(0, document.documentElement.scrollWidth - innerWidth));
-    const top = Math.min(Math.max(0, y), Math.max(0, height - innerHeight));
-    window.scrollTo({ left, top, behavior: 'instant' });
-    return { x: left, y: top };
-  }, position);
-  await page.waitForFunction(({ x, y }: { x: number; y: number }) => Math.abs(scrollX - x) <= .5 && Math.abs(scrollY - y) <= .5,
-    target, { timeout: 5000, polling: 'raf' });
+  // Activating a WebKit page can restore focus/scroll and change its mobile
+  // scrollport. Activate and paint first, rather than after setting the target.
   await renderedLayout(page);
+  const key = `__ninoScrollProbe_${randomUUID()}`;
+  let target: { x: number; y: number };
+  try {
+    const settled = await page.waitForFunction(({ x, y, key }: { x: number; y: number; key: string }) => {
+      const probes = document as unknown as Record<string, { signature: string; frames: number }>;
+      const probe = probes[key] ??= { signature: '', frames: 0 };
+      const width = document.documentElement.scrollWidth;
+      const height = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
+      const target = { x: Math.min(Math.max(0, x), Math.max(0, width - innerWidth)),
+        y: Math.min(Math.max(0, y), Math.max(0, height - innerHeight)) };
+      const signature = [innerWidth, innerHeight, width, height, target.x, target.y].join(',');
+      if (Math.abs(scrollX - target.x) > .5 || Math.abs(scrollY - target.y) > .5) {
+        window.scrollTo({ left: target.x, top: target.y, behavior: 'instant' });
+        probe.signature = signature; probe.frames = 0; return false;
+      }
+      // Recompute the clamp on each frame if layout/scroll restoration moved
+      // it. A transient matching scroll event is not yet a painted viewport.
+      if (signature !== probe.signature) { probe.signature = signature; probe.frames = 0; return false; }
+      return ++probe.frames >= 2 ? target : false;
+    }, { ...position, key }, { timeout: 5000, polling: 'raf' });
+    try { target = await settled.jsonValue(); }
+    finally { await settled.dispose(); }
+  } finally {
+    await page.evaluate((key: string) => { delete (document as unknown as Record<string, unknown>)[key]; }, key).catch(() => undefined);
+  }
   const actual = await page.evaluate(() => ({ x: scrollX, y: scrollY }));
-  assert(Math.abs(actual.x - target.x) <= .5 && Math.abs(actual.y - target.y) <= .5, 'Proof scroll must remain stable while the viewport is painted');
+  assert(Math.abs(actual.x - target.x) <= .5 && Math.abs(actual.y - target.y) <= .5,
+    `Proof scroll must remain stable while the viewport is painted: ${JSON.stringify({ requested: position, target, actual })}`);
+}
+
+/** Reproduce the mobile scrollport changes that used to happen between the
+ * first matching scroll position and the separate paint/foreground wait. */
+async function verifyLayoutSynchronization(page: any, meta: string): Promise<void> {
+  await page.setContent(`${meta}<main style="height:2700px">Scroll synchronization</main>`);
+  await page.evaluate(() => window.addEventListener('scroll', () => {
+    requestAnimationFrame(() => { document.querySelector<HTMLElement>('main')!.style.height = '2500px'; });
+  }, { once: true }));
+  await settledScroll(page, { x: 0, y: 1800 });
+  assert.equal(await page.evaluate(() => scrollY), 1600,
+    'A document resized during the scroll must use its new painted bottom, not a stale clamp');
+
+  await page.evaluate(() => window.addEventListener('scroll', () => {
+    requestAnimationFrame(() => window.scrollTo({ top: 120, behavior: 'instant' }));
+  }, { once: true }));
+  await settledScroll(page, { x: 0, y: 700 });
+  assert.equal(await page.evaluate(() => scrollY), 700,
+    'Asynchronous scroll restoration must settle before the proof reads pixels');
+
+  const destination = 'https://rendering.nino.test/paint-navigation';
+  await page.route(destination, (route: any) => route.fulfill({ contentType: 'text/html', body: `${meta}<main>Navigation painted</main>` }));
+  await page.evaluate((url: string) => {
+    // Do not allow the departing document to look settled while navigation is
+    // committing. Its timers disappear when the real document is replaced.
+    setInterval(() => { document.body.style.paddingTop = `${parseFloat(document.body.style.paddingTop || '0') + 1}px`; }, 1);
+    requestAnimationFrame(() => location.replace(url));
+  }, destination);
+  await renderedLayout(page);
+  assert.equal(page.url(), destination, 'Paint synchronization must survive a document replacement');
+  assert.equal(await page.locator('main').textContent(), 'Navigation painted');
+  await page.unroute(destination);
+  console.info('Gardes rendu : contraction du document, restauration asynchrone du scroll et navigation pendant les frames réellement synchronisées.');
 }
 
 async function capturePaintedPage(page: any, options: Record<string, unknown>): Promise<Buffer> {
@@ -194,6 +262,7 @@ export async function verifyRenderingGuards(browser: any): Promise<void> {
     // Keep this synthetic guard at scale 1: mobile Chromium otherwise zooms
     // out to fit the deliberately overflowing element before it is measured.
     const meta = '<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1"><style>body{margin:0}</style>';
+    await verifyLayoutSynchronization(page, meta);
     await page.setContent(`${meta}<main>Rendering guard</main>`);
     await noOverflow(page, 'Viewport 390');
     await page.locator('main').evaluate((element: HTMLElement) => { element.style.width = '420px'; });

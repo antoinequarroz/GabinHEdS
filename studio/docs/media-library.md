@@ -7,7 +7,7 @@ La bibliothèque appartient au PC de la salle. Les appareils autorisés retrouve
 1. Ouvrir **Bibliothèque**, puis importer une image, une vidéo, un son ou un PDF. Chaque fichier est limité à **1 Go**. Attendre la fin du transfert et la confirmation de l’import.
 2. Donner un nom reconnaissable à chaque média : « Intro épisode 3 », « Logo invité », « Musique de fin ».
 3. Ouvrir une production, à l’étape de préparation, et associer ses médias avec leur rôle : introduction, logo, présentation, conclusion, musique ou autre.
-4. Dans la régie, sélectionner le média à diffuser. Les fichiers vidéo et images peuvent occuper le programme ; les sons peuvent accompagner la scène en cours. Les PDF sont conservés et exportés ; préparer leur affichage dans PowerPoint/OBS.
+4. Dans la régie, sélectionner le média à diffuser. Les fichiers vidéo et images peuvent occuper le programme ; les sons peuvent accompagner la scène en cours. Les documents PDF et PPTX sont conservés et exportés ; les ouvrir dans leur application, puis préparer une capture de leur fenêtre ou de leur écran dans OBS.
 
 Le navigateur propose une consultation du fichier quand son format est compatible. La commande de régie agit sur **OBS sur le PC** ; écouter un aperçu dans le navigateur ne diffuse pas ce média dans la production.
 

@@ -128,12 +128,34 @@ async function captureFixture(context: any, frequency: number, label: string, pr
     // Observe real native peers for failure diagnostics; signalling, transport,
     // tracks and every return value remain the browser's own implementation.
     (window as any).__fixturePeers = [];
+    (window as any).__fixtureOffers = [];
+    const nativeTransports = (peer: RTCPeerConnection) => {
+      const tracks = peer.getTransceivers();
+      const dtls = tracks.flatMap(item => [item.sender.transport, item.receiver.transport]);
+      return { tracks: tracks.map(item => item.receiver.track.kind).sort(), missing: dtls.filter(item => !item).length,
+        dtlsCount: new Set(dtls.filter(Boolean)).size, iceCount: new Set(dtls.filter(Boolean).map(item => item!.iceTransport).filter(Boolean)).size,
+        states: [...new Set(dtls.filter(Boolean).map(item => item!.state))] };
+    };
     const prototype = RTCPeerConnection.prototype as any;
-    for (const method of ['createOffer', 'setRemoteDescription']) {
+    for (const method of ['createOffer', 'setLocalDescription', 'setRemoteDescription']) {
       const native = prototype[method];
       prototype[method] = function (...args: unknown[]) {
-        if (!(window as any).__fixturePeers.includes(this)) (window as any).__fixturePeers.push(this);
-        return Reflect.apply(native, this, args);
+        if (!(window as any).__fixturePeers.includes(this)) {
+          (window as any).__fixturePeers.push(this);
+          const peer = this as RTCPeerConnection;
+          for (const event of ['connectionstatechange', 'iceconnectionstatechange', 'signalingstatechange']) peer.addEventListener(event, () => {
+            recordMedia({ type: 'rtc-state', event, peer: (window as any).__fixturePeers.indexOf(peer), state: peer.connectionState,
+              ice: peer.iceConnectionState, signalling: peer.signalingState,
+              transports: peer.getTransceivers().map(item => ({ mid: item.mid, kind: item.receiver.track.kind,
+                senderDtls: item.sender.transport?.state ?? null, receiverDtls: item.receiver.transport?.state ?? null })) });
+          });
+        }
+        const result = Reflect.apply(native, this, args);
+        if (method !== 'setLocalDescription') return result;
+        return result.then((value: unknown) => {
+          if (this.localDescription?.type === 'offer') (window as any).__fixtureOffers.push({ peer: (window as any).__fixturePeers.indexOf(this), ...nativeTransports(this) });
+          return value;
+        });
       };
     }
     const nativeStats = prototype.getStats;
@@ -197,6 +219,40 @@ async function liveFrames(page: any, selector: string, label: string): Promise<v
   const first = await fingerprint(); await page.waitForTimeout(450); const second = await fingerprint();
   assert.notEqual(first, second, `${label} doit présenter de nouvelles images décodées`);
   steps.push(`${label} : images WebRTC 640 × 360 décodées et renouvelées`);
+}
+
+async function bundledMediaProof(bridge: any, guestPages: any[]): Promise<void> {
+  const offers = await bridge.evaluate(() => (window as any).__fixtureOffers);
+  const firstOffers = offers.filter((offer: any, index: number) => offers.findIndex((candidate: any) => candidate.peer === offer.peer) === index);
+  assert.equal(firstOffers.length, 2, 'The bridge must negotiate both simultaneous guests');
+  for (const offer of firstOffers) {
+    assert.deepEqual(offer.tracks, ['audio', 'video']);
+    assert.equal(offer.missing, 0, 'Native audio/video transports must exist on the first offer');
+    assert.equal(offer.dtlsCount, 1, 'The first offer must share one native DTLS transport, before any answer can merge it');
+    assert.equal(offer.iceCount, 1, 'The first offer must share one native ICE transport');
+  }
+  for (const [index, page] of [bridge, ...guestPages].entries()) {
+    await page.waitForFunction((expected: number) => {
+      const peers = (window as any).__fixturePeers as RTCPeerConnection[];
+      return peers.length === expected && peers.every(peer => peer.connectionState === 'connected');
+    }, index === 0 ? 2 : 1, { timeout: 6000 });
+    const links = await page.evaluate(() => ((window as any).__fixturePeers as RTCPeerConnection[]).map(peer => {
+      const tracks = peer.getTransceivers(); const dtls = tracks.flatMap(item => [item.sender.transport, item.receiver.transport]);
+      return { state: peer.connectionState, ice: peer.iceConnectionState, policy: peer.getConfiguration().bundlePolicy,
+        tracks: tracks.map(item => item.receiver.track.kind).sort(), missing: dtls.filter(item => !item).length,
+        dtlsCount: new Set(dtls.filter(Boolean)).size, iceCount: new Set(dtls.filter(Boolean).map(item => item!.iceTransport).filter(Boolean)).size,
+        states: [...new Set(dtls.filter(Boolean).map(item => item!.state))] };
+    }));
+    assert.equal(links.length, index === 0 ? 2 : 1);
+    for (const link of links) {
+      assert.equal(link.state, 'connected', 'Both simultaneous calls must reach native connected state');
+      assert.ok(['connected', 'completed'].includes(link.ice), 'Native ICE must be connected');
+      assert.equal(link.policy, 'max-bundle'); assert.deepEqual(link.tracks, ['audio', 'video']);
+      assert.equal(link.missing, 0); assert.equal(link.dtlsCount, 1); assert.equal(link.iceCount, 1);
+      assert.deepEqual(link.states, ['connected'], 'Every native audio/video DTLS transport must be connected');
+    }
+  }
+  steps.push('Deux appels concurrents : un seul ICE/DTLS natif dès chaque offre, connecté des deux côtés avec image et son reçus');
 }
 
 async function spectrum(page: any, selector: string): Promise<Record<number, number>> {
@@ -300,6 +356,7 @@ try {
     await page.getByRole('button', { name: 'Rejoindre la salle', exact: true }).click(); return page;
   }));
   const ready = await stateWhen(state => state.guestRooms?.[project.id]?.guests.length === 2 && state.guestRooms[project.id].guests.every(guest => guest.joined && guest.mediaReady), 'Les deux invités transmettent leurs médias à la salle');
+  await bundledMediaProof(bridge, guestPages);
   const guests = ready.guestRooms![project.id].guests;
   await panel.getByRole('button', { name: 'Préparer les sources OBS', exact: true }).click();
   await stateWhen(state => guests.every(guest => state.obs.inputs.some(input => input.name === guest.inputName && input.muted === true)), 'OBS confirme les deux sources initialement muettes');
@@ -462,9 +519,12 @@ try {
     await writeFile(join(screenshotDir, `failure-media-${index}.json`), JSON.stringify(mediaEvents, null, 2));
     console.info(`Media fixture ${index}`, JSON.stringify(mediaEvents.slice(-8)));
     const rtc = await pages[index].evaluate(async () => Promise.all(((window as any).__fixturePeers || []).map(async (peer: RTCPeerConnection) => {
-      const stats = await peer.getStats(); const packets: unknown[] = []; stats.forEach(value => { if (['inbound-rtp', 'outbound-rtp', 'candidate-pair'].includes(value.type)) packets.push({ type: value.type, kind: value.kind, state: value.state, selected: value.selected, bytesReceived: value.bytesReceived, bytesSent: value.bytesSent, framesDecoded: value.framesDecoded, framesEncoded: value.framesEncoded }); });
+      const stats = await peer.getStats(); const packets: unknown[] = []; stats.forEach(value => { if (['inbound-rtp', 'outbound-rtp', 'candidate-pair', 'transport'].includes(value.type)) packets.push({ type: value.type, kind: value.kind, state: value.state, selected: value.selected, dtlsState: value.dtlsState, iceState: value.iceState, bytesReceived: value.bytesReceived, bytesSent: value.bytesSent, framesDecoded: value.framesDecoded, framesEncoded: value.framesEncoded }); });
       return { state: peer.connectionState, ice: peer.iceConnectionState, gathering: peer.iceGatheringState, signalling: peer.signalingState,
-        tracks: peer.getTransceivers().map(item => ({ mid: item.mid, direction: item.direction, current: item.currentDirection, sender: item.sender.track?.kind, receiver: item.receiver.track.kind, muted: item.receiver.track.muted })), packets };
+        configuration: { bundlePolicy: peer.getConfiguration().bundlePolicy },
+        tracks: peer.getTransceivers().map(item => ({ mid: item.mid, direction: item.direction, current: item.currentDirection, sender: item.sender.track?.kind, receiver: item.receiver.track.kind, muted: item.receiver.track.muted,
+          senderDtls: item.sender.transport?.state ?? null, receiverDtls: item.receiver.transport?.state ?? null,
+          sameTransport: item.sender.transport === item.receiver.transport })), packets };
     }))).catch(() => 'indisponible');
     console.info(`RTC fixture ${index}`, JSON.stringify(rtc));
   }

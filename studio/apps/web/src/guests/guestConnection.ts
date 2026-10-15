@@ -73,7 +73,9 @@ export class GuestConnection {
     }
   }
   private createLink(peer: GuestPeer): Link {
-    const pc = new RTCPeerConnection({ iceServers: this.session.iceServers });
+    // All Nino peers support BUNDLE. Share ICE/DTLS from the first offer rather
+    // than creating separate audio/video transports that must later be merged.
+    const pc = new RTCPeerConnection({ iceServers: this.session.iceServers, bundlePolicy: 'max-bundle' });
     // Answerers must use the m-lines received in the offer. Creating their own
     // transceivers first can leave tracks on an additional, unnegotiated pair.
     const direction = peer.role === 'source' ? 'sendonly' : 'sendrecv';

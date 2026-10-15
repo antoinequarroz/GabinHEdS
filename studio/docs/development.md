@@ -36,6 +36,8 @@ Les régressions de retrait vérifient les messages média et ICE encore en vol 
 
 Le test retarde aussi la livraison d’un vrai `getStats()` natif jusqu’à ce qu’un snapshot plus récent ait confirmé de nouvelles images : le résultat ancien ne doit pas retirer une admission valide. Un autre retrait intervient pendant un appel natif en attente, puis vérifie que le pont et l’autre invité restent actifs. Les valeurs RTC, les seuils de réception et les retours audio ne sont pas simulés.
 
+Les pairs Nino utilisent la politique `max-bundle` : audio et vidéo partagent un transport ICE/DTLS dès la première offre, au lieu de créer puis fusionner plusieurs transports. Le test garde les deux arrivées concurrentes et observe les objets de transport natifs avant réponse, puis leur état connecté des deux côtés. La disponibilité exige toujours une connexion confirmée et la réception réelle de nouvelles images et de données audio. En cas d’échec, les journaux incluent les états ICE/DTLS ; une réception de paquets ne suffit pas à déclarer un invité prêt. Voir la [politique BUNDLE du standard WebRTC](https://w3c.github.io/webrtc-pc/#rtcbundlepolicy-enum).
+
 Utiliser `GABIN_GUEST_TEST_STUN=1` pour ce parcours : un petit serveur STUN de test répond réellement aux requêtes Binding sur un port UDP temporaire en boucle locale. WebKit requiert des candidats réflexifs dans ce test sans capture matérielle ; les négociations ICE, paquets vidéo/audio et analyses FFT restent natifs. Aucun appareil du Mac ni service STUN externe n’est utilisé. `GABIN_GUEST_SCREENSHOT_DIR` choisit le dossier de preuves. Le workflow exécute ce test dans les deux navigateurs, après le parcours HLS habituel.
 
 ```sh
@@ -59,6 +61,8 @@ portly wait "$job_id"
 ```
 
 `GABIN_TEST_BROWSER` accepte `chromium` ou `webkit`. Pour Chromium, `GABIN_CHROMIUM_CHANNEL=chrome` sélectionne Chrome officiel installé par Playwright, utile pour les codecs H.264/AAC. `GABIN_CHROMIUM_PATH` peut fournir un exécutable précis. `GABIN_SCREENSHOT_DIR` choisit le dossier des preuves de test ; conserver ce dossier hors des médias de la salle. WebKit utilise une deuxième origine du poste pour exercer l’association distante ; `GABIN_IPAD_HOST` permet de choisir son adresse explicitement.
+
+Les captures WebKit attendent une géométrie et une position de défilement stables pendant deux frames, après activation de la page. La cible est recalculée si le document change de hauteur ; une navigation recrée la sonde dans le nouveau document. Les gardes du parcours reproduisent une contraction de page, une restauration tardive du défilement et une navigation pendant le rendu. Elles continuent de refuser les débordements, images manquantes et échecs persistants de capture. Un échec de ces contrôles ne doit pas être contourné par une relance automatique du parcours entier.
 
 Pour la validation matérielle, terminer par un test avec le vrai OBS de la salle, une courte prise, la lecture du fichier récupéré et, lorsqu’il est disponible, le vrai iPad. Une destination YouTube reste une configuration de salle ; les tests automatisés diffusent uniquement vers leur propre destination locale.
 

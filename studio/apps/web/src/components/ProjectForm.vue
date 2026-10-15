@@ -15,7 +15,7 @@ const draft = ref<ProjectInput>({
 const formats: { id: ProductionFormat; icon: string; text: string }[] = [
   { id: 'podcast', icon: 'mic', text: 'Une émission audio, seul ou à plusieurs.' },
   { id: 'roundtable', icon: 'movie', text: 'Une discussion filmée dans la salle.' },
-  { id: 'slides', icon: 'slides', text: 'Une présentation avec la voix et la caméra.' },
+  { id: 'slides', icon: 'slides', text: 'Un écran, une présentation ou une démonstration commentée.' },
 ];
 const audioInputs = computed(() => state.value?.obs.inputs.filter(input => input.muted !== null) ?? []);
 function addParticipant(): void {
