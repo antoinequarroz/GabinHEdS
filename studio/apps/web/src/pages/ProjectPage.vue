@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { type Preparation, type Project } from '@gabin/shared';
 import { useStudio } from '../composables/useStudio';
 import Icon from '../components/Icon.vue';
@@ -14,7 +14,7 @@ import AutoDirection from '../components/AutoDirection.vue';
 import GuestPanel from '../components/GuestPanel.vue';
 const props = defineProps<{ project: Project }>();
 const emit = defineEmits<{ navigate: [path: string] }>();
-const { state, live, canEdit, busy, preparation, control, downloadTake, exportProject, exportResolve, cancelResolveExport } = useStudio();
+const { state, live, canEdit, busy, preparation, control, downloadTake, downloadTakeMp4, cancelTakeMp4Download, exportProject, exportResolve, cancelResolveExport } = useStudio();
 const step = ref<'prepare' | 'record' | 'takes'>('prepare');
 const editing = ref(false);
 const checks = ref<Preparation>();
@@ -24,6 +24,7 @@ const obs = computed(() => state.value?.obs);
 const ownActiveTake = computed(() => state.value?.activeTake?.projectId === props.project.id ? state.value.activeTake : null);
 const otherActiveTake = computed(() => state.value?.activeTake && state.value.activeTake.projectId !== props.project.id ? state.value.activeTake : null);
 const takes = computed(() => state.value?.takes.filter(take => take.projectId === props.project.id).sort((a, b) => b.sequence - a.sequence) ?? []);
+onBeforeUnmount(() => { for (const take of takes.value) cancelTakeMp4Download(take.id); });
 const markers = computed(() => state.value?.markers.filter(marker => marker.takeId === ownActiveTake.value?.id) ?? []);
 const controllable = computed(() => live.value && canEdit.value && !!obs.value?.connected && !busy.value.control);
 const relayControllable = computed(() => live.value && canEdit.value && !busy.value.control);
@@ -194,7 +195,20 @@ function bytes(value: number | null): string { return value === null ? 'Non mesu
           <article v-for="take in takes" :key="take.id" class="takes-row">
             <div class="takes-index"><Icon name="movie" /><span>{{ String(take.sequence).padStart(2, '0') }}</span><small>PRISE</small></div>
             <div class="takes-details"><div class="takes-title"><h3>{{ take.title }}</h3><span class="badge" :class="take.status === 'completed' ? '' : take.status === 'interrupted' ? 'warning' : 'recording'">{{ take.status === 'completed' ? 'Terminée' : take.status === 'interrupted' ? 'Interrompue' : take.status === 'paused' ? 'En pause' : 'En cours' }}</span></div><div class="takes-metadata"><span>{{ timestamp(take.startedAt) }}</span><span>{{ duration(take.durationMs) }}</span><span><Icon name="mark" />{{ state?.markers.filter(marker => marker.takeId === take.id).length ?? 0 }} repère(s) de montage</span></div><div class="file-path">{{ take.outputPath || (take.status === 'recording' || take.status === 'paused' ? 'Le chemin du fichier sera confirmé par OBS à la fin de la prise.' : 'Aucun fichier final confirmé. Vérifiez le dossier d’enregistrement dans OBS.') }}</div><TakePlayer v-if="take.status === 'completed' && take.outputPath" :take="take" /></div>
-            <div class="takes-delivery"><button v-if="take.status === 'completed' && take.outputPath" class="button primary" :disabled="busy[`download:${take.id}`]" @click="downloadTake(take.id)"><Icon name="download" />{{ busy[`download:${take.id}`] ? 'Préparation du téléchargement…' : 'Télécharger le fichier' }}</button><span v-else class="hint">{{ take.status === 'recording' || take.status === 'paused' ? 'Fichier en cours d’écriture' : 'Fichier final à vérifier' }}</span><small v-if="take.status === 'completed' && take.outputPath">Vidéo originale complète</small></div>
+            <div class="takes-delivery">
+              <template v-if="take.status === 'completed' && take.outputPath">
+                <div class="take-download-option">
+                  <button class="button primary" :disabled="busy[`mp4-download:${take.id}`]" :aria-busy="!!busy[`mp4-download:${take.id}`]" @click="downloadTakeMp4(take.id)"><Icon name="download" />{{ busy[`mp4-download:${take.id}`] ? 'Préparation du MP4…' : 'Télécharger en MP4' }}</button>
+                  <small v-if="!busy[`mp4-download:${take.id}`]">Copie MP4 complète · original conservé</small>
+                  <template v-else><small role="status">Le PC prépare le fichier MP4.</small><button class="text-button take-mp4-cancel" :aria-label="`Annuler l’attente du MP4 de ${take.title}`" @click="cancelTakeMp4Download(take.id)">Annuler l’attente</button></template>
+                </div>
+                <div class="take-download-option">
+                  <button class="button" :disabled="busy[`download:${take.id}`]" @click="downloadTake(take.id)"><Icon name="download" />{{ busy[`download:${take.id}`] ? 'Préparation du téléchargement…' : 'Télécharger le fichier' }}</button>
+                  <small>Vidéo originale complète</small>
+                </div>
+              </template>
+              <span v-else class="hint">{{ take.status === 'recording' || take.status === 'paused' ? 'Fichier en cours d’écriture' : 'Fichier final à vérifier' }}</span>
+            </div>
           </article>
         </template>
       </section>

@@ -246,6 +246,7 @@ export interface DownloadTicket {
   expiresAt: string;
 }
 export interface ResolveExportStatus { status: 'preparing' | 'ready' | 'failed'; ticket?: DownloadTicket; error?: string; }
+export interface TakeMp4DownloadStatus { status: 'preparing' | 'ready' | 'failed'; ticket?: DownloadTicket; error?: string; }
 
 export interface GuestSlot {
   id: string; projectId: string; slot: 1 | 2; name: string;

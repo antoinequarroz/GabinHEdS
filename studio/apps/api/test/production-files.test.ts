@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { inflateRawSync } from 'node:zlib';
-import type { AuthResult, DownloadTicket, FilePlaybackSession, MediaAsset, Project, ResolveExportStatus, Take, TakePlaybackStatus } from '@gabin/shared';
+import type { AuthResult, DownloadTicket, FilePlaybackSession, MediaAsset, Project, ResolveExportStatus, Take, TakeMp4DownloadStatus, TakePlaybackStatus } from '@gabin/shared';
 import { buildApp } from '../src/app.js';
 import { Store } from '../src/store.js';
 import { emptyMediaState, type MediaGateway } from '../src/media.js';
@@ -88,7 +88,19 @@ async function fixture(t: TestContext) {
     }
     throw new Error('Resolve export preparation timeout');
   };
-  return { directory, dataDir, recordings, mkv, mp4, first, second, interrupted, project, asset, assetFile, png, store, app, technician, headers, viewer, viewerHeaders, ready, readyResolve };
+  const readyMp4 = async (id: string): Promise<DownloadTicket> => {
+    for (let attempt = 0; attempt < 150; attempt++) {
+      const response = await app.inject({ method: 'POST', url: `/api/takes/${id}/mp4-download-ticket`, headers: viewerHeaders });
+      assert.ok([200, 202].includes(response.statusCode), response.body);
+      const result = response.json<TakeMp4DownloadStatus>();
+      assert.notEqual(result.status, 'failed', result.error);
+      if (result.status === 'ready') { assert.ok(result.ticket); return result.ticket; }
+      assert.equal(response.statusCode, 202); assert.equal(result.ticket, undefined);
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    throw new Error('MP4 download preparation timeout');
+  };
+  return { directory, dataDir, recordings, mkv, mp4, first, second, interrupted, project, asset, assetFile, png, store, app, technician, headers, viewer, viewerHeaders, ready, readyResolve, readyMp4 };
 }
 
 /** Tiny ZIP64 reader for these test fixtures, with no runtime ZIP dependency. */
@@ -166,6 +178,189 @@ test('completed native and MKV recordings play inline with ranges, preserve orig
   store.revoke(viewer.device.id);
   assert.equal((await app.inject({ url: converted.url })).statusCode, 401);
   assert.equal((await app.inject({ method: 'POST', url: `/api/takes/${first.id}/playback-session`, headers: viewerHeaders })).statusCode, 401);
+});
+
+test('MP4 attachment preserves the full programme and shares one compatibility job with playback and Resolve', { timeout: 30_000 }, async t => {
+  const { app, store, directory, dataDir, first, second, mkv, mp4, viewerHeaders, ready, readyResolve, readyMp4 } = await fixture(t);
+  const original = await readFile(mkv);
+  const jobs = new Set<ReturnType<TakePlayback['request']>>();
+  const request = TakePlayback.prototype.request;
+  t.mock.method(TakePlayback.prototype, 'request', function(this: TakePlayback, source: Parameters<TakePlayback['request']>[0], preferMp4: boolean) {
+    const job = request.call(this, source, preferMp4);
+    if (source.take.id === first.id) jobs.add(job);
+    return job;
+  });
+  const desktop = await app.inject({ method: 'POST', url: `/api/takes/${first.id}/playback-session`, headers: viewerHeaders });
+  assert.equal(desktop.statusCode, 202, 'The normal PC player begins the shared MKV compatibility preparation');
+  const started = await app.inject({ method: 'POST', url: `/api/takes/${first.id}/mp4-download-ticket`, headers: viewerHeaders });
+  assert.equal(started.statusCode, 202);
+  assert.deepEqual(started.json<TakeMp4DownloadStatus>(), { status: 'preparing' });
+  const [ticket, session] = await Promise.all([readyMp4(first.id), ready(first.id, false), readyResolve()]);
+  assert.equal(jobs.size, 1, 'All three clients reuse the same conversion, including concurrent polls');
+  assert.match(ticket.url, /^\/api\/mp4-downloads\/[A-Za-z0-9_-]{43}$/);
+  assert.ok(Date.parse(ticket.expiresAt) > Date.now() && Date.parse(ticket.expiresAt) <= Date.now() + 5 * 60_000);
+  const response = await app.inject({ url: ticket.url });
+  assert.equal(response.statusCode, 200, response.body);
+  assert.equal(response.headers['content-type'], 'video/mp4');
+  assert.match(String(response.headers['content-disposition']), /^attachment; filename="[^"/]+\.mp4"; filename\*=UTF-8''/);
+  assert.match(decodeURIComponent(String(response.headers['content-disposition']).split("filename*=UTF-8''")[1]!), /Prise 1 .*titre\.mp4$/);
+  assert.deepEqual(response.rawPayload, (await app.inject({ url: session.url })).rawPayload);
+  assert.equal((await readdir(path.join(dataDir, 'playback'))).filter(name => /^[a-f0-9]{64}\.mp4$/.test(name)).length, 1);
+  const downloaded = path.join(directory, 'actual-download.mp4');
+  await writeFile(downloaded, response.rawPayload);
+  const ffprobe = process.env.GABIN_FFPROBE_PATH ?? (path.isAbsolute(ffmpeg) ? path.join(path.dirname(ffmpeg), 'ffprobe') : 'ffprobe');
+  const { stdout } = await run(ffprobe, ['-v', 'error', '-count_frames', '-show_entries', 'stream=codec_type,codec_name,nb_read_frames,duration:format=duration', '-of', 'json', downloaded]);
+  const info = JSON.parse(stdout) as { streams: { codec_type: string; codec_name: string; nb_read_frames: string; duration: string }[]; format: { duration: string } };
+  const video = info.streams.find(stream => stream.codec_type === 'video')!, audio = info.streams.find(stream => stream.codec_type === 'audio')!;
+  assert.equal(video.codec_name, 'h264'); assert.equal(audio.codec_name, 'aac');
+  assert.equal(Number(video.nb_read_frames), 12, 'Every original fixture frame is present');
+  assert.ok(Number(video.duration) >= 1 && Number(audio.duration) >= .99, 'The end of both video and audio is preserved');
+  await run(ffmpeg, ['-v', 'error', '-xerror', '-i', downloaded, '-map', '0:v:0', '-map', '0:a:0', '-f', 'null', '-']);
+  const { stdout: pcm } = await run(ffmpeg, ['-v', 'error', '-i', downloaded, '-map', '0:a:0', '-ac', '1', '-ar', '48000', '-f', 's16le', 'pipe:1'], { encoding: 'buffer' });
+  assert.ok(pcm.length >= 96_000);
+  for (const offset of [4800, 38_400]) {
+    let energy = 0;
+    for (let index = offset; index < offset + 2400; index++) energy += (pcm.readInt16LE(index * 2) / 32768) ** 2;
+    assert.ok(Math.sqrt(energy / 2400) > .01, 'The real audible fixture survives at the beginning and end of the MP4');
+  }
+  assert.deepEqual(await readFile(mkv), original, 'The original MKV stays unchanged');
+  store.put('take', { ...second, title: "L’équipe d'Alice (A)* · Prise 2" });
+  const native = await readyMp4(second.id);
+  const nativeDownload = await app.inject({ url: native.url });
+  assert.deepEqual(nativeDownload.rawPayload, await readFile(mp4), 'A compatible native MP4 is not converted again');
+  const encodedName = String(nativeDownload.headers['content-disposition']).split("filename*=UTF-8''")[1]!;
+  assert.equal(decodeURIComponent(encodedName), "L’équipe d'Alice (A)* · Prise 2.mp4");
+  assert.ok(!/['()*]/.test(encodedName), 'RFC5987 filename parameters encode their reserved characters');
+  const head = await app.inject({ method: 'HEAD', url: ticket.url });
+  assert.equal(head.statusCode, 200); assert.equal(head.body, '');
+  assert.equal(Number(head.headers['content-length']), response.rawPayload.length);
+  const range = await app.inject({ url: ticket.url, headers: { range: 'bytes=5-14' } });
+  assert.equal(range.statusCode, 206); assert.deepEqual(range.rawPayload, response.rawPayload.subarray(5, 15));
+  const tail = await app.inject({ method: 'HEAD', url: ticket.url, headers: { range: 'bytes=-10' } });
+  assert.equal(tail.statusCode, 206); assert.equal(tail.headers['content-length'], '10');
+  assert.equal((await app.inject({ url: ticket.url, headers: { range: 'bytes=0-1,3-4' } })).statusCode, 416);
+});
+
+test('MP4 download refuses unauthenticated, unfinished, missing, symlinked and changed originals', { timeout: 30_000 }, async t => {
+  const { app, store, first, second, interrupted, mkv, mp4, viewerHeaders, readyMp4 } = await fixture(t);
+  const route = `/api/takes/${first.id}/mp4-download-ticket`;
+  assert.equal((await app.inject({ method: 'POST', url: route })).statusCode, 401);
+  assert.equal((await app.inject({ method: 'POST', url: route, headers: viewerHeaders, payload: { file: '/foreign/path' } })).statusCode, 400);
+  for (const status of ['recording', 'paused', 'interrupted'] as const) {
+    store.put('take', { ...interrupted, status });
+    assert.equal((await app.inject({ method: 'POST', url: `/api/takes/${interrupted.id}/mp4-download-ticket`, headers: viewerHeaders })).statusCode, 404);
+  }
+  assert.equal((await app.inject({ method: 'POST', url: `/api/takes/${randomUUID()}/mp4-download-ticket`, headers: viewerHeaders })).statusCode, 404);
+  const ticket = await readyMp4(first.id);
+  assert.equal((await app.inject({ url: ticket.url, headers: { origin: 'https://foreign.example' } })).statusCode, 403);
+  assert.equal((await app.inject({ url: '/api/mp4-downloads/not-a-ticket' })).statusCode, 401);
+  await writeFile(mkv, Buffer.concat([await readFile(mkv), Buffer.from('changed')]));
+  assert.equal((await app.inject({ method: 'HEAD', url: ticket.url })).statusCode, 409);
+  assert.equal((await app.inject({ url: ticket.url })).statusCode, 401, 'A changed-source ticket is revoked immediately');
+  await rm(mkv);
+  assert.equal((await app.inject({ method: 'POST', url: route, headers: viewerHeaders })).statusCode, 404);
+  const target = `${mp4}.actual`;
+  await rename(mp4, target); await symlink(target, mp4);
+  assert.equal((await app.inject({ method: 'POST', url: `/api/takes/${second.id}/mp4-download-ticket`, headers: viewerHeaders })).statusCode, 403,
+    'Even a symlink to a valid same-directory recording is not accepted as the original');
+});
+
+test('MP4 ticket leases expire and revoke without leaking pins across HEAD and range requests', { timeout: 30_000 }, async t => {
+  const { app, store, first, viewer, readyMp4 } = await fixture(t);
+  const pins = new Map<string, number>();
+  const pin = TakePlayback.prototype.pin, unpin = TakePlayback.prototype.unpin;
+  t.mock.method(TakePlayback.prototype, 'pin', function(this: TakePlayback, file: string) { pins.set(file, (pins.get(file) ?? 0) + 1); pin.call(this, file); });
+  t.mock.method(TakePlayback.prototype, 'unpin', function(this: TakePlayback, file: string) { pins.set(file, (pins.get(file) ?? 0) - 1); unpin.call(this, file); });
+  const balance = () => [...pins.values()].reduce((sum, value) => sum + value, 0);
+  const ticket = await readyMp4(first.id);
+  assert.equal(balance(), 1);
+  for (const method of ['HEAD', 'GET'] as const) {
+    assert.equal((await app.inject({ method, url: ticket.url, headers: { range: 'bytes=0-99' } })).statusCode, 206);
+    assert.equal(balance(), 1, 'Only the ticket lease remains after a completed request');
+  }
+  const now = Date.now();
+  const clock = t.mock.method(Date, 'now', () => now + 6 * 60_000);
+  assert.equal((await app.inject({ method: 'HEAD', url: ticket.url })).statusCode, 401);
+  assert.equal(balance(), 0, 'Expired tickets release their lease on use');
+  clock.mock.restore();
+  const next = await readyMp4(first.id);
+  assert.equal(balance(), 1);
+  store.revoke(viewer.device.id);
+  assert.equal((await app.inject({ url: next.url })).statusCode, 401);
+  assert.equal(balance(), 0, 'Revoked devices release the ticket lease immediately');
+});
+
+test('MP4 preparation rejects incompatible cached bytes rather than reporting an unverified ready file', { timeout: 30_000 }, async t => {
+  const { app, dataDir, first, viewerHeaders, readyMp4 } = await fixture(t);
+  const ticket = await readyMp4(first.id);
+  const directory = path.join(dataDir, 'playback');
+  const cached = path.join(directory, (await readdir(directory)).find(name => /^[a-f0-9]{64}\.mp4$/.test(name))!);
+  const invalid = path.join(directory, 'wrong-codec.mp4');
+  await run(ffmpeg, ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=160x90:rate=12', '-t', '1', '-c:v', 'mpeg4', invalid]);
+  await writeFile(cached, await readFile(invalid));
+  assert.equal((await app.inject({ url: ticket.url })).statusCode, 404, 'Issued tickets never silently substitute changed cache files');
+  let state: TakeMp4DownloadStatus = { status: 'preparing' };
+  for (let attempt = 0; attempt < 100 && state.status === 'preparing'; attempt++) {
+    const response = await app.inject({ method: 'POST', url: `/api/takes/${first.id}/mp4-download-ticket`, headers: viewerHeaders });
+    state = response.json<TakeMp4DownloadStatus>();
+    if (state.status === 'preparing') await new Promise(resolve => setTimeout(resolve, 30));
+  }
+  assert.equal(state.status, 'failed'); assert.ok(state.error); assert.equal(state.ticket, undefined);
+  assert.match(state.error!, /H\.264|audio/);
+});
+
+test('a full-duration MP4 container cannot conceal a shortened video or audio track', { timeout: 30_000 }, async t => {
+  for (const shortened of ['video', 'audio'] as const) await t.test(shortened, async t => {
+    const { app, dataDir, first, viewerHeaders, readyMp4 } = await fixture(t);
+    const ticket = await readyMp4(first.id);
+    const directory = path.join(dataDir, 'playback');
+    const cached = path.join(directory, (await readdir(directory)).find(name => /^[a-f0-9]{64}\.mp4$/.test(name))!);
+    const incomplete = path.join(directory, `incomplete-${shortened}.mp4`);
+    await run(ffmpeg, ['-v', 'error', '-f', 'lavfi', '-i', `testsrc2=size=160x90:rate=12:duration=${shortened === 'video' ? '0.4' : '1'}`,
+      '-f', 'lavfi', '-i', `sine=frequency=440:sample_rate=48000:duration=${shortened === 'audio' ? '0.4' : '1'}`,
+      '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-movflags', '+faststart', incomplete]);
+    const ffprobe = process.env.GABIN_FFPROBE_PATH ?? (path.isAbsolute(ffmpeg) ? path.join(path.dirname(ffmpeg), 'ffprobe') : 'ffprobe');
+    const { stdout } = await run(ffprobe, ['-v', 'error', '-show_entries', 'stream=codec_type,duration:format=duration', '-of', 'json', incomplete]);
+    const info = JSON.parse(stdout) as { streams: { codec_type: string; duration: string }[]; format: { duration: string } };
+    assert.ok(Number(info.format.duration) >= 1, 'The container duration alone would pass');
+    assert.ok(Number(info.streams.find(stream => stream.codec_type === shortened)!.duration) < .5);
+    await writeFile(cached, await readFile(incomplete));
+    assert.equal((await app.inject({ method: 'HEAD', url: ticket.url })).statusCode, 404);
+    let state: TakeMp4DownloadStatus = { status: 'preparing' };
+    for (let attempt = 0; attempt < 100 && state.status === 'preparing'; attempt++) {
+      state = (await app.inject({ method: 'POST', url: `/api/takes/${first.id}/mp4-download-ticket`, headers: viewerHeaders })).json<TakeMp4DownloadStatus>();
+      if (state.status === 'preparing') await new Promise(resolve => setTimeout(resolve, 30));
+    }
+    assert.equal(state.status, 'failed'); assert.equal(state.ticket, undefined); assert.match(state.error!, /entiers/);
+  });
+});
+
+test('an active MP4 transfer keeps its own lease after ticket expiry and releases it on client abort', { timeout: 30_000 }, async t => {
+  const { app, mp4, second, readyMp4 } = await fixture(t);
+  await truncate(mp4, 64 * 1024 * 1024);
+  const pins = new Map<string, number>();
+  const pin = TakePlayback.prototype.pin, unpin = TakePlayback.prototype.unpin;
+  t.mock.method(TakePlayback.prototype, 'pin', function(this: TakePlayback, file: string) { pins.set(file, (pins.get(file) ?? 0) + 1); pin.call(this, file); });
+  t.mock.method(TakePlayback.prototype, 'unpin', function(this: TakePlayback, file: string) { pins.set(file, (pins.get(file) ?? 0) - 1); unpin.call(this, file); });
+  const balance = () => [...pins.values()].reduce((sum, value) => sum + value, 0);
+  const ticket = await readyMp4(second.id);
+  await app.listen({ host: '127.0.0.1', port: 0 });
+  const address = app.server.address(); assert.ok(address && typeof address !== 'string');
+  const held = await new Promise<{ request: ClientRequest; response: IncomingMessage }>((resolve, reject) => {
+    const request = get(`http://127.0.0.1:${address.port}${ticket.url}`, response => {
+      response.on('error', () => undefined); response.pause(); assert.equal(response.statusCode, 200);
+      resolve({ request, response });
+    });
+    request.once('error', reject); request.on('error', () => undefined);
+  });
+  t.after(() => { held.response.destroy(); held.request.destroy(); });
+  assert.equal(balance(), 2, 'Ticket and actual transfer each own a lease');
+  const now = Date.now(); const clock = t.mock.method(Date, 'now', () => now + 6 * 60_000);
+  assert.equal((await app.inject({ method: 'HEAD', url: ticket.url })).statusCode, 401);
+  assert.equal(balance(), 1, 'The live transfer stays protected after its ticket expires');
+  clock.mock.restore(); held.response.destroy(); held.request.destroy();
+  for (let attempt = 0; attempt < 100 && balance(); attempt++) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(balance(), 0, 'Aborting the client releases the transfer lease');
 });
 
 test('production ZIP64 contains every completed original, linked archived media, safe metadata, markers and one-pass checksums', { timeout: 30_000 }, async t => {
@@ -429,18 +624,19 @@ test('conversion is stopped against the remaining cache budget while existing pl
   assert.equal((await readdir(cache)).filter(name => name.endsWith('.partial.mp4')).length, 0);
 });
 
-test('server shutdown cancels held native video and streaming ZIP connections before request drainage', { timeout: 30_000 }, async t => {
-  const { app, mp4, second, project, viewerHeaders, ready, readyResolve } = await fixture(t);
+test('server shutdown cancels held native video, MP4 attachments and streaming ZIP connections before request drainage', { timeout: 30_000 }, async t => {
+  const { app, mp4, second, project, viewerHeaders, ready, readyResolve, readyMp4 } = await fixture(t);
   await truncate(mp4, 64 * 1024 * 1024); // A sparse tail keeps the fixture cheap while holding network backpressure.
   const session = await ready(second.id);
   const ticket = (await app.inject({ method: 'POST', url: `/api/projects/${project.id}/export-ticket`, headers: viewerHeaders })).json<DownloadTicket>();
   const resolveTicket = await readyResolve();
+  const mp4Ticket = await readyMp4(second.id);
   await app.listen({ host: '127.0.0.1', port: 0 });
   const address = app.server.address();
   assert.ok(address && typeof address !== 'string');
   const connections: { request: ClientRequest; response: IncomingMessage }[] = [];
   t.after(() => { for (const connection of connections) { connection.response.destroy(); connection.request.destroy(); } });
-  for (const route of [session.url, ticket.url, resolveTicket.url]) await new Promise<void>((resolve, reject) => {
+  for (const route of [session.url, ticket.url, resolveTicket.url, mp4Ticket.url]) await new Promise<void>((resolve, reject) => {
     const request = get(`http://127.0.0.1:${address.port}${route}`, response => {
       response.on('error', () => undefined); response.pause();
       assert.equal(response.statusCode, 200);

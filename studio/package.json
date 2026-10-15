@@ -21,6 +21,7 @@
     "start": "npm run start --workspace @gabin/api",
     "test:integration": "tsx --test tests/*.test.ts",
     "test:browser": "tsx tests/browser-check.ts",
+    "test:mp4:browser": "tsx tests/mp4-browser-check.ts",
     "test:guests:browser": "tsx tests/guest-browser-check.ts",
     "setup:media": "node scripts/setup-media.mjs",
     "start:media": "node scripts/start-media.mjs"
