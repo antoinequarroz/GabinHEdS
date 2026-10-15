@@ -310,5 +310,5 @@ export type ServerMessage =
 export const formatLabels: Record<ProductionFormat, string> = {
   podcast: 'Podcast',
   roundtable: 'Table ronde',
-  slides: 'PowerPoint sonorisé',
+  slides: 'Présentation et partage d’écran',
 };

@@ -12,7 +12,7 @@ Le [guide des invités à distance](docs/remote-guests.md) complète ces PDF ave
 
 ## Périmètre livré
 
-- Projets podcast, table ronde et PowerPoint sonorisé, titre, responsable, description et jusqu’à quatre intervenants présents.
+- Projets podcast, table ronde et Présentation et partage d’écran, titre, responsable, description et jusqu’à quatre intervenants présents.
 - Association des intervenants aux micros et scènes déjà configurés dans OBS.
 - Préparation : connexion OBS, scène choisie, micros, dossier de destination et espace disque.
 - Commandes centralisées de démarrage, arrêt, pause, reprise, changement de scène, mute et ajout de repères.
@@ -43,7 +43,7 @@ Installer Node.js **24 ou supérieur**, npm et OBS Studio sur le PC de la salle.
 
 OBS Studio intègre le contrôle WebSocket depuis la version 28. Dans **Outils → Paramètres du serveur WebSocket**, activer le serveur et l’authentification, conserver le port **4455** et choisir un mot de passe. Nino se connecte à `ws://127.0.0.1:4455` sur le même PC. Voir [le guide officiel OBS](https://obsproject.com/kb/remote-control-guide).
 
-Créer les scènes nécessaires dans OBS, par exemple `Podcast`, `Table ronde` et `PowerPoint`, et ajouter leurs sources. Pour PowerPoint, ajouter la capture HDMI ou la fenêtre contenant la présentation. Régler la sortie d’enregistrement et effectuer un test matériel directement dans OBS avant l’utilisation en salle.
+Créer les scènes nécessaires dans OBS et ajouter leurs sources. Pour **Présentation et partage d’écran**, capturer une fenêtre, un écran ou une entrée HDMI : diaporama, navigateur, démonstration de logiciel ou document. Associer cette scène au format dans **Salle et OBS**. Les noms de scènes existants, y compris `PowerPoint`, restent valables ; les anciens projets gardent leur configuration. Régler la sortie d’enregistrement et effectuer un test matériel directement dans OBS avant l’utilisation en salle.
 
 Le programme vidéo envoyé à MediaMTX doit utiliser **H.264 et AAC** pour ce parcours navigateur. MediaMTX génère le HLS ; l’interface utilise la lecture native quand elle est disponible et HLS.js sinon. Le HLS ajoute un décalage entre la capture et l’écran : vérifier le cadrage et le son, puis utiliser OBS sur le PC pour les opérations nécessitant un retour immédiat. Voir [les codecs HLS MediaMTX](https://mediamtx.org/docs/read/hls) et [la lecture navigateur](https://mediamtx.org/docs/read/web-browsers).
 

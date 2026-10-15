@@ -551,7 +551,7 @@ export class Studio {
     checks.push({ id: 'participant-scenes', label: 'Plans des participants', status: invalidScenes.length ? 'blocked' : 'ready',
       detail: invalidScenes.length ? `Plan OBS introuvable pour ${invalidScenes.map((person) => person.name).join(', ')}.` : 'Les plans renseignés existent dans OBS.' });
     checks.push({ id: 'visual-check', label: 'Contrôle image et son', status: 'warning',
-      detail: project.format === 'slides' ? 'Vérifiez le cadrage, le son et le PowerPoint/HDMI avec le retour programme. Le retour HLS est différé ; les vumètres OBS correspondent au signal audio réel.' : 'Vérifiez le cadrage et écoutez les micros avec le retour programme. Le retour HLS est différé ; aucun signal audio n’est inventé quand OBS n’envoie pas de mesure.' });
+      detail: project.format === 'slides' ? 'Vérifiez le cadrage, le son et le contenu partagé (fenêtre, écran ou HDMI) avec le retour programme. Le retour HLS est différé ; les vumètres OBS correspondent au signal audio réel.' : 'Vérifiez le cadrage et écoutez les micros avec le retour programme. Le retour HLS est différé ; aucun signal audio n’est inventé quand OBS n’envoie pas de mesure.' });
     let freeBytes: number | null = null;
     try {
       await mkdir(recordingDirectory, { recursive: true });
@@ -633,7 +633,7 @@ export class Studio {
           || before.recording && !current) throw new ApiFailure(409, 'La production active doit être vérifiée avant de changer son programme.', 'PROJECT_CONFLICT');
         const { asset, file } = await libraryFile(this.store, command.assetId);
         if (asset.archivedAt) throw new ApiFailure(409, 'Restaurez ce média avant de le diffuser.', 'MEDIA_ARCHIVED');
-        if (asset.kind === 'document') throw new ApiFailure(400, 'Préparez le PDF ou le PowerPoint comme source dans OBS. Ce document peut être conservé et récupéré avec la production.', 'MEDIA_DOCUMENT_ONLY');
+        if (asset.kind === 'document') throw new ApiFailure(400, 'Ouvrez le document dans son application, puis préparez une capture de sa fenêtre ou de son écran dans OBS. Ce document peut être conservé et récupéré avec la production.', 'MEDIA_DOCUMENT_ONLY');
         const mode = command.mode ?? (asset.kind === 'audio' ? 'audio' : 'fullscreen');
         if (asset.kind === 'audio' && mode !== 'audio' || asset.kind !== 'audio' && mode === 'audio') throw new ApiFailure(400, 'Le mode choisi ne correspond pas à ce média.', 'MEDIA_MODE_INVALID');
         if (mode === 'fullscreen' && this.autoDirection.enabled) this.disableAuto('suspended', 'Média plein écran : l’automatique est suspendue. Revenez au plan précédent puis reprenez-la.');

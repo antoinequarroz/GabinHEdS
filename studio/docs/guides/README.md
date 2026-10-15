@@ -9,7 +9,7 @@ Quatre guides français illustrés, avec la marque Nino et la police Manrope de 
 
 Les copies distribuables vivent dans ce dossier. Une génération pour livraison locale peut viser `output/pdf/`, sans ajouter ce dossier de sortie au dépôt.
 
-Compatibilité des intitulés : la version actuellement publiée sur `main` affiche encore « PowerPoint sonorisé ». Le manuel complet nomme ce même format « Présentation et partage d’écran », l’intitulé utilisé dans la version locale de la salle. Les présentations et les autres contenus partagés se capturent dans OBS dans les deux cas.
+Compatibilité des intitulés : l’application et le manuel complet utilisent « Présentation et partage d’écran ». Les trois premiers PDF peuvent encore afficher l’ancien nom « PowerPoint sonorisé » ; il désigne le même format. L’identifiant de production `slides` et les scènes OBS existantes sont conservés, sans migration des projets. Les présentations et les autres contenus partagés se capturent dans OBS dans les deux cas.
 
 ## Régénération
 

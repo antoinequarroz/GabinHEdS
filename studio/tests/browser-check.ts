@@ -97,6 +97,17 @@ async function proofScreenshot(page: any, filename: string): Promise<void> {
   const captures = await captureProof(page, join(screenshotDir, filename), browserEngine === 'webkit');
   console.info(`Capture confirmée : ${filename}, ${captures.length} vue(s) (${Date.now() - started} ms)`);
 }
+async function presentationFormat(page: any, label: string, filename: string): Promise<void> {
+  await page.getByRole('button', { name: 'Modifier', exact: true }).click();
+  const format = page.getByRole('button', { name: /^Présentation et partage d’écran/ });
+  await format.waitFor();
+  assert.equal(await format.getAttribute('aria-pressed'), 'true', `${label}: existing slides project keeps the renamed format selected`);
+  assert.equal(await page.getByRole('button', { name: /PowerPoint sonorisé/ }).count(), 0);
+  await noOverflow(page, `${label} : format Présentation`);
+  await mkdir(screenshotDir, { recursive: true });
+  await proofScreenshot(page, filename);
+  await page.getByRole('button', { name: 'Annuler', exact: true }).click();
+}
 async function decodedProgramme(page: any, label: string): Promise<void> {
   await page.locator('video').waitFor();
   console.info(JSON.stringify({ label, capabilities: await page.locator('video').evaluate((video: HTMLVideoElement) => ({
@@ -178,10 +189,13 @@ try {
   await pc.getByRole('button', { name: 'Connecter OBS', exact: true }).click();
   await untilState(state => state.obs.connected && state.obs.scenes.length > 0, 'connexion au protocole OBS');
   await pc.locator('.topbar').getByText('OBS connecté', { exact: true }).waitFor();
+  assert.equal(await pc.getByLabel('Présentation et partage d’écran').inputValue(), 'PowerPoint',
+    'The renamed room field keeps the existing OBS scene');
   steps.push('Salle : réglages sauvegardés via UI, connexion RealObsGateway → fixture OBS5');
 
   await pc.locator('.sidebar').getByRole('button', { name: 'Productions', exact: true }).click();
   await pc.getByRole('button', { name: 'Nouvelle production', exact: true }).click();
+  await pc.getByRole('button', { name: /^Présentation et partage d’écran/ }).click();
   await pc.getByLabel('Nom de la production').fill('Métiers de la santé · épisode 01');
   await pc.getByLabel('Responsable', { exact: true }).fill('Équipe HEdS');
   await pc.getByLabel('Description', { exact: true }).fill('Test du parcours PC, iPad et prise OBS.');
@@ -198,6 +212,9 @@ try {
   await pc.getByRole('button', { name: 'Créer le projet', exact: true }).click();
   await pc.getByRole('heading', { name: 'Métiers de la santé · épisode 01', exact: true }).waitFor();
   const created = await untilState(state => state.projects.length === 1, 'projet persistant');
+  assert.equal(created.projects[0]!.format, 'slides', 'The renamed format keeps the identifier of existing projects');
+  assert.equal(created.room.defaultScenes.slides, 'PowerPoint', 'Renaming the format preserves existing OBS scene settings');
+  await presentationFormat(pc, 'PC', 'nino-presentation-pc.png');
   const projectId = created.projects[0]!.id;
   const preparation = await api<{ canStart: boolean }>(`/preparation/${projectId}`);
   assert(preparation.canStart, 'La préparation autorise la prise');
@@ -224,6 +241,7 @@ try {
   await ipad.getByLabel('Code d’association', { exact: true }).fill(pairingCode);
   await ipad.getByRole('button', { name: 'Rejoindre la salle', exact: true }).click();
   await ipad.getByRole('heading', { name: 'Métiers de la santé · épisode 01', exact: true }).waitFor();
+  await presentationFormat(ipad, 'iPad', 'nino-presentation-ipad.png');
   assert.equal(await ipad.getByRole('button', { name: 'Salle et OBS', exact: true }).count(), 0, 'iPad opérateur sans réglages technicien');
   await noOverflow(ipad, 'iPad 1024');
   steps.push('iPad : association complète via formulaires PC/iPad, accès opérateur, même projet et synchronisation');
