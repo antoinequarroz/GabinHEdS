@@ -276,7 +276,7 @@ function Stop-NinoServices {
         $token = Get-NinoShutdownToken -Path $Layout.ShutdownTokenPath
         try {
             $response = Invoke-WebRequest -Uri 'http://127.0.0.1:4310/api/local-shutdown' -Method Post -UseBasicParsing `
-                -Headers @{ Authorization = 'Bearer ' + $token } -TimeoutSec 10 -ErrorAction Stop
+                -Headers @{ Authorization = 'Bearer ' + $token } -ContentType 'application/json' -Body '{}' -TimeoutSec 10 -ErrorAction Stop
             $body = $response.Content | ConvertFrom-Json
             if ($response.StatusCode -ne 202 -or $body.accepted -ne $true) { throw 'Arret non confirme.' }
         } catch {

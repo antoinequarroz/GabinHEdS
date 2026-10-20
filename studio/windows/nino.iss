@@ -76,7 +76,7 @@ SetupMutex=NinoStudio.Windows.Setup
 Name: "french"; MessagesFile: "compiler:Languages\French.isl"
 
 [Messages]
-WelcomeLabel2=Ce programme installe Nino, Node.js et MediaMTX pour votre compte Windows. Une connexion Internet est nécessaire à la première préparation : FFmpeg est téléchargé depuis sa distribution référencée et vérifié, puis conservé sur ce PC.%n%nSi OBS est déjà installé, Nino le réutilise. Sinon, une option ouvre son installation officielle à la fin. Le pilote RØDE reste à installer séparément.%n%nAvant une mise à jour, terminez l’enregistrement et le live, puis arrêtez Nino depuis sa fenêtre de lancement.
+WelcomeLabel2=Ce programme installe Nino, Node.js et MediaMTX pour votre compte Windows. Une connexion Internet est nécessaire à la première préparation : FFmpeg est téléchargé depuis sa distribution référencée et vérifié, puis conservé sur ce PC.%n%nSi OBS est déjà installé, Nino le réutilise. Sinon, une option ouvre son installation officielle à la fin. Le pilote RØDE reste à installer séparément.%n%nAvant une mise à jour, terminez l’enregistrement et le live, puis arrêtez Nino avec le raccourci « Arrêter Nino » du menu Démarrer.
 FinishedLabel=La préparation des outils vidéo a été effectuée dans une fenêtre séparée. Vous pouvez lancer le studio avec le raccourci « Nino + OBS ». Les caméras, les micros et la connexion OBS se règlent ensuite dans Nino, avec le guide de la salle.%n%nVos productions et vos réglages sont conservés en dehors du dossier du logiciel.
 
 [Tasks]
@@ -149,7 +149,7 @@ end;
 function RunningStudioMessage: String;
 begin
   Result := 'Nino utilise encore ses composants vidéo ou son serveur. ' +
-    'Terminez l''enregistrement et le live, puis arrêtez Nino depuis sa fenêtre de lancement. ' +
+    'Terminez l''enregistrement et le live, puis arrêtez Nino avec le raccourci « Arrêter Nino » du menu Démarrer. ' +
     'Réessayez ensuite. Aucun processus OBS ou Nino ne sera fermé automatiquement.';
 end;
 

@@ -100,11 +100,15 @@ try {
     Assert-LauncherThrows { Assert-NinoPortsAvailable -Ports @(4310) -Service api } 'failed port inventory is not a free port'
 
     function Invoke-WebRequest {
-        param($Uri, [switch]$UseBasicParsing, $TimeoutSec, $ErrorAction, $Method, $Headers)
+        param($Uri, [switch]$UseBasicParsing, $TimeoutSec, $ErrorAction, $Method, $Headers, $ContentType, $Body)
         if ($script:healthFails) { throw 'network unavailable' }
         if ($Uri -like '*local-shutdown') {
             [void]$script:shutdownTrace.Add('shutdown-request')
             if ($Method -ne 'Post' -or $Headers.Authorization -cne ('Bearer ' + $script:expectedToken)) { throw 'wrong shutdown credentials' }
+            # Windows PowerShell 5.1 defaults a POST to form-urlencoded. Fastify
+            # correctly rejects that type with HTTP 415, even for this route.
+            if ($ContentType -ne 'application/json' -or $Body -ne '{}') { throw 'shutdown requires an explicit JSON object body' }
+            $script:jsonShutdownRequests += 1
             if ($script:shutdownBlocked) { throw 'HTTP 409: room is busy' }
             return [pscustomobject]@{ StatusCode = 202; Content = '{"accepted":true}' }
         }
@@ -146,6 +150,7 @@ try {
     $stopLayout = [pscustomobject]@{ RunRoot = $scratch; InstallRoot = $install; NodePath = $exe; EntryPath = $anchor;
         MediaPath = 'C:\Nino\mediamtx.exe'; MediaConfigPath = 'C:\Nino\app\config\mediamtx.yml'; ShutdownTokenPath = $tokenPath }
     $script:shutdownTrace = New-Object 'Collections.Generic.List[string]'
+    $script:jsonShutdownRequests = 0
     $script:shutdownBlocked = $false
     $script:apiCanExit = $true
     $script:apiOwned = $true
@@ -165,6 +170,7 @@ try {
     }
     $script:mediaBody = '{"items":[],"itemCount":0}'
     Stop-NinoServices -Layout $stopLayout
+    Assert-Launcher ($script:jsonShutdownRequests -eq 1) 'shutdown POST sends explicit application/json with an empty JSON object'
     Assert-Launcher (($script:shutdownTrace -join ',') -eq 'shutdown-request,api-exit,media-close,media-exit') 'graceful API exit precedes closing owned relay'
     $script:shutdownTrace.Clear()
     $script:shutdownBlocked = $true
