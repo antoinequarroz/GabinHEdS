@@ -51,6 +51,15 @@ jobs:
           sudo apt-get install --yes --no-install-recommends ffmpeg
       - name: Vérifier les types, construire et tester
         run: npm run check
+      - name: Construire les cinq pages Stream Deck hors ligne
+        run: npm run build:streamdeck
+      - name: Livrer les pages Companion sans configuration privée
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nino-streamdeck-${{ github.sha }}-${{ github.run_attempt }}
+          path: studio/build/stream-deck/
+          if-no-files-found: error
+          retention-days: 30
 
   browsers:
     name: Parcours PC / iPad · ${{ matrix.browser }}
@@ -192,8 +201,8 @@ jobs:
             'apps/web/index.html', 'apps/web/src', 'apps/web/public', 'apps/web/dist',
             'packages/shared/package.json', 'packages/shared/src', 'tests',
             'scripts/media-runtime.mjs', 'scripts/setup-media.mjs', 'scripts/start-media.mjs', 'scripts/generate-guides.py',
-            'scripts/build-windows.mjs', 'windows',
-            'config/mediamtx.yml',
+            'scripts/build-windows.mjs', 'scripts/companion-profile.mjs', 'scripts/build-streamdeck.mjs', 'windows',
+            'config/mediamtx.yml', 'config/stream-deck',
             'config/guests-vps/.gitignore', 'config/guests-vps/README.md',
             'config/guests-vps/compose.example.yml', 'config/guests-vps/Caddyfile.example',
             'config/guests-vps/turnserver.conf.example',

@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { access, mkdir, open, statfs, unlink } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import type { AudioFrame, AutoDirectionState, ControlCommand, GuestSlot, Marker, MediaPlayback, ObsState, Participant, Preparation, PreparationCheck, Project, ProjectInput, RoomConfigInput, SceneChange, StudioState, Take } from '@gabin/shared';
+import type { AudioFrame, AutoDirectionState, ControlCommand, GuestSlot, Marker, MediaPlayback, ObsState, Participant, Preparation, PreparationCheck, ProductionLaunchState, Project, ProjectInput, RoomConfigInput, SceneChange, StreamDeckState, StudioState, Take } from '@gabin/shared';
 import { ObsFeedConflict, ObsGuestFailure, ObsMediaFailure, type ObsEvent, type ObsGateway, timecodeMs } from './obs.js';
 import { emptyMediaState, type MediaGateway } from './media.js';
 import { Store } from './store.js';
@@ -41,6 +41,12 @@ export class Studio {
   private guestReconcileQueued = false;
   private readonly guestPrepared = new Set<string>();
   private readonly guestUrls = new Map<string, { url: string; expiresAt: string }>();
+  private streamDeckConnection: Omit<StreamDeckState, 'projectId'> = { companionConnected: false, syncedProjectId: null, error: null };
+  private launch: ProductionLaunchState = { id: null, projectId: null, takeId: null, includeLive: false, status: 'idle', step: 'idle', message: 'Aucun lancement en cours.', updatedAt: null };
+  private launchTask: Promise<void> | null = null;
+  private launchAbort: AbortController | null = null;
+  private launchOwnerId: string | null = null;
+  private launchMedia: { assetId: string; sceneName: string | null } | null = null;
 
   constructor(readonly store: Store, readonly obs: ObsGateway, readonly media?: MediaGateway, options: { now?: () => number; autoIntervalMs?: number; guests?: GuestService } = {}) {
     this.pristineAtStartup = store.projects().length === 0 && store.takes().length === 0
@@ -75,6 +81,11 @@ export class Studio {
       this.setProjectStatus(project.id, latest?.status === 'completed' ? 'completed' : 'draft');
     }
     this.store.setSetting('pendingTake', null);
+    const previousLaunch = store.setting<ProductionLaunchState>('productionLaunch');
+    if (previousLaunch) {
+      this.launch = previousLaunch.status === 'running' ? { ...previousLaunch, status: 'cancelled', message: 'Nino a redémarré : vérifiez OBS. Le lancement ne reprend pas automatiquement.', updatedAt: new Date(this.now()).toISOString() } : previousLaunch;
+      store.setSetting('productionLaunch', this.launch);
+    }
     this.lastObservedScene = obs.getState().connected ? obs.getState().currentScene : null;
     this.unsubscribe = obs.subscribe((event) => {
       if (event.type === 'state' && (event.state.connected || event.state.recording || event.state.streaming)) this.observedObs = true;
@@ -114,6 +125,7 @@ export class Studio {
   }
   async close(): Promise<void> {
     this.closing = true;
+    this.invalidateLaunch('cancelled', 'Nino s’arrête : la suite du lancement est annulée. Vérifiez la prise dans OBS.');
     if (this.autoTimer) clearInterval(this.autoTimer);
     this.disableAuto('off', 'Réalisation manuelle.');
     this.unsubscribe();
@@ -121,6 +133,7 @@ export class Studio {
     this.unsubscribeGuests();
     this.guests?.close();
     await this.queue.catch(() => undefined);
+    await this.launchTask?.catch(() => undefined);
     // Disconnect only; the OBS recording keeps running independently.
     await this.obs.disconnect().catch(() => undefined);
     await this.media?.close().catch(() => undefined);
@@ -139,7 +152,7 @@ export class Studio {
    * final observations and the draining flag. OBS itself is never stopped. */
   async prepareLocalShutdown(): Promise<void> {
     const busy = (): never => { throw new ApiFailure(409, 'Arrêt refusé : terminez les prises et le direct, puis vérifiez l’état dans OBS.', 'LOCAL_SHUTDOWN_BUSY'); };
-    if (this.activeTake() || this.store.setting('pendingTake') || this.liveActive()) busy();
+    if (this.activeTake() || this.store.setting('pendingTake') || this.liveActive() || this.launch.status === 'running') busy();
     let obs;
     let media;
     try {
@@ -159,7 +172,180 @@ export class Studio {
     return { revision: this.revision, room: this.store.publicRoom(), obs: this.obs.getState(), media: this.media?.getState() ?? emptyMediaState(), liveProjectId: this.liveProjectId, projects: this.store.projects(),
       takes: this.store.takes(), activeTake: this.activeTake(), markers: this.store.markers(), library: this.store.library(),
       projectMedia: this.store.projectMedia(), mediaPlayback: this.obs.getMediaPlayback?.() ?? this.mediaPlayback,
-      autoDirection: structuredClone(this.autoDirection), autoDirectionSettings: this.store.autoDirectionSettings(), sceneChanges: this.store.sceneChanges(), guestRooms: this.guests?.rooms() };
+      autoDirection: structuredClone(this.autoDirection), autoDirectionSettings: this.store.autoDirectionSettings(), sceneChanges: this.store.sceneChanges(), guestRooms: this.guests?.rooms(),
+      streamDeck: { projectId: this.store.setting<string>('streamDeckProjectId'), ...this.streamDeckConnection }, launch: structuredClone(this.launch) };
+  }
+  setStreamDeckConnection(status: Omit<StreamDeckState, 'projectId'>): void {
+    if (JSON.stringify(status) !== JSON.stringify(this.streamDeckConnection)) { this.streamDeckConnection = { ...status }; this.changed(); }
+  }
+  async selectStreamDeckProject(projectId: string, actor?: { deviceId: string }): Promise<StudioState> {
+    const project = this.project(projectId);
+    if (project.status === 'archived') throw new ApiFailure(409, 'Restaurez cette production avant de la sélectionner sur le Stream Deck.', 'PROJECT_ARCHIVED');
+    if (this.store.setting('streamDeckProjectId') === projectId) return this.state();
+    await this.obs.refresh(true);
+    if (actor && !this.store.device(actor.deviceId)) throw new ApiFailure(401, 'L’accès de cet appareil a été révoqué.', 'UNAUTHENTICATED');
+    if (this.activeTake() || this.obs.getState().recording || this.store.setting('pendingTake') || this.liveActive() || this.launch.status === 'running') throw new ApiFailure(409,
+      'Terminez ou vérifiez la prise, le direct et le lancement avant de changer la production du Stream Deck.', 'PRODUCTION_ACTIVE');
+    this.store.setSetting('streamDeckProjectId', projectId);
+    this.streamDeckConnection.syncedProjectId = null;
+    return this.changed();
+  }
+  private setLaunch(update: Partial<ProductionLaunchState>): void {
+    this.launch = { ...this.launch, ...update, updatedAt: new Date(this.now()).toISOString() };
+    this.store.setSetting('productionLaunch', this.launch);
+    this.changed();
+  }
+  private invalidateLaunch(status: 'failed' | 'cancelled', message: string): void {
+    if (this.launch.status !== 'running') return;
+    this.launchAbort?.abort();
+    this.setLaunch({ status, message });
+  }
+  private assertLaunch(id: string): void {
+    if (this.closing || this.launch.id !== id || this.launch.status !== 'running' || this.launchAbort?.signal.aborted) throw new ApiFailure(409, 'Le lancement a été annulé.', 'LAUNCH_CANCELLED');
+    const device = this.launchOwnerId && this.store.device(this.launchOwnerId);
+    if (!device || device.role === 'viewer') {
+      this.invalidateLaunch('cancelled', 'L’appareil qui a lancé la production n’est plus autorisé. La prise déjà démarrée reste dans OBS.');
+      throw new ApiFailure(401, 'L’accès de cet appareil a été révoqué.', 'UNAUTHENTICATED');
+    }
+    const obs = this.obs.getState();
+    if (!obs.connected || obs.error) throw new ApiFailure(503, 'La connexion OBS a été perdue. Vérifiez la prise dans OBS ; aucune relance automatique.', 'OBS_CONFIRMATION_LOST');
+    if (this.launch.takeId && (this.activeTake()?.id !== this.launch.takeId || !obs.recording || obs.paused
+      || !obs.recordingDirectory || path.resolve(obs.recordingDirectory) !== path.resolve(this.activeTake()!.recordingDirectory))) {
+      this.invalidateLaunch('cancelled', 'La prise a été arrêtée, suspendue ou remplacée. La suite du lancement est annulée.');
+      throw new ApiFailure(409, 'La prise a changé.', 'TAKE_CHANGED');
+    }
+  }
+  /** Only the intro started by this job may be restored; never stop a replacement media. */
+  private async releaseLaunchMedia(): Promise<void> {
+    const owned = this.launchMedia;
+    this.launchMedia = null;
+    const playback = this.obs.getMediaPlayback?.() ?? this.mediaPlayback;
+    if (!owned || !this.obs.mediaAction || playback?.assetId !== owned.assetId || playback.sceneName !== owned.sceneName
+      || this.obs.getState().currentScene !== owned.sceneName) return;
+    this.mediaPlayback = await this.obs.mediaAction('stop');
+    this.journalScene(this.obs.getState(), 'media', null, this.launch.projectId);
+  }
+  private async cancelProduction(message: string): Promise<StudioState> {
+    if (this.launch.status !== 'running') return this.state();
+    this.invalidateLaunch('cancelled', message);
+    try { await this.releaseLaunchMedia(); }
+    catch { this.setLaunch({ message: `${message} OBS n’a pas confirmé le retour au plan ; vérifiez le programme.` }); }
+    return this.changed();
+  }
+  private async startProduction(command: Extract<ControlCommand, { action: 'production.start' }>, actor?: { deviceId: string }): Promise<StudioState> {
+    const device = actor && this.store.device(actor.deviceId);
+    if (!device || device.role === 'viewer') throw new ApiFailure(403, 'Un appareil opérateur autorisé doit lancer la production.', 'LAUNCH_AUTH_REQUIRED');
+    if (this.launch.status === 'running') throw new ApiFailure(409, 'Le lancement de la production est déjà en cours.', 'LAUNCH_ACTIVE');
+    try { return await this.acceptProduction(command, device); }
+    catch (error) {
+      const failure = error instanceof ApiFailure ? error : new ApiFailure(503, 'La préparation n’a pas pu être confirmée. Vérifiez OBS avant de relancer.', 'LAUNCH_PREPARATION_FAILED');
+      // A hardware press has no browser response to display. Publish an idle
+      // preflight failure as well as rejecting HTTP, without replacing an active
+      // job or claiming that an uncertain/external recording has failed.
+      const stillAuthorized = this.store.device(device.id);
+      if (!this.closing && stillAuthorized && stillAuthorized.role !== 'viewer' && this.state().launch?.status !== 'running'
+        && !this.activeTake() && !this.obs.getState().recording && !this.store.setting('pendingTake') && !this.liveActive()) {
+        this.setLaunch({ id: randomUUID(), projectId: command.projectId, takeId: null, includeLive: false,
+          status: 'failed', step: 'preparing', message: failure.message });
+      }
+      throw failure;
+    }
+  }
+  private async acceptProduction(command: Extract<ControlCommand, { action: 'production.start' }>, device: { id: string }): Promise<StudioState> {
+    await this.obs.refresh(true);
+    if (this.activeTake() || this.obs.getState().recording || this.store.setting('pendingTake') || this.liveActive()) throw new ApiFailure(409,
+      'Une prise ou un direct est déjà actif, ou doit être vérifié dans OBS.', 'PRODUCTION_ACTIVE');
+    this.assertCallBinding(command.projectId);
+    const prep = await this.preparation(command.projectId);
+    if (!prep.canStart) throw new ApiFailure(409, prep.checks.filter(check => check.status === 'blocked').map(check => check.detail).join(' '), 'PREPARATION_BLOCKED');
+    const intros = this.store.projectMedia()[command.projectId]?.filter(link => link.role === 'intro') ?? [];
+    if (intros.length > 1) throw new ApiFailure(409, 'Associez une seule vidéo d’introduction à cette production avant de tout lancer.', 'LAUNCH_INTRO_AMBIGUOUS');
+    let intro: { assetId: string; durationMs: number } | null = null;
+    if (intros[0]) {
+      const { asset } = await libraryFile(this.store, intros[0].assetId);
+      if (asset.archivedAt || asset.kind !== 'video' || !asset.durationMs || asset.durationMs > 30 * 60_000) throw new ApiFailure(409,
+        'L’introduction doit être une vidéo disponible, de durée connue et inférieure à 30 minutes.', 'LAUNCH_INTRO_INVALID');
+      if (!this.obs.playMedia || !this.obs.mediaAction || !this.obs.getMediaPlayback) throw new ApiFailure(503, 'L’adaptateur OBS doit confirmer la lecture de l’introduction.', 'MEDIA_CONTROL_UNAVAILABLE');
+      intro = { assetId: asset.id, durationMs: asset.durationMs };
+    }
+    if (command.includeLive) {
+      const room = this.store.room()!;
+      if (!room.liveDestination.name || !room.liveDestination.server || !room.liveKey) throw new ApiFailure(409, 'Configurez la destination et la clé avant de choisir un lancement avec direct.', 'LIVE_NOT_CONFIGURED');
+    }
+    if (this.obs.getMediaPlayback?.() && this.obs.getMediaPlayback!()!.status !== 'stopped') throw new ApiFailure(409, 'Arrêtez le média en cours avant de tout lancer.', 'LAUNCH_MEDIA_ACTIVE');
+    if (!this.store.device(device.id)) throw new ApiFailure(401, 'L’accès de cet appareil a été révoqué.', 'UNAUTHENTICATED');
+    const id = randomUUID();
+    this.launchAbort = new AbortController(); this.launchOwnerId = device.id; this.launchMedia = null;
+    this.setLaunch({ id, projectId: command.projectId, takeId: null, includeLive: command.includeLive ?? false, status: 'running', step: 'preparing', message: 'Préparation vérifiée. Le lancement commence.' });
+    // Return the accepted job immediately. Each command below re-enters the queue;
+    // waiting for an intro never blocks stop, cancel or another controller.
+    this.launchTask = new Promise<void>(resolve => setImmediate(resolve)).then(() => this.runProduction(id, prep.sceneName!, intro));
+    return this.state();
+  }
+  private async runProduction(id: string, sceneName: string, intro: { assetId: string; durationMs: number } | null): Promise<void> {
+    const step = async (name: ProductionLaunchState['step'], message: string, command: ControlCommand) => this.serial(async () => {
+      this.assertLaunch(id);
+      this.setLaunch({ step: name, message });
+      await this.control(command, { deviceId: this.launchOwnerId! }, id);
+      this.assertLaunch(id);
+    });
+    try {
+      await step('preview', 'Activation du retour vidéo et audio local.', { action: 'preview.start' });
+      await step('recording', 'Démarrage de l’enregistrement : attente de confirmation OBS.', { action: 'record.start', projectId: this.launch.projectId! });
+      await this.serial(() => {
+        this.assertLaunch(id);
+        const take = this.activeTake();
+        if (!take || !this.obs.getState().recording) throw new ApiFailure(503, 'OBS n’a pas confirmé une prise Nino.', 'OBS_NOT_RECORDING');
+        this.setLaunch({ takeId: take.id, message: 'Enregistrement confirmé par OBS.' });
+      });
+      if (intro) {
+        await step('intro', 'Enregistrement en cours. Lecture de l’introduction.', { action: 'media.play', projectId: this.launch.projectId!, assetId: intro.assetId, mode: 'fullscreen' });
+        await this.serial(() => { this.assertLaunch(id); const playback = this.obs.getMediaPlayback!(); this.launchMedia = { assetId: intro.assetId, sceneName: playback?.sceneName ?? null }; });
+        const deadline = Date.now() + intro.durationMs + Math.max(5000, Math.min(30_000, intro.durationMs * 0.2));
+        while (true) {
+          const ended = await this.serial(async () => {
+            this.assertLaunch(id);
+            await this.obs.refresh(true);
+            this.assertLaunch(id);
+            const playback = this.obs.getMediaPlayback!();
+            if (playback?.assetId !== intro.assetId || playback.status === 'paused' || this.obs.getState().currentScene !== this.launchMedia?.sceneName) {
+              this.invalidateLaunch('cancelled', 'Le média ou le plan a été modifié manuellement. La suite du lancement est annulée.');
+              throw new ApiFailure(409, 'Le programme a changé.', 'LAUNCH_CANCELLED');
+            }
+            if (playback.status === 'unknown' || playback.error) throw new ApiFailure(503, playback.error ?? 'OBS ne confirme plus l’introduction.', 'MEDIA_OBS_FAILED');
+            return playback.status === 'stopped';
+          });
+          if (ended) break;
+          if (Date.now() >= deadline) throw new ApiFailure(504, 'OBS n’a pas confirmé la fin de l’introduction. La prise continue ; vérifiez le programme.', 'LAUNCH_INTRO_TIMEOUT');
+          await new Promise<void>(resolve => {
+            const signal = this.launchAbort!.signal;
+            const done = () => { clearTimeout(timer); signal.removeEventListener('abort', done); resolve(); };
+            const timer = setTimeout(done, 200);
+            signal.addEventListener('abort', done, { once: true });
+            if (signal.aborted) done();
+          });
+        }
+        await this.serial(async () => { this.assertLaunch(id); this.setLaunch({ step: 'scene', message: 'Introduction terminée. Retour au plan.' }); await this.releaseLaunchMedia(); });
+      }
+      await step('scene', 'Affichage de la scène choisie au démarrage.', { action: 'scene.set', sceneName });
+      let autoMessage = 'Réalisation manuelle : aucun réglage automatique associé.';
+      if (this.store.autoDirectionSettings()[this.launch.projectId!]) {
+        try { await step('auto', 'Vérification des micros et activation de la réalisation automatique.', { action: 'auto.start', projectId: this.launch.projectId! }); autoMessage = 'Réalisation automatique activée.'; }
+        catch (error) {
+          if (!(error instanceof ApiFailure) || !['AUTO_SETUP_REQUIRED', 'AUTO_DISTINCT_MICS', 'AUTO_DISTINCT_SCENES', 'AUTO_NOT_CONFIGURED'].includes(error.code)) throw error;
+          autoMessage = `Réalisation manuelle : ${error.message}`;
+        }
+      }
+      if (this.launch.includeLive) await step('live', 'Démarrage du direct demandé explicitement.', { action: 'stream.start', projectId: this.launch.projectId! });
+      await this.serial(() => { this.assertLaunch(id); this.setLaunch({ status: 'completed', step: 'done', message: `Production lancée : enregistrement confirmé${this.launch.includeLive ? ', direct lancé' : ', sans diffusion publique'}. ${autoMessage}` }); });
+    } catch (error) {
+      if (!this.closing) await this.serial(async () => {
+        if (this.launch.id !== id) return;
+        if (this.launch.status === 'running') this.invalidateLaunch('failed', `${error instanceof ApiFailure ? error.message : 'Le lancement a échoué. Vérifiez OBS.'}${this.launch.takeId ? ' La prise déjà démarrée n’a pas été arrêtée.' : ''}`);
+        try { await this.releaseLaunchMedia(); }
+        catch { this.setLaunch({ message: `${this.launch.message} Le retour au plan reste à vérifier dans OBS.` }); }
+      });
+    }
   }
   libraryChanged(): StudioState { return this.changed(); }
   /** Guests cannot change or inject audio into another active production. */
@@ -304,6 +490,7 @@ export class Studio {
   /** A revoked device cannot leave an autonomous controller running behind it. */
   revokeAutoDevice(deviceId: string): void {
     if (this.autoOwnerId === deviceId) this.disableAuto('suspended', 'L’appareil qui a activé l’automatique n’est plus autorisé. Reprenez depuis un appareil connecté.');
+    if (this.launchOwnerId === deviceId) this.invalidateLaunch('cancelled', 'L’appareil qui a lancé la production a été révoqué. La prise déjà démarrée reste dans OBS.');
   }
   private autoOwnerValid(): boolean {
     const device = this.autoOwnerId && this.store.device(this.autoOwnerId);
@@ -414,7 +601,7 @@ export class Studio {
   }
   updateProject(id: string, input: Partial<ProjectInput>, status?: string): Project {
     const current = this.project(id);
-    if (this.activeTake()?.projectId === id || this.liveProjectId === id) throw new ApiFailure(409, 'La préparation du projet ne peut pas changer pendant une prise ou un direct.', 'PRODUCTION_ACTIVE');
+    if (this.activeTake()?.projectId === id || this.liveProjectId === id || this.launch.status === 'running' && this.launch.projectId === id) throw new ApiFailure(409, 'La préparation du projet ne peut pas changer pendant une prise, un direct ou un lancement.', 'PRODUCTION_ACTIVE');
     if (status !== undefined && status !== 'archived' && status !== 'draft') throw new ApiFailure(400, 'Seuls les états brouillon et archivé peuvent être définis manuellement.');
     if (this.autoDirection.enabled && this.autoDirection.projectId === id) this.disableAuto('suspended', 'La préparation du projet a changé. Vérifiez les micros et les plans puis reprenez l’automatique.');
     const project: Project = { ...current, ...input, status: status as Project['status'] ?? (current.status === 'archived' ? 'archived' : 'draft'), updatedAt: new Date().toISOString() };
@@ -423,7 +610,7 @@ export class Studio {
     return project;
   }
   updateRoom(input: RoomConfigInput): StudioState {
-    if (this.activeTake() || this.obs.getState().recording || this.obs.getState().streaming || this.store.setting('pendingTake') || this.liveActive()) {
+    if (this.activeTake() || this.obs.getState().recording || this.obs.getState().streaming || this.store.setting('pendingTake') || this.liveActive() || this.launch.status === 'running') {
       throw new ApiFailure(409, 'Terminez ou vérifiez la prise, le retour et le direct avant de changer la configuration de la salle.', 'PRODUCTION_ACTIVE');
     }
     const { liveDestination, ...other } = input;
@@ -495,6 +682,7 @@ export class Studio {
     return this.changed();
   }
   async disconnect(): Promise<StudioState> {
+    this.invalidateLaunch('cancelled', 'OBS a été déconnecté : la suite du lancement est annulée. Vérifiez la prise dans OBS.');
     if (this.autoDirection.enabled) this.disableAuto('suspended', 'OBS a été déconnecté. Vérifiez puis reprenez l’automatique.');
     const previous = this.activeTake();
     await this.obs.disconnect();
@@ -516,6 +704,7 @@ export class Studio {
       const take = this.activeTake();
       if (take && take.id === takeIdAtReception) this.finishTake(take, event.outputPath, Math.max(take.durationMs, event.durationMs));
     } else if (event.type === 'disconnected') {
+      this.invalidateLaunch('failed', 'Connexion OBS perdue pendant le lancement. Vérifiez la prise dans OBS ; aucune relance automatique.');
       if (this.autoDirection.enabled) this.disableAuto('suspended', 'Connexion OBS perdue. Vérifiez le programme puis reprenez l’automatique.');
       const take = this.activeTake();
       if (take && take.id === takeIdAtReception) this.interrupt(take);
@@ -547,6 +736,7 @@ export class Studio {
     this.changed();
   }
   private finishTake(take: Take, outputPath: string | null, durationMs: number): void {
+    if (this.launch.status === 'running' && this.launch.takeId === take.id) this.invalidateLaunch('cancelled', 'La prise a été arrêtée : la suite du lancement est annulée.');
     const validPath = outputPath && path.isAbsolute(outputPath) && path.relative(path.resolve(take.recordingDirectory), path.resolve(outputPath));
     const inside = validPath && !validPath.startsWith(`..${path.sep}`) && validPath !== '..' && !path.isAbsolute(validPath);
     this.store.put('take', { ...take, status: inside ? 'completed' : 'interrupted', endedAt: new Date().toISOString(), outputPath: inside ? path.resolve(outputPath!) : null, durationMs });
@@ -601,7 +791,24 @@ export class Studio {
     }
     return { projectId, sceneName, recordingDirectory, freeBytes, checks, canStart: checks.every((check) => check.status !== 'blocked') };
   }
-  async control(command: ControlCommand, actor?: { deviceId: string }): Promise<StudioState> {
+  async control(command: ControlCommand, actor?: { deviceId: string }, launchId?: string): Promise<StudioState> {
+    if (command.action === 'production.start') return this.startProduction(command, actor);
+    if (command.action === 'production.cancel') {
+      const device = actor && this.store.device(actor.deviceId);
+      if (!device || device.role === 'viewer') throw new ApiFailure(403, 'Un appareil opérateur autorisé doit annuler le lancement.', 'LAUNCH_AUTH_REQUIRED');
+      return this.cancelProduction('Lancement annulé. La prise déjà démarrée continue ; arrêtez-la avec la commande dédiée.');
+    }
+    if (this.launch.status === 'running' && launchId !== this.launch.id) {
+      if (command.action === 'record.start' || command.action === 'stream.start') throw new ApiFailure(409, 'Un lancement est en cours. Attendez sa fin ou annulez-le.', 'LAUNCH_ACTIVE');
+      if (command.action === 'record.stop' && command.expectedTakeId && command.expectedTakeId !== this.activeTake()?.id) throw new ApiFailure(409, 'La prise a changé.', 'TAKE_CHANGED');
+      if (['record.stop', 'record.pause', 'record.resume', 'scene.set', 'media.play', 'media.pause', 'media.resume', 'media.stop', 'auto.stop', 'auto.start', 'auto.configure', 'preview.stop', 'stream.stop', 'guest.scene', 'input.mute'].includes(command.action)) {
+        this.invalidateLaunch('cancelled', 'Une commande manuelle a interrompu le lancement. La suite ne reprendra pas automatiquement.');
+        // A manual media/scene command takes ownership of the current program.
+        if (command.action.startsWith('media.') || command.action === 'scene.set' || command.action === 'guest.scene') this.launchMedia = null;
+        else try { await this.releaseLaunchMedia(); }
+        catch { this.setLaunch({ message: `${this.launch.message} OBS n’a pas confirmé le retour au plan ; vérifiez le programme.` }); }
+      }
+    }
     if (command.action.startsWith('guest.')) return this.controlGuest(command as GuestCommand, actor);
     if (command.action === 'auto.stop') {
       this.disableAuto('off', 'Réalisation manuelle.');
@@ -780,6 +987,9 @@ export class Studio {
       }
       case 'record.stop': {
         if (!current || !before.recording) throw new ApiFailure(409, 'Aucune prise Nino active. Un enregistrement externe doit être géré dans OBS.', 'NO_ACTIVE_TAKE');
+        if (command.expectedTakeId !== undefined && command.expectedTakeId !== current.id) {
+          throw new ApiFailure(409, 'La prise a changé. Vérifiez la prise en cours avant de confirmer son arrêt.', 'TAKE_CHANGED');
+        }
         const durationMs = Math.max(current.durationMs, timecodeMs(before.timecode));
         let outputPath: string | null;
         try { ({ outputPath } = await this.obs.stopRecord()); } catch {

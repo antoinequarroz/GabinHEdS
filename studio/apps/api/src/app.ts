@@ -20,10 +20,11 @@ import { libraryFile, registerLibraryRoutes } from './library.js';
 import { registerProductionFileRoutes } from './production-files.js';
 import { ApiFailure, choice, controlInput, object, projectInput, roomInput, string } from './validation.js';
 import { GuestService, type GuestConfig } from './guests.js';
+import { CompanionBridge } from './companion.js';
 import { LOCAL_SHUTDOWN_PATH, registerLocalLifecycle, type LocalLifecycleOptions } from './local-lifecycle.js';
 
 declare module 'fastify' { interface FastifyRequest { device?: Device } interface FastifyInstance { guests: GuestService } }
-export interface AppOptions { dataDir: string; obs?: ObsGateway; media?: MediaGateway; webDir?: string; logger?: boolean; guestConfig?: GuestConfig; localLifecycle?: LocalLifecycleOptions }
+export interface AppOptions { dataDir: string; obs?: ObsGateway; media?: MediaGateway; webDir?: string; logger?: boolean; guestConfig?: GuestConfig; companion?: boolean; localLifecycle?: LocalLifecycleOptions }
 const roles: DeviceRole[] = ['viewer', 'operator', 'technician'];
 const kinds = ['pc', 'ipad', 'streamdeck'] as const;
 const loopbackPeer = (ip: string | undefined): boolean => ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
@@ -79,10 +80,14 @@ export async function buildApp(options: AppOptions) {
     return [`http://${address.family === 'IPv6' ? `[${address.address}]` : address.address}:${address.port}`];
   };
   const state = (): StudioState => ({ ...studio.state(), accessUrls: accessUrls() });
+  // Tests and embedded apps opt out by default: their fake OBS must never update
+  // a physical Stream Deck running on this computer.
+  const companion = options.companion ? new CompanionBridge({ getState: state, onStatus: status => studio.setStreamDeckConnection({ companionConnected: status.connected, syncedProjectId: status.syncedProjectId, error: status.error }) }) : null;
   const sendState = (socket: WebSocket): void => {
     if (socket.readyState === 1) socket.send(JSON.stringify({ type: 'state', state: state() }));
   };
   const unsubscribe = studio.subscribe(() => {
+    companion?.refresh();
     for (const [socket, device] of clients) {
       if (!store.device(device.id)) { socket.close(4001, 'Accès révoqué ou expiré'); clients.delete(socket); }
       else sendState(socket);
@@ -203,6 +208,18 @@ export async function buildApp(options: AppOptions) {
     return reply.code(204).send();
   });
   app.get('/api/state', async () => state());
+  app.post('/api/streamdeck/select', async request => {
+    const device = requireRole(request, 'operator');
+    const body = object(request.body);
+    if (Object.keys(body).some(key => key !== 'projectId')) throw new ApiFailure(400, 'Champ de sélection Stream Deck non reconnu.');
+    const projectId = string(body.projectId, 'production', 100);
+    await studio.serial(async () => {
+      if (!store.device(device.id)) throw new ApiFailure(401, 'L’accès de cet appareil a été révoqué.', 'UNAUTHENTICATED');
+      await studio.selectStreamDeckProject(projectId, { deviceId: device.id });
+      companion?.select(projectId);
+    });
+    return state();
+  });
   app.get<{ Querystring: { name?: string } }>('/api/obs/scenes/thumbnail', { config: { rateLimit: { max: 240, timeWindow: '1 minute' } } }, async (request) => {
     const sceneName = string(request.query.name, 'scène', 200);
     const current = studio.obs.getState();
@@ -397,6 +414,7 @@ export async function buildApp(options: AppOptions) {
     app.setNotFoundHandler((_request, reply) => reply.code(404).send({ error: 'Ressource introuvable. Construisez l’interface pour la servir depuis ce serveur.' }));
   }
   app.addHook('onClose', async () => {
+    await companion?.stop();
     takeThumbnails.close();
     clearInterval(expiryTimer);
     unsubscribe();
@@ -404,5 +422,6 @@ export async function buildApp(options: AppOptions) {
     for (const socket of clients.keys()) socket.close(1001, 'Serveur arrêté');
     await studio.close();
   });
+  companion?.start();
   return app;
 }

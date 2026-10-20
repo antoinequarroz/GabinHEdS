@@ -87,6 +87,11 @@ export function controlInput(value: unknown): ControlCommand {
   const data = object(value);
   const requestId = data.requestId === undefined ? undefined : string(data.requestId, 'identifiant de commande', 128);
   switch (data.action) {
+    case 'production.start': {
+      if (data.includeLive !== undefined && typeof data.includeLive !== 'boolean') throw new ApiFailure(400, 'Le choix de diffuser en direct doit être explicite.');
+      return { action: data.action, projectId: string(data.projectId, 'projet', 100), includeLive: data.includeLive ?? false, requestId };
+    }
+    case 'production.cancel': return { action: data.action, requestId };
     case 'guest.prepare': case 'guest.bridge.stop': return { action: data.action, projectId: string(data.projectId, 'projet', 100), requestId };
     case 'guest.admit': case 'guest.remove': case 'guest.scene': return { action: data.action, guestId: string(data.guestId, 'invité', 100), requestId };
     case 'guest.mute': {
@@ -101,7 +106,9 @@ export function controlInput(value: unknown): ControlCommand {
       mode: data.mode === undefined ? undefined : choice<MediaMode>(data.mode, ['fullscreen', 'overlay', 'audio'], 'mode du média'), requestId };
     case 'media.pause': case 'media.resume': case 'media.stop': return { action: data.action, requestId };
     case 'record.start': case 'stream.start': return { action: data.action, projectId: string(data.projectId, 'projet', 100), requestId };
-    case 'record.stop': case 'record.pause': case 'record.resume': return { action: data.action, requestId };
+    case 'record.stop': return { action: data.action, requestId,
+      ...(data.expectedTakeId === undefined ? {} : { expectedTakeId: string(data.expectedTakeId, 'identifiant de prise', 100) }) };
+    case 'record.pause': case 'record.resume': return { action: data.action, requestId };
     case 'preview.start': case 'preview.stop': case 'stream.stop': return { action: data.action, requestId };
     case 'scene.set': return { action: data.action, sceneName: string(data.sceneName, 'plan', 200), requestId };
     case 'input.mute': {

@@ -2,7 +2,27 @@
 
 Le Stream Deck pilote Nino par **la même API authentifiée que le PC et l’iPad**. Il ne doit pas envoyer de commandes OBS en parallèle : Nino organise le projet actif, le dossier de destination, les prises et leurs repères.
 
-Cette première version fournit l’API et un accès dédié à l’appareil. Elle ne fournit pas encore de module natif Companion ni de fichier de boutons à importer. Les actions du module **Generic HTTP Requests** constituent l’intégration initiale ; sa [documentation officielle](https://github.com/bitfocus/companion-module-generic-http/blob/master/companion/HELP.md) décrit les requêtes JSON, les en-têtes et les variables de réponse.
+Les profils Companion Nino utilisent le module **Generic HTTP Requests** pour les commandes et un pont local Nino pour leurs états réels. Le pont met à jour les variables des touches ; toutes les commandes de production restent authentifiées par Nino. La [documentation du module HTTP](https://github.com/bitfocus/companion-module-generic-http/blob/master/companion/HELP.md) décrit les requêtes JSON et les en-têtes.
+
+## Choisir la production et tout lancer
+
+Les cinq pages importables, leurs variables de navigation et les étapes d’installation sont dans [`config/stream-deck`](../config/stream-deck/README.md). Elles conservent le style sombre, avec un bandeau d’état, un contour et un voyant pour les fonctions actives. Les exports ne contiennent aucun jeton : créer l’accès opérateur dans Nino et le saisir directement dans Companion.
+
+1. Démarrer Nino, OBS et Companion sur le même ordinateur. Companion doit être disponible sur `127.0.0.1:8000`. Importer les pages du profil Nino et renseigner son accès Stream Deck comme décrit ci-dessous.
+2. Dans la production Nino, cliquer **Utiliser cette production sur le Stream Deck**. Attendre la confirmation de synchronisation avec Companion. La sélection de la production est conservée après redémarrage ; elle ne démarre aucun enregistrement.
+3. Les plans et micros suivent les participants de la production. L’intro, l’outro, le logo et le son suivent ses médias associés. Une affectation absente ou ambiguë reste à configurer ; Nino ne choisit pas arbitrairement entre plusieurs intros du même projet.
+4. La touche **Tout lancer**, dans le Menu du Stream Deck, démarre les vérifications, attend l’enregistrement réellement confirmé par OBS, joue l’intro si elle est associée, revient à la scène de démarrage puis active la réalisation automatique si ses réglages sont prêts. Le même lancement est disponible dans Nino sur PC/iPad.
+5. **Le live se lance séparément.** Tout lancer n’envoie pas le programme à YouTube. Les boutons de diffusion restent indépendants de la prise locale.
+
+Pendant le lancement, Nino affiche l’étape en cours. Une commande manuelle peut interrompre la suite automatique. **Annuler la séquence ne termine pas une prise déjà démarrée** : vérifier l’état dans la régie et utiliser Arrêter prise pour terminer et conserver la vidéo. Un échec ne doit jamais être présenté comme un enregistrement réussi ; une prise démarrée reste visible et contrôlable.
+
+Les touches reflètent les observations de Nino : caméra affichée, enregistrement et compteur OBS, pause, micros coupés, état AUTO, média et invités. Le témoin LIVE suit `media.liveStatus`, qui décrit l’envoi vers la plateforme ; le transport local `obs.streaming` ne prouve pas un live YouTube. Une liaison expirée ou déconnectée doit rendre les anciens états indisponibles, jamais les laisser présentés comme actuels.
+
+« Companion synchronisé » confirme la liaison logicielle avec Companion. Tester également les touches sur le Stream Deck branché en USB. Le pont ne démarre pas Companion à la place de l’utilisateur et ne remplace pas l’accès opérateur des boutons.
+
+API d’affectation : `POST /api/streamdeck/select` avec `{"projectId":"ID_DU_PROJET"}` et le même en-tête Bearer opérateur que les autres commandes. Le projet doit exister et être utilisable ; changer de production pendant une prise ou une séquence est refusé.
+
+API de lancement : `POST /api/control` avec `{"action":"production.start","projectId":"ID_DU_PROJET","includeLive":false}`. Pour interrompre la séquence sans terminer la prise : `{"action":"production.cancel"}`. Lire `streamDeck` et `launch` dans l’état Nino pour afficher les confirmations et les erreurs.
 
 ## Créer l’accès de l’appareil
 
@@ -70,7 +90,7 @@ Configurer d’abord les micros distincts, leurs plans et le plan large dans la 
 
 ## Lire le retour réel du studio
 
-Créer une action GET `/api/state` avec le même en-tête Bearer. Elle renvoie `StudioState`, dont les informations utiles sont :
+Les pages fournies reçoivent ces informations par le pont local Nino. Pour construire un contrôleur personnalisé, créer une action GET `/api/state` avec le même en-tête Bearer. Elle renvoie `StudioState`, dont les informations utiles sont :
 
 | Champ | Usage |
 | --- | --- |
@@ -97,7 +117,7 @@ Créer une action GET `/api/state` avec le même en-tête Bearer. Elle renvoie `
 | `guests[].admitted` / `.sourceReady` | Admission / réception réelle par la source OBS ; attendre les deux pour sélectionner le plan |
 | `guests[].muted` / `.error` | Coupure du micro / indisponibilité à afficher sur les touches |
 
-Le module HTTP permet de conserver la réponse et le code HTTP dans des variables personnalisées. Configurer une requête GET de rafraîchissement et stocker la réponse JSON analysée, puis utiliser ces valeurs dans les libellés ou expressions de boutons. La [documentation Companion des variables](https://companion.free/user-guide/v4.2/config/variables/) décrit ces champs et leur utilisation. Un retour de commande HTTP ne constitue pas, à lui seul, un témoin rouge d’enregistrement ; lire `obs.recording` et vérifier la connexion.
+Avec les pages Nino fournies, le pont local remplit automatiquement les variables `nino_state_*` : aucune requête GET de rafraîchissement n’est à ajouter dans Companion. Le module HTTP conserve seulement le résultat des commandes pour le diagnostic. Pour une intégration personnalisée, les champs du tableau restent disponibles dans le GET authentifié `/api/state`. Un retour de commande HTTP ne constitue pas, à lui seul, un témoin rouge d’enregistrement ; lire `obs.recording` et vérifier la connexion.
 
 L’API possède également `/api/events` pour une intégration WebSocket dédiée. Après l’ouverture, envoyer `{"type":"auth","token":"JETON_STREAM_DECK"}` ; les messages d’état sont `{"type":"state","state":StudioState}`. Les mesures audio sont des messages distincts `{"type":"audio","frame":{"capturedAt":"…","inputs":[{"inputName":"Micro 1","rmsDb":-24,"peakDb":-18}]}}` et restent éphémères. Les secrets sont transmis dans le message d’authentification, pas dans l’URL. Le module HTTP générique n’implémente pas cette connexion persistante ; un futur module Nino pourra l’utiliser.
 

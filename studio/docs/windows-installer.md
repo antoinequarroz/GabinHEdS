@@ -50,6 +50,8 @@ Pour le pilote iPad sur le réseau privé autorisé de la salle :
 
 Prévoir HTTPS pour l’installation durable. Le [guide Stream Deck](stream-deck.md) explique l’accès dédié via Companion ; le raccourci Windows ne change pas le contrat authentifié utilisé par les contrôleurs. Les invitations depuis Internet et le tunnel vers le VPS se préparent séparément.
 
+Les cinq pages Companion sont fournies dans `%LOCALAPPDATA%\Programs\Nino\app\config\stream-deck` avec leurs instructions. Installer Companion séparément, importer ces pages, créer l’accès opérateur puis utiliser **Utiliser cette production sur le Stream Deck** dans Nino. La touche **Tout lancer** démarre la prise et l’intro ; le live se lance séparément. Un ancien Setup conserve le code de sa construction : utiliser un nouvel installateur contenant cette fonctionnalité pour en bénéficier.
+
 ## Arrêter, mettre à jour ou désinstaller
 
 1. Terminer la prise et le live séparément. Couper aussi le retour programme s’il utilise encore le transport de diffusion OBS.

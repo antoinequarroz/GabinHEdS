@@ -12,6 +12,7 @@ import ProjectMedia from '../components/ProjectMedia.vue';
 import TakePlayer from '../components/TakePlayer.vue';
 import AutoDirection from '../components/AutoDirection.vue';
 import GuestPanel from '../components/GuestPanel.vue';
+import StreamDeckPanel from '../components/StreamDeckPanel.vue';
 const props = defineProps<{ project: Project }>();
 const emit = defineEmits<{ navigate: [path: string] }>();
 const { state, live, canEdit, busy, preparation, control, downloadTake, downloadTakeMp4, cancelTakeMp4Download, exportProject, exportResolve, cancelResolveExport } = useStudio();
@@ -34,13 +35,14 @@ const ownLive = computed(() => liveActive.value && state.value?.liveProjectId ==
 const exportBlocked = computed(() => !!ownActiveTake.value || state.value?.liveProjectId === props.project.id);
 const otherLiveId = computed(() => liveActive.value && state.value?.liveProjectId && state.value.liveProjectId !== props.project.id ? state.value.liveProjectId : null);
 const otherLiveProject = computed(() => state.value?.projects.find(project => project.id === otherLiveId.value));
-const canStart = computed(() => controllable.value && checks.value?.canStart && !obs.value?.recording && (!liveActive.value || ownLive.value));
+const launchRunning = computed(() => state.value?.launch?.status === 'running');
+const canStart = computed(() => controllable.value && checks.value?.canStart && !launchRunning.value && !obs.value?.recording && (!liveActive.value || ownLive.value));
 const liveLabel = computed(() => !live.value ? 'Dernier état connu · connexion interrompue'
   : media.value?.liveStatus === 'starting' ? 'Connexion à la plateforme…'
   : media.value?.liveStatus === 'stopping' ? 'Arrêt de la diffusion…'
   : media.value?.liveStatus === 'live' ? 'Flux envoyé à la plateforme'
   : media.value?.liveStatus === 'error' ? 'Diffusion interrompue' : 'Aucune diffusion en cours');
-const canStartLive = computed(() => controllable.value && media.value?.available && state.value?.room.liveDestination.keyConfigured && !liveActive.value
+const canStartLive = computed(() => controllable.value && !launchRunning.value && media.value?.available && state.value?.room.liveDestination.keyConfigured && !liveActive.value
   && !otherActiveTake.value && !(obs.value?.recording && !state.value?.activeTake)
   && checks.value?.checks.every(check => ['idle', 'storage', 'disk'].includes(check.id) || check.status !== 'blocked'));
 const confirmTitle = computed(() => confirm.value === 'start' ? 'Démarrer l’enregistrement ?' : confirm.value === 'stop' ? 'Terminer cette prise ?' : confirm.value === 'liveStart' ? 'Démarrer la diffusion en direct ?' : 'Arrêter la diffusion en direct ?');
@@ -84,7 +86,7 @@ function bytes(value: number | null): string { return value === null ? 'Non mesu
   <div class="production-workspace" :class="`production-${step}`">
     <header class="production-toolbar">
       <div class="production-breadcrumbs"><button class="production-back" aria-label="Toutes les productions" @click="emit('navigate', 'projects')"><Icon name="back" /><span>Productions</span></button><span aria-hidden="true">/</span><span>{{ step === 'prepare' ? 'Préparation' : step === 'record' ? 'Régie' : 'Prises' }}</span></div>
-      <div class="production-heading-row"><div class="production-title"><h1>{{ editing ? 'Modifier la production' : project.title }}</h1></div><button v-if="canEdit && !editing" class="button compact production-edit" :disabled="!!ownActiveTake || ownLive" @click="editing = true"><Icon name="edit" />Modifier</button></div>
+      <div class="production-heading-row"><div class="production-title"><h1>{{ editing ? 'Modifier la production' : project.title }}</h1></div><button v-if="canEdit && !editing" class="button compact production-edit" :disabled="!!ownActiveTake || ownLive || launchRunning" @click="editing = true"><Icon name="edit" />Modifier</button></div>
     </header>
     <ProjectForm v-if="editing" :project="project" @saved="editing = false" @cancel="editing = false" />
     <template v-else>
@@ -93,6 +95,7 @@ function bytes(value: number | null): string { return value === null ? 'Non mesu
         <button :aria-current="step === 'record' ? 'step' : undefined" @click="step = 'record'"><Icon name="record" /><span>Enregistrer et diffuser</span></button>
         <button :aria-current="step === 'takes' ? 'step' : undefined" @click="step = 'takes'"><Icon name="movie" /><span>Retrouver les prises</span><small v-if="takes.length">{{ takes.length }}</small></button>
       </nav>
+      <StreamDeckPanel :project="project" :can-start="!!canStart" :compact="step !== 'prepare'" @regie="step = 'record'" />
       <div v-if="otherActiveTake" class="banner warning production-notice"><Icon name="warning" /><span>Une prise est en cours pour une autre production. <button class="text-button" @click="emit('navigate', `project/${otherActiveTake.projectId}`)">Ouvrir cette production</button></span></div>
       <div v-if="otherLiveId" class="banner warning production-notice"><Icon name="broadcast" /><span>Le direct en cours concerne « {{ otherLiveProject?.title || 'une autre production' }} ». <button class="text-button" @click="emit('navigate', `project/${otherLiveId}`)">Ouvrir cette production</button></span></div>
       <div v-if="obs?.recording && !state?.activeTake" class="banner warning production-notice"><Icon name="warning" /><span>OBS enregistre une session démarrée en dehors de Nino. Cette vidéo n’est pas associée à ce projet. Terminez-la dans OBS avant de démarrer une nouvelle prise.</span></div>

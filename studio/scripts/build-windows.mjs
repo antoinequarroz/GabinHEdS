@@ -38,7 +38,7 @@ const permitted = source => {
   return !['.data', '.git', '.cache', 'test-results', '.bin'].includes(name) && !name.startsWith('.env')
     && !/\.(sqlite(?:-wal|-shm)?|db|log|mp4|mkv|mov|webm|wav|mp3|m4a|aac)$/i.test(name);
 };
-const appFiles = ['package.json', 'package-lock.json', 'README.md', 'docs', 'config/mediamtx.yml',
+const appFiles = ['package.json', 'package-lock.json', 'README.md', 'docs', 'config/mediamtx.yml', 'config/stream-deck',
   'apps/api/package.json', 'apps/api/src', 'apps/web/package.json', 'apps/web/dist',
   'packages/shared/package.json', 'packages/shared/src'];
 for (const file of appFiles) {
@@ -85,6 +85,7 @@ await writeFile(join(destination, 'THIRD-PARTY-NOTICES.txt'), [
 ].join('\n'));
 const required = ['app/apps/web/dist/index.html', 'app/node_modules/tsx/dist/loader.mjs', 'app/node_modules/@esbuild/win32-x64/esbuild.exe',
   'runtime/node/node.exe', 'runtime/mediamtx/mediamtx.exe', 'windows/Launch-Nino.ps1', 'windows/Prepare-Runtime.ps1',
-  'windows/nino.ico', 'app/docs/guides/nino-installation-salle.pdf'];
+  'windows/nino.ico', 'app/docs/guides/nino-installation-salle.pdf', 'app/node_modules/ws/index.js',
+  'app/config/stream-deck/README.md'];
 for (const file of required) await readFile(join(destination, file));
 console.log(JSON.stringify({ payload: destination, revision: metadata.revision, requiredFiles: required.length }, null, 2));
