@@ -140,7 +140,7 @@ begin
       end;
     end;
   except
-    ; Refuse an update when Windows cannot establish that bundled runtimes stopped.
+    // Refuse an update when Windows cannot establish that bundled runtimes stopped.
     Log('Impossible de vérifier les processus Nino : ' + GetExceptionMessage);
     Result := True;
   end;
@@ -172,8 +172,8 @@ var
   PreparationExitCode: Integer;
   PreparationParameters: String;
 begin
-  ; A silent installation is useful for deployment and CI; the launcher performs
-  ; the same verified preparation before starting any production components.
+  // A silent installation is useful for deployment and CI; the launcher performs
+  // the same verified preparation before starting any production components.
   if (CurStep = ssPostInstall) and not WizardSilent then
   begin
     PreparationParameters := '-NoLogo -NoProfile -ExecutionPolicy Bypass -File "' +
@@ -206,5 +206,5 @@ begin
       'Vos productions et vos réglages restent conservés en dehors du dossier du logiciel.';
 end;
 
-; No UninstallDelete or registry edits: OBS profiles, device pairing, productions
-; and everything below %LOCALAPPDATA%\Nino remain intact after uninstalling Nino.
+// No UninstallDelete or registry edits: OBS profiles, device pairing, productions
+// and everything below %LOCALAPPDATA%\Nino remain intact after uninstalling Nino.
