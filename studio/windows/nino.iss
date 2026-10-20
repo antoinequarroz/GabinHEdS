@@ -129,7 +129,8 @@ begin
       Process := Processes.ItemIndex(I);
       if not VarIsNull(Process.ExecutablePath) then
       begin
-        ExecutablePath := Lowercase(Process.ExecutablePath);
+        ExecutablePath := Process.ExecutablePath;
+        ExecutablePath := Lowercase(ExecutablePath);
         if (Pos(RuntimeDirectory, ExecutablePath) = 1) or
            (Pos(UserRuntimeDirectory, ExecutablePath) = 1) then
         begin
