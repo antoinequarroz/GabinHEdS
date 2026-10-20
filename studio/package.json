@@ -15,6 +15,7 @@
     "dev:api": "npm run dev --workspace @gabin/api",
     "dev:web": "npm run dev --workspace @gabin/web",
     "build": "npm run typecheck && npm run build --workspace @gabin/web",
+    "build:streamdeck": "node scripts/build-streamdeck.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "check": "npm run build && npm test",
     "test": "npm run test --workspaces --if-present && npm run test:integration",

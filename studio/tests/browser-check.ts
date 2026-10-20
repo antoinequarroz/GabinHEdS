@@ -633,9 +633,60 @@ try {
   const rejectedHls = await fetch(`${baseUrl}${preview.url}`);
   assert.equal(rejectedHls.status, 401, 'La révocation invalide aussi une session HLS déjà émise');
   steps.push('Retour vidéo : HLS proxifié avec session authentifiée ; Stream Deck révocable');
+
+  // The default test app must never connect to the physical Companion. Selection
+  // and launching still cross the same real authenticated PC/iPad API.
+  await pc.goto(`${baseUrl}/#project/${projectId}`);
+  await pc.getByRole('button', { name: 'Préparer la salle', exact: true }).click();
+  const pcLaunch = pc.getByRole('region', { name: 'Stream Deck et lancement de la production', exact: true });
+  await pcLaunch.getByRole('button', { name: 'Utiliser cette production sur le Stream Deck', exact: true }).click();
+  const selected = await untilState(state => state.streamDeck?.projectId === projectId, 'production Stream Deck sélectionnée depuis le PC');
+  assert.equal(selected.streamDeck!.companionConnected, false, 'La recette ne rejoint pas le Companion physique');
+  assert(!selected.obs.recording && !selected.activeTake, 'Sélectionner une production ne démarre pas une prise');
+  assert(selected.obs.streaming && selected.media.previewReady && selected.media.liveStatus === 'idle',
+    'Le retour local reste distinct du direct public avant Tout lancer');
+  await ipad.goto(`${ipadOrigin}/#project/${projectId}`);
+  await ipad.getByRole('button', { name: 'Préparer la salle', exact: true }).click();
+  const ipadLaunch = ipad.getByRole('region', { name: 'Stream Deck et lancement de la production', exact: true });
+  await ipadLaunch.getByText('Companion déconnecté', { exact: true }).waitFor();
+  await noOverflow(pc, 'Sélection Stream Deck PC');
+  await noOverflow(ipad, 'Sélection Stream Deck iPad');
+  await proofScreenshot(pc, 'nino-streamdeck-selection-pc.png');
+  await proofScreenshot(ipad, 'nino-streamdeck-selection-ipad.png');
+  const beforeLaunch = await api<StudioState>('/state');
+  await ipadLaunch.getByRole('button', { name: 'Tout lancer', exact: true }).click();
+  await ipad.getByRole('dialog').getByRole('button', { name: 'Annuler', exact: true }).click();
+  const cancelledConfirmation = await api<StudioState>('/state');
+  assert.equal(cancelledConfirmation.takes.length, beforeLaunch.takes.length);
+  assert.equal(cancelledConfirmation.obs.recording, false, 'Annuler la confirmation ne démarre pas OBS');
+  await ipadLaunch.getByRole('button', { name: 'Tout lancer', exact: true }).click();
+  await ipad.getByRole('dialog').getByRole('button', { name: 'Lancer l’enregistrement', exact: true }).click();
+  await untilState(state => state.launch?.status === 'running' && state.launch.step === 'intro'
+    && state.obs.recording && state.mediaPlayback?.status === 'playing', 'Tout lancer iPad attend la fin réelle du média OBS');
+  fixture.finishMedia();
+  const launched = await untilState(state => state.launch?.status === 'completed', 'intro terminée, scène et automatique confirmées');
+  assert.equal(launched.takes.length, beforeLaunch.takes.length + 1);
+  assert.equal(launched.obs.currentScene, 'Table ronde');
+  assert.equal(launched.obs.recording, true);
+  assert.equal(launched.autoDirection?.enabled, true);
+  assert.equal(launched.media.liveStatus, 'idle', 'Tout lancer conserve le live public arrêté');
+  await pc.getByText('Enregistrement · confirmé par OBS', { exact: true }).waitFor();
+  await ipadLaunch.getByText('Séquence terminée', { exact: true }).waitFor();
+  assert(await ipadLaunch.getByRole('button', { name: 'Tout lancer', exact: true }).isDisabled(),
+    'Une prise confirmée désactive le nouveau lancement sur iPad');
+  await noOverflow(ipad, 'Tout lancer iPad');
+  await proofScreenshot(ipad, 'nino-tout-lancer-ipad.png');
+  await ipad.getByRole('button', { name: 'Terminer la prise', exact: true }).click();
+  await ipad.getByRole('dialog').getByRole('button', { name: 'Terminer et conserver la prise', exact: true }).click();
+  await untilState(state => !state.obs.recording && !state.activeTake, 'prise Tout lancer terminée depuis iPad');
+  await api('/control', { action: 'preview.stop' });
+  assert.deepEqual(pageErrors, [], 'Aucune exception pendant la sélection et le lancement');
+  assert.deepEqual(failedApi, [], 'Sélection et lancement utilisent des requêtes autorisées');
+  steps.push('Production Stream Deck : sélection PC partagée sur iPad sans matériel ; Tout lancer depuis iPad avec retour local déjà actif, confirmation annulable, REC avant intro, fin OBS puis scène/AUTO, live séparé et arrêt confirmé');
   console.log(JSON.stringify({ passed: true, steps, pageErrors, failedApi, screenshots: ['gabin-studio-pc.png', 'gabin-studio-ipad.png',
     'nino-auto-settings-pc.png', 'nino-auto-pc.png', 'nino-auto-ipad.png', 'nino-auto-ipad-portrait.png', 'nino-auto-pc-detail.png', 'nino-auto-ipad-detail.png',
-    'nino-resolve-pc.png', 'nino-resolve-ipad.png'].map(name => join(screenshotDir, name)) }, null, 2));
+    'nino-resolve-pc.png', 'nino-resolve-ipad.png', 'nino-streamdeck-selection-pc.png', 'nino-streamdeck-selection-ipad.png',
+    'nino-tout-lancer-ipad.png'].map(name => join(screenshotDir, name)) }, null, 2));
 } catch (error) {
   await mkdir(screenshotDir, { recursive: true });
   if (pc) await captureProof(pc, join(screenshotDir, 'gabin-studio-failure-pc.png'), browserEngine === 'webkit').catch(() => undefined);

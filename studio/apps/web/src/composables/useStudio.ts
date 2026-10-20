@@ -209,6 +209,16 @@ async function preparation(projectId: string): Promise<Preparation | undefined> 
   return run(`preparation:${projectId}`, () => api<Preparation>(`/preparation/${encodeURIComponent(projectId)}`));
 }
 
+async function selectStreamDeckProject(projectId: string): Promise<boolean> {
+  if (!live.value || !canEdit.value) return false;
+  return (await run('streamdeck-project', async () => {
+    const next = await api<StudioState>('/streamdeck/select', { method: 'POST', body: JSON.stringify({ projectId }) });
+    applyState(next);
+    notify('Production sélectionnée pour le Stream Deck.');
+    return true;
+  })) ?? false;
+}
+
 type WithoutRequestId<Command> = Command extends unknown ? Omit<Command, 'requestId'> : never;
 async function control(command: WithoutRequestId<ControlCommand>): Promise<boolean> {
   if (!live.value || !canEdit.value) return false;
@@ -498,7 +508,7 @@ const mediaThumbnail = (id: string) => imageThumbnail(`/library/${encodeURICompo
 export function useStudio() {
   return {
     device, state, initialized, live, audioFrame, audioReceivedAt, error, notice, busy, canEdit, technician, guestInvitations,
-    initialize, pair, forgetDevice, saveProject, preparation, control, connectObs, saveRoom, downloadTake, downloadTakeMp4, cancelTakeMp4Download, sceneThumbnail, takeThumbnail,
+    initialize, pair, forgetDevice, saveProject, preparation, selectStreamDeckProject, control, connectObs, saveRoom, downloadTake, downloadTakeMp4, cancelTakeMp4Download, sceneThumbnail, takeThumbnail,
     suspendStudioConnection: () => { controllerEnabled = false; stopEvents(); },
     uploadMedia, updateMedia, saveProjectMedia, mediaFileSession, takePlaybackSession, exportProject, exportResolve, cancelResolveExport, mediaThumbnail,
     getDevices: () => run('devices', () => api<Device[]>('/devices')),

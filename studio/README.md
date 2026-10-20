@@ -29,7 +29,7 @@ Le [guide des invités à distance](docs/remote-guests.md) complète ces PDF ave
 - Deux places d’invités à distance : invitations personnelles, aperçu caméra/micro, salle d’attente, admission, coupure audio, retrait et plans OBS contrôlés par le PC, l’iPad et l’API Stream Deck.
 - Liaison WebRTC dédiée sur le PC, image du programme OBS par caméra virtuelle, entrée audio de salle et retour individuel excluant la propre voix de chaque invité. Passerelle invitée séparée du contrôleur privé ; configuration HTTPS et TURN nécessaire pour Internet.
 - Interface tactile responsive pour iPad, code d’association temporaire et révocation des appareils.
-- Accès opérateur pour Stream Deck via HTTP ; voir [le guide Stream Deck](docs/stream-deck.md).
+- Stream Deck MK.2 : cinq pages sombres avec états réels, sélection de la production depuis Nino et touche **Tout lancer** (prise, intro, scène puis automatique si configuré). Le live reste séparé. Les commandes utilisent l’accès opérateur authentifié ; voir [le guide Stream Deck](docs/stream-deck.md).
 
 La captation des caméras et micros se configure encore dans OBS. Les modes correspondent aux profils de production ; un podcast utilise également la sortie d’enregistrement OBS configurée. Cette version ne crée pas automatiquement des pistes audio ou des captures séparées de chaque caméra.
 

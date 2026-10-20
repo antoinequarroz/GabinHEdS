@@ -184,6 +184,24 @@ export interface TakePlaybackStatus {
   error?: string;
 }
 
+/** A selection is persisted in Nino; synchronization is observed separately. */
+export interface StreamDeckState {
+  projectId: string | null;
+  companionConnected: boolean;
+  syncedProjectId: string | null;
+  error: string | null;
+}
+export interface ProductionLaunchState {
+  id: string | null;
+  projectId: string | null;
+  takeId: string | null;
+  includeLive: boolean;
+  status: 'idle' | 'running' | 'completed' | 'failed' | 'cancelled';
+  step: 'idle' | 'preparing' | 'preview' | 'recording' | 'intro' | 'scene' | 'auto' | 'live' | 'done';
+  message: string;
+  updatedAt: string | null;
+}
+
 export interface StudioState {
   revision: number;
   accessUrls?: string[];
@@ -202,6 +220,8 @@ export interface StudioState {
   autoDirectionSettings?: Record<string, AutoDirectionSettings>;
   sceneChanges?: SceneChange[];
   guestRooms?: Record<string, GuestRoomState>;
+  streamDeck?: StreamDeckState;
+  launch?: ProductionLaunchState;
 }
 
 export interface PreparationCheck {
@@ -280,6 +300,8 @@ export type GuestServerMessage =
   | { type: 'error'; error: string };
 
 export type ControlCommand =
+  | { action: 'production.start'; projectId: string; includeLive?: boolean; requestId?: string }
+  | { action: 'production.cancel'; requestId?: string }
   | { action: 'guest.admit'; guestId: string; requestId?: string }
   | { action: 'guest.mute'; guestId: string; muted: boolean; requestId?: string }
   | { action: 'guest.remove'; guestId: string; requestId?: string }
@@ -290,7 +312,8 @@ export type ControlCommand =
   | { action: 'auto.start'; projectId: string; requestId?: string }
   | { action: 'auto.stop'; requestId?: string }
   | { action: 'record.start'; projectId: string; requestId?: string }
-  | { action: 'record.stop' | 'record.pause' | 'record.resume'; requestId?: string }
+  | { action: 'record.stop'; expectedTakeId?: string; requestId?: string }
+  | { action: 'record.pause' | 'record.resume'; requestId?: string }
   | { action: 'scene.set'; sceneName: string; requestId?: string }
   | { action: 'input.mute'; inputName: string; muted: boolean; requestId?: string }
   | { action: 'marker.add'; label: string; requestId?: string }
