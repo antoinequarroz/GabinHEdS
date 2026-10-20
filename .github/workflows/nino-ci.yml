@@ -220,7 +220,7 @@ jobs:
             'est expliqué dans README.md ; sur le Mac de développement, utiliser Portly.',
             'Conserver toutes les dépendances : tsx est requis au démarrage.',
             'Cette archive ne contient ni configuration privée, ni vidéos, ni base de données.',
-            'Les trois guides PDF installation, tests et utilisateur sont dans docs/guides/.',
+            'Les guides PDF sont dans docs/guides/, dont nino-installation-salle.pdf pour le matériel de la salle.',
             '',
           ].join('\n'));
           NODE
