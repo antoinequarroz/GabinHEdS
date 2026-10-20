@@ -24,6 +24,9 @@ export class Studio {
   private readonly audioListeners = new Set<(frame: AudioFrame) => void>();
   private liveProjectId: string | null = null;
   private closing = false;
+  private draining = false;
+  private readonly pristineAtStartup: boolean;
+  private observedObs = false;
   private mediaPlayback: MediaPlayback | null = null;
   private autoDirection: AutoDirectionState = { enabled: false, status: 'off', projectId: null, participantId: null, lastAudioAt: null, lastSwitchAt: null, message: 'Réalisation manuelle.' };
   private autoEngine: AutoDirection | null = null;
@@ -40,6 +43,9 @@ export class Studio {
   private readonly guestUrls = new Map<string, { url: string; expiresAt: string }>();
 
   constructor(readonly store: Store, readonly obs: ObsGateway, readonly media?: MediaGateway, options: { now?: () => number; autoIntervalMs?: number; guests?: GuestService } = {}) {
+    this.pristineAtStartup = store.projects().length === 0 && store.takes().length === 0
+      && !store.setting('pendingTake') && !store.setting('activeTakeId');
+    this.observedObs = obs.getState().connected || obs.getState().recording || obs.getState().streaming;
     this.now = options.now ?? Date.now;
     this.guests = options.guests;
     this.unsubscribeGuests = options.guests?.subscribe(() => {
@@ -71,6 +77,7 @@ export class Studio {
     this.store.setSetting('pendingTake', null);
     this.lastObservedScene = obs.getState().connected ? obs.getState().currentScene : null;
     this.unsubscribe = obs.subscribe((event) => {
+      if (event.type === 'state' && (event.state.connected || event.state.recording || event.state.streaming)) this.observedObs = true;
       if (event.type === 'audio') {
         this.latestAudio = structuredClone(event.frame);
         if (!this.closing) for (const listener of this.audioListeners) listener(event.frame);
@@ -120,9 +127,33 @@ export class Studio {
     this.store.close();
   }
   serial<T>(action: () => Promise<T> | T): Promise<T> {
-    const result = this.queue.then(action);
+    const result = this.queue.then(() => {
+      if (this.draining) throw new ApiFailure(503, 'Nino est en cours d’arrêt.', 'LOCAL_SHUTDOWN_DRAINING');
+      return action();
+    });
     this.queue = result.catch(() => undefined);
     return result;
+  }
+  isDraining(): boolean { return this.draining; }
+  /** Called inside the command queue; no output-changing request can pass the
+   * final observations and the draining flag. OBS itself is never stopped. */
+  async prepareLocalShutdown(): Promise<void> {
+    const busy = (): never => { throw new ApiFailure(409, 'Arrêt refusé : terminez les prises et le direct, puis vérifiez l’état dans OBS.', 'LOCAL_SHUTDOWN_BUSY'); };
+    if (this.activeTake() || this.store.setting('pendingTake') || this.liveActive()) busy();
+    let obs;
+    let media;
+    try {
+      obs = await this.obs.refresh(true);
+      media = this.media ? await this.media.refresh() : emptyMediaState();
+    } catch { return busy(); }
+    if (obs.connected) this.observedObs = true;
+    if (obs.recording || obs.paused || obs.streaming || obs.streamReconnecting
+      || media.liveStatus !== 'idle' || this.activeTake() || this.store.setting('pendingTake') || this.liveActive()) busy();
+    const neverConfigured = this.pristineAtStartup && !this.observedObs && !this.store.room()?.obsPasswordConfigured
+      && this.store.projects().length === 0 && this.store.takes().length === 0;
+    if ((!obs.connected || obs.connecting || obs.error) && !neverConfigured) busy();
+    this.draining = true;
+    this.closing = true;
   }
   state(): StudioState {
     return { revision: this.revision, room: this.store.publicRoom(), obs: this.obs.getState(), media: this.media?.getState() ?? emptyMediaState(), liveProjectId: this.liveProjectId, projects: this.store.projects(),

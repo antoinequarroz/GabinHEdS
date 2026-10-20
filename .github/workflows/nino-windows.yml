@@ -1,0 +1,105 @@
+name: Nino Windows Installer
+
+on:
+  push:
+    paths:
+      - 'studio/**'
+      - '.github/workflows/nino-windows.yml'
+  pull_request:
+    paths:
+      - 'studio/**'
+      - '.github/workflows/nino-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nino-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: powershell
+    working-directory: studio
+
+jobs:
+  installer:
+    name: Windows x64 - installer, démarrer et désinstaller
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Node.js verrouillé
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.22.0'
+          cache: npm
+          cache-dependency-path: studio/package-lock.json
+      - name: Installer et construire sur Windows
+        run: |
+          npm.cmd ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm.cmd run build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --import tsx --test apps/api/test/local-lifecycle.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Vérifier le lanceur PowerShell 5.1
+        run: |
+          & .\windows\tests\launcher.Tests.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & .\windows\tests\runtime.Tests.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Préparer le paquet Windows et les runtimes vérifiés
+        run: |
+          node scripts/build-windows.mjs --output "$env:RUNNER_TEMP\nino-payload"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Compiler le véritable installateur EXE
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path -LiteralPath $compiler)) { throw 'Compilateur Inno Setup absent du runner.' }
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $revision = $env:GITHUB_SHA.Substring(0, 12)
+          & $compiler "/DNinoPayloadDir=$env:RUNNER_TEMP\nino-payload" "/DNinoOutputDir=$env:RUNNER_TEMP\nino-installer" "/DNinoVersion=$version" "/DNinoSourceRevision=$revision" windows\nino.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Installer, lancer deux fois, arrêter et désinstaller
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = @(Get-ChildItem "$env:RUNNER_TEMP\nino-installer\*.exe")
+          if ($installer.Count -ne 1) { throw 'Un seul installateur Nino est attendu.' }
+          & .\windows\Smoke-Installer.ps1 -InstallerPath $installer[0].FullName -ReportPath "$env:RUNNER_TEMP\nino-installer\windows-smoke.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $digest = (Get-FileHash -LiteralPath $installer[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$digest  $($installer[0].Name)" | Set-Content -LiteralPath ($installer[0].FullName + '.sha256') -Encoding ASCII
+      - name: Livrer l’installateur testé
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nino-windows-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/nino-installer/*.exe
+            ${{ runner.temp }}/nino-installer/*.sha256
+            ${{ runner.temp }}/nino-installer/windows-smoke.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Préparer les journaux de diagnostic
+        if: always()
+        run: |
+          $destination = "$env:RUNNER_TEMP\nino-installer"
+          New-Item -ItemType Directory -Path $destination -Force | Out-Null
+          if (Test-Path -LiteralPath "$env:LOCALAPPDATA\Nino\logs") {
+            Get-ChildItem -LiteralPath "$env:LOCALAPPDATA\Nino\logs" -Filter '*.log' -File | Copy-Item -Destination $destination
+          }
+      - name: Conserver le diagnostic de l’essai Windows
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nino-windows-diagnostic-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/nino-installer/*.log
+            ${{ runner.temp }}/nino-installer/windows-smoke.json
+          if-no-files-found: ignore
+          retention-days: 7

@@ -20,9 +20,10 @@ import { libraryFile, registerLibraryRoutes } from './library.js';
 import { registerProductionFileRoutes } from './production-files.js';
 import { ApiFailure, choice, controlInput, object, projectInput, roomInput, string } from './validation.js';
 import { GuestService, type GuestConfig } from './guests.js';
+import { LOCAL_SHUTDOWN_PATH, registerLocalLifecycle, type LocalLifecycleOptions } from './local-lifecycle.js';
 
 declare module 'fastify' { interface FastifyRequest { device?: Device } interface FastifyInstance { guests: GuestService } }
-export interface AppOptions { dataDir: string; obs?: ObsGateway; media?: MediaGateway; webDir?: string; logger?: boolean; guestConfig?: GuestConfig }
+export interface AppOptions { dataDir: string; obs?: ObsGateway; media?: MediaGateway; webDir?: string; logger?: boolean; guestConfig?: GuestConfig; localLifecycle?: LocalLifecycleOptions }
 const roles: DeviceRole[] = ['viewer', 'operator', 'technician'];
 const kinds = ['pc', 'ipad', 'streamdeck'] as const;
 const loopbackPeer = (ip: string | undefined): boolean => ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
@@ -112,6 +113,7 @@ export async function buildApp(options: AppOptions) {
   await app.register(rateLimit, { global: false, keyGenerator: (request) => request.raw.socket.remoteAddress ?? 'unknown' });
   await app.register(websocket, { options: { maxPayload: 16 * 1024 } });
   app.addHook('onRequest', async (request, reply) => {
+    if (studio.isDraining()) throw new ApiFailure(503, 'Nino est en cours d’arrêt. Aucune nouvelle commande n’est acceptée.', 'LOCAL_SHUTDOWN_DRAINING');
     const capturePage = request.url.split('?')[0] === '/guest-bridge';
     const guestSockets = capturePage ? ` ws://127.0.0.1:${guests.port} ws://localhost:${guests.port}` : '';
     reply.header('X-Content-Type-Options', 'nosniff').header('X-Frame-Options', 'DENY')
@@ -121,6 +123,7 @@ export async function buildApp(options: AppOptions) {
     reply.header('Cache-Control', 'no-store');
     if (!sameOrigin(request)) throw new ApiFailure(403, 'Origine de la requête non autorisée.', 'ORIGIN_REJECTED');
     const route = request.url.split('?')[0];
+    if (options.localLifecycle && request.method === 'POST' && route === LOCAL_SHUTDOWN_PATH) return;
     if (['/api/auth/local', '/api/auth/pair', '/api/events', '/api/guest/config'].includes(route) || /^\/api\/downloads\/[a-zA-Z0-9_-]{43}$/.test(route)
       || /^\/api\/(?:library-files|playback-files|mp4-downloads|production-exports|resolve-exports)\/[a-zA-Z0-9_-]{43}$/.test(route)
       || /^\/api\/monitor\/[a-zA-Z0-9_-]{43}\/[a-zA-Z0-9_.-]+$/.test(route)) return;
@@ -137,6 +140,9 @@ export async function buildApp(options: AppOptions) {
     app.log.error({ err: error }, 'API request failed');
     return reply.code(statusCode).send({ error: statusCode === 429 ? 'Trop de tentatives. Patientez avant de réessayer.' : statusCode === 413 ? 'Le fichier dépasse la taille maximale autorisée (1 Go).' : statusCode === 400 ? 'Requête invalide.' : 'Impossible de terminer cette opération. Vérifiez OBS et les journaux du serveur.', code: statusCode === 429 ? 'RATE_LIMITED' : 'REQUEST_FAILED' });
   });
+
+  if (options.localLifecycle) registerLocalLifecycle(app, options.localLifecycle,
+    () => studio.serial(() => studio.prepareLocalShutdown()));
 
   app.post('/api/auth/local', { config: { rateLimit: { max: 15, timeWindow: '1 minute' } } }, async (request) => {
     let hostname: string;

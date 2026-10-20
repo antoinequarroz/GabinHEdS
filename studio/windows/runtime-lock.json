@@ -1,0 +1,29 @@
+{
+  "node": {
+    "version": "24.22.0",
+    "url": "https://nodejs.org/dist/v24.22.0/node-v24.22.0-win-x64.zip",
+    "sha256": "f9683a19877e12a9b167305c8db71040d812876359de21f0d2e97c3f321f80c3",
+    "archiveRoot": "node-v24.22.0-win-x64",
+    "source": "https://nodejs.org/en/blog/release/v24.22.0"
+  },
+  "mediamtx": {
+    "version": "1.21.2",
+    "url": "https://github.com/bluenviron/mediamtx/releases/download/v1.21.2/mediamtx_v1.21.2_windows_amd64.zip",
+    "sha256": "a84224f5a490855684e62ba6fb71e80ea2a5e16aed61883bb58380290e93e467",
+    "source": "https://github.com/bluenviron/mediamtx/releases/tag/v1.21.2"
+  },
+  "ffmpeg": {
+    "version": "9.0.2",
+    "url": "https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-essentials_build.zip",
+    "sha256": "60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba",
+    "archiveRoot": "ffmpeg-9.0.2-essentials_build",
+    "source": "https://github.com/GyanD/codexffmpeg/releases/tag/9.0.2",
+    "checksums": "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-9.0.2-essentials_build.zip.sha256"
+  },
+  "obs": {
+    "version": "32.2.2",
+    "url": "https://github.com/obsproject/obs-studio/releases/download/32.2.2/OBS-Studio-32.2.2-Windows-x64-Installer.exe",
+    "sha256": "c3a0b880adbe64dc4bcb68f93016916ab5b55ae43fd227115287bf80257d92dc",
+    "source": "https://github.com/obsproject/obs-studio/releases/tag/32.2.2"
+  }
+}
