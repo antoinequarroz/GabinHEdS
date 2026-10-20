@@ -192,6 +192,7 @@ jobs:
             'apps/web/index.html', 'apps/web/src', 'apps/web/public', 'apps/web/dist',
             'packages/shared/package.json', 'packages/shared/src', 'tests',
             'scripts/media-runtime.mjs', 'scripts/setup-media.mjs', 'scripts/start-media.mjs', 'scripts/generate-guides.py',
+            'scripts/build-windows.mjs', 'windows',
             'config/mediamtx.yml',
             'config/guests-vps/.gitignore', 'config/guests-vps/README.md',
             'config/guests-vps/compose.example.yml', 'config/guests-vps/Caddyfile.example',

@@ -51,11 +51,31 @@ export async function noOverflow(page: any, label: string, timeout = 5_000): Pro
 
 export async function decodedImagePreviews(page: any, selector: string, expected: number, timeout = 15_000): Promise<void> {
   await renderedLayout(page);
-  await page.waitForFunction(({ selector, expected }: { selector: string; expected: number }) => {
-    const images = [...document.querySelectorAll<HTMLImageElement>(selector)];
-    return images.length === expected && images.every(image => image.complete && image.naturalWidth > 0);
-  }, { selector, expected }, { timeout, polling: 'raf' });
-  await page.locator(selector).evaluateAll((images: HTMLImageElement[]) => Promise.all(images.map(image => image.decode())));
+  const key = `__ninoImageProbe_${randomUUID()}`;
+  try {
+    await page.waitForFunction(({ selector, expected, key }: { selector: string; expected: number; key: string }) => {
+      type Probe = { images: HTMLImageElement[]; sources: string[]; status: 'pending' | 'decoded' | 'failed'; error?: unknown };
+      const probes = document as unknown as Record<string, Probe>;
+      const images = [...document.querySelectorAll<HTMLImageElement>(selector)];
+      if (images.length !== expected || images.some(image => !image.complete || image.naturalWidth === 0)) {
+        delete probes[key]; return false;
+      }
+      let probe = probes[key];
+      if (!probe || images.some((image, index) => image !== probe.images[index] || image.currentSrc !== probe.sources[index])) {
+        probe = probes[key] = { images, sources: images.map(image => image.currentSrc), status: 'pending' };
+        const decoding = probe;
+        Promise.all(images.map(image => image.decode())).then(() => { decoding.status = 'decoded'; }, error => {
+          decoding.status = 'failed'; decoding.error = error;
+        });
+      }
+      if (probe.status === 'failed') throw probe.error;
+      return probe.status === 'decoded';
+    }, { selector, expected, key }, { timeout, polling: 'raf' });
+  } finally {
+    await page.evaluate((key: string) => { delete (document as unknown as Record<string, unknown>)[key]; }, key).catch(() => undefined);
+  }
+  // The synchronous predicate stays false until native decoding completes.
+  // Its document-scoped probe is recreated if navigation destroys the context.
 }
 
 async function settledScroll(page: any, position: { x: number; y: number }): Promise<void> {
@@ -276,6 +296,31 @@ export async function verifyRenderingGuards(browser: any): Promise<void> {
     await assert.rejects(() => decodedImagePreviews(page, 'img', 2, 500), /Timeout/);
     await page.setContent(`${meta}<img src="${pixel}"><img src="${pixel}">`);
     await decodedImagePreviews(page, 'img', 2);
+
+    const destination = 'https://rendering.nino.test/decoded-images-navigation';
+    await page.route(destination, (route: any) => route.fulfill({ contentType: 'text/html',
+      body: `${meta}<img src="${pixel}"><img src="${pixel}">` }));
+    await page.evaluate((url: string) => {
+      const nativeDecode = HTMLImageElement.prototype.decode;
+      HTMLImageElement.prototype.decode = function () {
+        // Decode a real image, then replace the document before this call can
+        // complete. The new document must decode its own images natively.
+        return nativeDecode.call(this).then(() => new Promise<void>(() => {
+          requestAnimationFrame(() => location.replace(url));
+        }));
+      };
+    }, destination);
+    await decodedImagePreviews(page, 'img', 2);
+    assert.equal(page.url(), destination, 'Image decoding must survive a real document replacement');
+    await page.unroute(destination);
+
+    await page.locator('img').first().evaluate((image: HTMLImageElement) => {
+      image.decode = () => Promise.reject(new Error('Deliberate native image decode failure'));
+    });
+    await assert.rejects(() => decodedImagePreviews(page, 'img', 2), /Deliberate native image decode failure/);
+    await page.setContent(`${meta}<img src="${pixel}">`);
+    await assert.rejects(() => decodedImagePreviews(page, 'img', 2, 500), /Timeout/);
+    console.info('Gardes images : navigation réelle pendant le décodage supportée ; erreur de décodage et nombre incorrect rejetés.');
     await verifyScreenshotRecovery(page, meta, pixel);
   } finally {
     await context.close();

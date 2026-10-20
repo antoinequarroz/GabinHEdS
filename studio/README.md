@@ -81,6 +81,10 @@ Ouvrir `http://127.0.0.1:4310`. Le serveur sert l’interface construite et l’
 
 ## Installation sur le PC Windows
 
+Pour le PC Windows 11 x64 de la salle, utiliser l’[installateur et son raccourci Nino + OBS](docs/windows-installer.md). Ce paquet inclut Node.js et MediaMTX, prépare FFmpeg depuis un téléchargement vérifié et conserve les données hors du dossier du logiciel. La construction et son installation sont vérifiées par le workflow **Nino Windows Installer** ; la recette des caméras, micros et OBS reste à faire dans la salle.
+
+La procédure manuelle suivante reste disponible pour un technicien travaillant depuis les sources.
+
 Dans PowerShell, depuis le dépôt, adapter le chemin si nécessaire :
 
 ```powershell
@@ -92,7 +96,7 @@ npm run setup:media
 npm start
 ```
 
-Installer [FFmpeg](https://ffmpeg.org/download.html) et rendre son exécutable accessible dans le PATH, ou définir `$env:GABIN_FFMPEG_PATH` avec son chemin complet. Dans une seconde fenêtre PowerShell ouverte dans `studio/`, exécuter `npm run start:media`. Garder les deux fenêtres ouvertes pendant l’utilisation, puis accéder à `http://127.0.0.1:4310`. Le démarrage automatique avec la session Windows et le packaging restent à préparer pour l’installation définitive. Portly est le superviseur utilisé sur le Mac de développement ; il n’est pas requis sur ce PC Windows.
+Installer [FFmpeg](https://ffmpeg.org/download.html) et rendre son exécutable accessible dans le PATH, ou définir `$env:GABIN_FFMPEG_PATH` avec son chemin complet. Dans une seconde fenêtre PowerShell ouverte dans `studio/`, exécuter `npm run start:media`. Garder les deux fenêtres ouvertes pendant l’utilisation, puis accéder à `http://127.0.0.1:4310`. Pour éviter ces commandes au quotidien, utiliser le raccourci de l’installateur. Le démarrage automatique avec la session Windows reste à préparer séparément. Portly est le superviseur utilisé sur le Mac de développement ; il n’est pas requis sur ce PC Windows.
 
 ## Première utilisation dans la salle
 
