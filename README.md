@@ -10,6 +10,10 @@ Consulter le [guide de développement et de livraison](studio/docs/development.m
 pour les tests et le workflow GitHub Actions. Node.js 24 ou supérieur est requis
 pour cette version. Les vidéos et la base de la salle restent locales.
 
+Le [guide d'installation de la salle (PDF)](studio/docs/guides/nino-installation-salle.pdf)
+décrit les branchements des trois Sony ZV-E10, des quatre Cam Link et de la
+RØDECaster Pro II, puis les réglages Windows, OBS et Nino jusqu'au premier MP4.
+
 Les sections ci-dessous décrivent l'ancienne version dans `desktop-app/` et
 `gabinOneclick/`.
 

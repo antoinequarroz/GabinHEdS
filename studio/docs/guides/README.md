@@ -1,17 +1,20 @@
 # Guides Nino
 
-Quatre guides français illustrés, avec la marque Nino et la police Manrope de l'interface :
+Cinq guides français illustrés, avec la marque Nino et la police Manrope de l'interface :
 
 - [Installation](nino-installation.pdf) : prérequis, services, OBS, scènes/micros, réseau, iPad, Stream Deck et sauvegardes.
 - [Recette de la salle](nino-guide-tests.pdf) : manipulations, résultats attendus, appareils réels, live privé, récupération et validation à compléter.
 - [Guide utilisateur](nino-guide-utilisateur.pdf) : parcours simple complet et tutoriels podcast, table ronde, présentations, live, commandes automatiques et DaVinci Resolve.
 - [Le manuel complet pour débuter](nino-manuel-complet.pdf) : mode d'emploi de toutes les fonctions disponibles, avec sommaire cliquable, exemples, recettes par format, appareils, invités, live, montage et dépannage. Le parcours MP4 explique le téléchargement d'une prise, la copie sur clé USB sous Windows ou macOS, puis l'import du fichier dans DaVinci sur un autre ordinateur.
+- [Installation de votre salle](nino-installation-salle.pdf) : 17 pages pour les trois Sony ZV-E10, les quatre Cam Link, la RØDECaster Pro II et les quatre PodMic. Schémas des branchements et du placement, installation Windows 11, sources et scènes OBS, associations Nino, réalisation automatique, essai local, dépannage et récupération MP4 sur clé USB. Édition du 20 octobre 2026 ; les caractéristiques du PC, les modèles exacts des Cam Link et la recette réelle restent à confirmer.
 
 Les copies distribuables vivent dans ce dossier. Une génération pour livraison locale peut viser `output/pdf/`, sans ajouter ce dossier de sortie au dépôt.
 
 Compatibilité des intitulés : l’application et le manuel complet utilisent « Présentation et partage d’écran ». Les trois premiers PDF peuvent encore afficher l’ancien nom « PowerPoint sonorisé » ; il désigne le même format. L’identifiant de production `slides` et les scènes OBS existantes sont conservés, sans migration des projets. Les présentations et les autres contenus partagés se capturent dans OBS dans les deux cas.
 
 ## Régénération
+
+Le guide spécifique `nino-installation-salle.pdf` est publié comme PDF de livraison relu et vérifié visuellement. Les générateurs documentés ci-dessous concernent les autres guides ; ils ne reconstruisent pas ce document spécifique à la salle.
 
 Le contenu des trois premiers guides est dans `content.py`. La mise en page ReportLab est dans `../../scripts/generate-guides.py`. Le générateur utilise le TTF Manrope et le SVG Nino existants de l'interface. Il crée des instances de police statiques dans le dossier QA, conserve les accents et intègre des signets de navigation au PDF.
 

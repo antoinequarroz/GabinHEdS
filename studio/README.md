@@ -6,7 +6,9 @@ Domaine prévu pour l’identité publique de Nino : **ninostudio.ch**.
 
 Cette version constitue une première chaîne utilisable : création d’un projet nommé, préparation de la salle, retour vidéo et son, deux invités à distance, changement de plan, enregistrement OBS, diffusion live, pause/reprise, repères et récupération de la prise complète. Aucun enregistrement n’est annoncé comme réussi sans retour d’OBS.
 
-Trois guides illustrés accompagnent la salle : [installation (PDF)](docs/guides/nino-installation.pdf), [tests complets (PDF)](docs/guides/nino-guide-tests.pdf) et [tutoriel utilisateur (PDF)](docs/guides/nino-guide-utilisateur.pdf). Ils expliquent la préparation, chaque format, le live, l’iPad, le Stream Deck et la récupération jusqu’à DaVinci Resolve.
+Les guides illustrés accompagnent la salle : [installation générale (PDF)](docs/guides/nino-installation.pdf), [tests complets (PDF)](docs/guides/nino-guide-tests.pdf), [tutoriel utilisateur (PDF)](docs/guides/nino-guide-utilisateur.pdf) et [manuel complet pour débuter (PDF)](docs/guides/nino-manuel-complet.pdf). Ils expliquent la préparation, chaque format, le live, l’iPad, le Stream Deck et la récupération jusqu’à DaVinci Resolve.
+
+Le [guide d'installation de votre salle (PDF)](docs/guides/nino-installation-salle.pdf) détaille en 17 pages les branchements des trois Sony ZV-E10, des quatre Cam Link et de la RØDECaster Pro II avec quatre PodMic, l'installation Windows 11, les réglages OBS et Nino, la réalisation automatique et le transfert du MP4 sur clé USB. Les caractéristiques du PC, la répartition USB et la recette matérielle restent à valider sur place.
 
 Le [guide des invités à distance](docs/remote-guests.md) complète ces PDF avec le nouveau parcours d’appel, le retour sans sa propre voix, les commandes de régie et la configuration HTTPS/TURN encore à réaliser pour les appels sur Internet.
 
