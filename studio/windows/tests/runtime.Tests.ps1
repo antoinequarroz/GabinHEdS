@@ -63,6 +63,7 @@ try {
     Assert-Runtime (@(Get-ChildItem -LiteralPath $downloads -Filter '*.partial').Count -eq 0) 'network failure cleans partial download'
 
     # Exercise real ZIP path checks with small inert archives.
+    Add-Type -AssemblyName System.IO.Compression
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     function New-RuntimeFixtureZip {
         param([string]$Name, [string]$Entry)
