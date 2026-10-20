@@ -222,6 +222,7 @@ export interface StudioState {
   guestRooms?: Record<string, GuestRoomState>;
   streamDeck?: StreamDeckState;
   launch?: ProductionLaunchState;
+  studioOpenAvailable?: boolean;
 }
 
 export interface PreparationCheck {
@@ -300,6 +301,7 @@ export type GuestServerMessage =
   | { type: 'error'; error: string };
 
 export type ControlCommand =
+  | { action: 'studio.open'; requestId?: string }
   | { action: 'production.start'; projectId: string; includeLive?: boolean; requestId?: string }
   | { action: 'production.cancel'; requestId?: string }
   | { action: 'guest.admit'; guestId: string; requestId?: string }

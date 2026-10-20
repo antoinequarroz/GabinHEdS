@@ -117,6 +117,7 @@ function Get-ObsSnapshot {
 }
 
 function Assert-NoNinoAutostart {
+    param([switch]$AllowCompanionStartup)
     $entries = @()
     foreach ($registry in @('HKCU:\Software\Microsoft\Windows\CurrentVersion\Run',
                             'HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce',
@@ -135,11 +136,24 @@ function Assert-NoNinoAutostart {
     }
     foreach ($folder in @([Environment]::GetFolderPath('Startup'), [Environment]::GetFolderPath('CommonStartup'))) {
         if ($folder -and (Test-Path -LiteralPath $folder -PathType Container)) {
-            $entries += @(Get-ChildItem -LiteralPath $folder -File | Where-Object { $_.Name -match '(?i)nino' } |
-                Select-Object -ExpandProperty FullName)
+            foreach ($entry in @(Get-ChildItem -LiteralPath $folder -File | Where-Object { $_.Name -match '(?i)nino' })) {
+                $expected = Join-Path ([Environment]::GetFolderPath('Startup')) 'Nino - Companion.lnk'
+                if ($AllowCompanionStartup -and [string]::Equals($entry.FullName, $expected, [StringComparison]::OrdinalIgnoreCase)) {
+                    $shell = New-Object -ComObject WScript.Shell
+                    try {
+                        $link = $shell.CreateShortcut($entry.FullName)
+                        $scriptPath = Join-Path $script:installRoot 'windows/Start-Companion.ps1'
+                        $expectedArguments = '-NoLogo -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $scriptPath + '" -Startup -NoDialogs'
+                        $powerShell = Join-Path $env:WINDIR 'System32/WindowsPowerShell/v1.0/powershell.exe'
+                        Assert-Smoke ([string]::Equals($link.TargetPath, $powerShell, [StringComparison]::OrdinalIgnoreCase) -and
+                            $link.Arguments -ceq $expectedArguments -and
+                            $link.Description -ceq 'Nino Companion startup (owned by Nino)') 'only the fixed current-user Companion startup helper is registered'
+                    } finally { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($shell) }
+                } else { $entries += $entry.FullName }
+            }
         }
     }
-    Assert-Smoke ($entries.Count -eq 0) 'no automatic startup entry was created'
+    Assert-Smoke ($entries.Count -eq 0) 'no unexpected Nino automatic startup entry exists'
 }
 
 function Get-SmokeService {
@@ -231,12 +245,13 @@ try {
     $installAttempted = $true
     $installLog = Join-Path $script:reportDirectory 'setup-install.log'
     [void](Invoke-SmokeProcess -FilePath $InstallerPath -Arguments @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART',
-        '/TASKS=desktopicon', ('/LOG=' + $installLog)) -Label 'install')
+        '/TASKS=desktopicon,companionstartup', ('/LOG=' + $installLog)) -Label 'install')
     $launcher = Join-Path $installRoot 'windows/Launch-Nino.ps1'
     $node = Join-Path $installRoot 'runtime/node/node.exe'
     $media = Join-Path $installRoot 'runtime/mediamtx/mediamtx.exe'
     foreach ($file in @($launcher, $node, $media,
         (Join-Path $installRoot 'windows/Prepare-Runtime.ps1'),
+        (Join-Path $installRoot 'windows/Start-Companion.ps1'),
         (Join-Path $installRoot 'app/apps/web/dist/index.html'),
         (Join-Path $installRoot 'app/docs/guides/nino-installation-salle.pdf'))) {
         Assert-Smoke (Test-Path -LiteralPath $file -PathType Leaf) ('installed ' + $file.Substring($installRoot.Length + 1))
@@ -247,7 +262,11 @@ try {
     Assert-Smoke ($foreignData.Count -eq 0) 'installer contains no private database, recording or environment file'
     Assert-Smoke (-not (Test-Path -LiteralPath (Join-Path $installRoot 'runtime/ffmpeg'))) 'installer does not redistribute FFmpeg'
     Assert-Smoke (-not (Test-Path -LiteralPath (Join-Path $userRoot 'data/studio.sqlite'))) 'silent installation does not create or import a database'
-    Assert-NoNinoAutostart
+    Assert-NoNinoAutostart -AllowCompanionStartup
+    $companionStartupLink = Join-Path ([Environment]::GetFolderPath('Startup')) 'Nino - Companion.lnk'
+    Assert-Smoke (Test-Path -LiteralPath $companionStartupLink -PathType Leaf) 'selected Companion startup is registered for the current user'
+    $companionSettingsPath = Join-Path $userRoot 'companion-settings.json'
+    $companionSettingsHash = (Get-FileHash -LiteralPath $companionSettingsPath -Algorithm SHA256).Hash
 
     $shell = New-Object -ComObject WScript.Shell
     $menu = Join-Path ([Environment]::GetFolderPath('Programs')) 'Nino'
@@ -265,6 +284,7 @@ try {
     Assert-Smoke (Test-Path -LiteralPath $stopShortcutPath -PathType Leaf) 'safe stop shortcut exists'
     Assert-Smoke ($shell.CreateShortcut($stopShortcutPath).Arguments -match '(?:^|\s)-Stop(?:\s|$)') 'safe stop shortcut passes -Stop'
     Assert-Smoke (Test-Path -LiteralPath (Join-Path $menu 'Guide installation salle.lnk') -PathType Leaf) 'room guide shortcut exists'
+    Assert-Smoke (Test-Path -LiteralPath (Join-Path $menu 'Configurer Companion.lnk') -PathType Leaf) 'Companion configuration shortcut exists'
     [void][Runtime.InteropServices.Marshal]::ReleaseComObject($shell)
 
     $powerShell = Join-Path $env:WINDIR 'System32/WindowsPowerShell/v1.0/powershell.exe'
@@ -304,7 +324,7 @@ try {
     Assert-Smoke ($apiSecond.Process.Id -eq $apiFirst.Process.Id -and $mediaSecond.Process.Id -eq $mediaFirst.Process.Id -and
         $apiSecond.State.startedAtUtc -ceq $apiFirst.State.startedAtUtc -and
         $mediaSecond.State.startedAtUtc -ceq $mediaFirst.State.startedAtUtc) 'second launch reuses both verified service PIDs'
-    Assert-NoNinoAutostart
+    Assert-NoNinoAutostart -AllowCompanionStartup
 
     $uninstallers = @(Get-ChildItem -LiteralPath $installRoot -Filter 'unins*.exe' -File)
     Assert-Smoke ($uninstallers.Count -eq 1) 'one registered uninstaller exists'
@@ -337,9 +357,11 @@ try {
     Wait-SmokePathGone -Path $node
     Wait-SmokePathGone -Path (Join-Path $installRoot 'app')
     Assert-Smoke (-not (Test-Path -LiteralPath $desktopLink) -and -not (Test-Path -LiteralPath $startLink)) 'uninstall removes its desktop and start menu shortcuts'
+    Assert-Smoke (-not (Test-Path -LiteralPath $companionStartupLink)) 'uninstall removes only its verified Companion startup link'
     Assert-Smoke ([IO.File]::ReadAllText($sentinel) -ceq $sentinelValue) 'uninstall preserves the user production sentinel'
     Assert-Smoke ((Get-FileHash -LiteralPath $database -Algorithm SHA256).Hash -ceq $databaseHash) 'uninstall preserves the production database unchanged'
     Assert-Smoke ((Get-FileHash -LiteralPath $settingsPath -Algorithm SHA256).Hash -ceq $settingsHash) 'uninstall preserves user settings unchanged'
+    Assert-Smoke ((Get-FileHash -LiteralPath $companionSettingsPath -Algorithm SHA256).Hash -ceq $companionSettingsHash) 'uninstall preserves Companion preferences unchanged'
     Assert-Smoke ((Get-FileHash -LiteralPath $cachedFfmpeg -Algorithm SHA256).Hash -ceq $ffmpegHash -and
         (Get-FileHash -LiteralPath $cachedFfprobe -Algorithm SHA256).Hash -ceq $ffprobeHash) 'uninstall preserves downloaded FFmpeg and ffprobe unchanged'
     Assert-Smoke (Test-Path -LiteralPath (Join-Path $userRoot 'logs') -PathType Container) 'uninstall preserves diagnostics'

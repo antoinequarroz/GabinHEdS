@@ -22,6 +22,9 @@
 #if !FileExists(NinoPayloadDir + "\windows\runtime-lock.json")
   #error The pinned video runtime download manifest is missing.
 #endif
+#if !FileExists(NinoPayloadDir + "\windows\Start-Companion.ps1")
+  #error The current-user Companion startup helper is missing.
+#endif
 #if !FileExists(NinoPayloadDir + "\runtime\mediamtx\mediamtx.exe")
   #error The verified Windows MediaMTX runtime is missing.
 #endif
@@ -77,10 +80,11 @@ Name: "french"; MessagesFile: "compiler:Languages\French.isl"
 
 [Messages]
 WelcomeLabel2=Ce programme installe Nino, Node.js et MediaMTX pour votre compte Windows. Une connexion Internet est nécessaire à la première préparation : FFmpeg est téléchargé depuis sa distribution référencée et vérifié, puis conservé sur ce PC.%n%nSi OBS est déjà installé, Nino le réutilise. Sinon, une option ouvre son installation officielle à la fin. Le pilote RØDE reste à installer séparément.%n%nAvant une mise à jour, terminez l’enregistrement et le live, puis arrêtez Nino avec le raccourci « Arrêter Nino » du menu Démarrer.
-FinishedLabel=La préparation des outils vidéo a été effectuée dans une fenêtre séparée. Vous pouvez lancer le studio avec le raccourci « Nino + OBS ». Les caméras, les micros et la connexion OBS se règlent ensuite dans Nino, avec le guide de la salle.%n%nVos productions et vos réglages sont conservés en dehors du dossier du logiciel.
+FinishedLabel=Vous pouvez lancer le studio avec le raccourci « Nino + OBS ». Pour le Stream Deck, ouvrez « Configurer Companion » dans le menu Démarrer → Nino et choisissez le programme Companion déjà installé.%n%nSi vous avez activé son ouverture à la connexion Windows, Nino fonctionnera en arrière-plan puis Companion s’ouvrira. Aucun enregistrement ni live ne démarre automatiquement.%n%nVos productions et vos réglages sont conservés en dehors du dossier du logiciel.
 
 [Tasks]
 Name: "desktopicon"; Description: "Créer le raccourci Nino + OBS sur le Bureau"; GroupDescription: "Raccourcis :"
+Name: "companionstartup"; Description: "Ouvrir Companion à ma connexion Windows (Nino en arrière-plan, sans REC/live)"; GroupDescription: "Stream Deck :"
 
 [Dirs]
 ; The uninstaller must preserve diagnostics together with the user's productions.
@@ -95,13 +99,20 @@ Source: "{#NinoPayloadDir}\*"; DestDir: "{app}"; Excludes: "\runtime\ffmpeg\*,.d
 Name: "{group}\Nino + OBS"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoLogo -NoProfile -ExecutionPolicy Bypass -File ""{app}\windows\Launch-Nino.ps1"""; WorkingDir: "{app}"; IconFilename: "{app}\windows\nino.ico"; Comment: "Ouvrir Nino et OBS pour préparer une production"
 Name: "{autodesktop}\Nino + OBS"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoLogo -NoProfile -ExecutionPolicy Bypass -File ""{app}\windows\Launch-Nino.ps1"""; WorkingDir: "{app}"; IconFilename: "{app}\windows\nino.ico"; Comment: "Ouvrir Nino et OBS pour préparer une production"; Tasks: desktopicon
 Name: "{group}\Arrêter Nino"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoLogo -NoProfile -ExecutionPolicy Bypass -File ""{app}\windows\Launch-Nino.ps1"" -Stop"; WorkingDir: "{app}"; IconFilename: "{app}\windows\nino.ico"; Comment: "Arrêter les composants Nino après la production, sans fermer OBS"
+Name: "{group}\Configurer Companion"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoLogo -NoProfile -ExecutionPolicy Bypass -File ""{app}\windows\Start-Companion.ps1"" -Configure"; WorkingDir: "{app}"; IconFilename: "{app}\windows\nino.ico"; Comment: "Choisir Companion et modifier son ouverture à la connexion Windows"
+Name: "{group}\Lancer Companion"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoLogo -NoProfile -ExecutionPolicy Bypass -File ""{app}\windows\Start-Companion.ps1"""; WorkingDir: "{app}"; IconFilename: "{app}\windows\nino.ico"; Comment: "Préparer Nino en arrière-plan et ouvrir Companion, sans REC/live"
 Name: "{group}\Guide installation salle"; Filename: "{app}\app\docs\guides\nino-installation-salle.pdf"; WorkingDir: "{app}\app\docs\guides"
 Name: "{group}\Journaux Nino"; Filename: "{localappdata}\Nino\logs"
 Name: "{group}\Désinstaller Nino"; Filename: "{uninstallexe}"
 
 [Run]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoLogo -NoProfile -ExecutionPolicy Bypass -File ""{app}\windows\Prepare-Runtime.ps1"" -DataRoot ""{localappdata}\Nino"" -InstallOBS -OnlyOBS"; WorkingDir: "{app}"; Description: "Installer OBS depuis son installateur officiel si nécessaire (Internet requis)"; Flags: postinstall skipifsilent unchecked
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoLogo -NoProfile -ExecutionPolicy Bypass -File ""{app}\windows\Start-Companion.ps1"" -Configure"; WorkingDir: "{app}"; Description: "Configurer Companion pour le Stream Deck"; Flags: postinstall nowait skipifsilent unchecked
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoLogo -NoProfile -ExecutionPolicy Bypass -File ""{app}\windows\Launch-Nino.ps1"""; WorkingDir: "{app}"; Description: "Lancer Nino + OBS"; Flags: postinstall nowait skipifsilent unchecked
+
+[UninstallRun]
+; The helper checks ownership and never closes Companion or removes its profile.
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoLogo -NoProfile -ExecutionPolicy Bypass -File ""{app}\windows\Start-Companion.ps1"" -RemoveStartup -NoDialogs"; WorkingDir: "{app}"; Flags: runhidden; RunOnceId: "NinoCompanionStartupCleanup"
 
 [Code]
 var
@@ -169,9 +180,29 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  PreparationExitCode: Integer;
-  PreparationParameters: String;
+  PreparationExitCode, CompanionExitCode: Integer;
+  PreparationParameters, CompanionParameters, StartupSwitch: String;
 begin
+  if CurStep = ssPostInstall then
+  begin
+    if WizardIsTaskSelected('companionstartup') then
+      StartupSwitch := '-EnableStartup'
+    else
+      StartupSwitch := '-DisableStartup';
+    CompanionParameters := '-NoLogo -NoProfile -ExecutionPolicy Bypass -File "' +
+      ExpandConstant('{app}\windows\Start-Companion.ps1') + '" ' + StartupSwitch + ' -NoDialogs';
+    if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+      CompanionParameters, ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, CompanionExitCode) then
+      CompanionExitCode := -1;
+    if CompanionExitCode <> 0 then
+    begin
+      Log('Configuration du démarrage Companion incomplète. Code : ' + IntToStr(CompanionExitCode));
+      if not WizardSilent then
+        MsgBox('Nino est installé, mais son raccourci de démarrage Companion n''a pas pu être configuré. ' +
+          'Ouvrez « Configurer Companion » dans le menu Démarrer → Nino. Vos autres raccourcis ont été conservés.',
+          mbInformation, MB_OK);
+    end;
+  end;
   // A silent installation is useful for deployment and CI; the launcher performs
   // the same verified preparation before starting any production components.
   if (CurStep = ssPostInstall) and not WizardSilent then

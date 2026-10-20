@@ -50,7 +50,25 @@ Pour le pilote iPad sur le réseau privé autorisé de la salle :
 
 Prévoir HTTPS pour l’installation durable. Le [guide Stream Deck](stream-deck.md) explique l’accès dédié via Companion ; le raccourci Windows ne change pas le contrat authentifié utilisé par les contrôleurs. Les invitations depuis Internet et le tunnel vers le VPS se préparent séparément.
 
-Les cinq pages Companion sont fournies dans `%LOCALAPPDATA%\Programs\Nino\app\config\stream-deck` avec leurs instructions. Installer Companion séparément, importer ces pages, créer l’accès opérateur puis utiliser **Utiliser cette production sur le Stream Deck** dans Nino. La touche **Tout lancer** démarre la prise et l’intro ; le live se lance séparément. Un ancien Setup conserve le code de sa construction : utiliser un nouvel installateur contenant cette fonctionnalité pour en bénéficier.
+Les six pages Companion sont fournies dans `%LOCALAPPDATA%\Programs\Nino\app\config\stream-deck` avec leurs instructions. Installer Companion séparément, importer ces pages et créer l’accès opérateur. Un ancien Setup conserve le code de sa construction : utiliser un nouvel installateur contenant cette fonctionnalité pour en bénéficier.
+
+## Accueil du Stream Deck à l’ouverture de session
+
+Cette préparation se fait une fois, avec le compte Windows habituel de la salle :
+
+1. Dans le Setup, conserver **Ouvrir Companion à ma connexion Windows** pour créer le raccourci de démarrage de ce compte. Le menu Démarrer → **Nino → Configurer Companion** permet ensuite de changer ce réglage et de sélectionner le fichier `Companion.exe` si sa détection ne suffit pas. Companion reste une installation séparée ; le Setup Nino ne remplace pas ses profils.
+2. Ouvrir **Lancer Companion** dans le même menu. Ce raccourci prépare les services Nino en arrière-plan, puis ouvre Companion. À la première utilisation, terminer la configuration de Companion sur le port local **8000** et démarrer son serveur. La préparation vérifie sa réponse réelle ; l’ouverture du processus seule n’est pas annoncée comme un serveur prêt. Le [guide officiel Companion](https://companion.free/user-guide/v5.1/getting-started/start-the-server/) décrit cette fenêtre et l’option **Start minimized**. Utiliser le démarrage Nino plutôt qu’un second **Run at login** natif, pour conserver un seul parcours d’ouverture de session.
+3. Importer les pages **Régie 2, Audio 3, Médias 4, Invités 5, Menu 6, Accueil 7**, en réutilisant la même connexion HTTP Nino. Renseigner leurs six variables de navigation avec les vrais numéros si les pages sont placées ailleurs. La page 1 peut rester personnelle.
+4. Dans Nino → **Appareils**, créer l’accès opérateur Stream Deck. Saisir le jeton directement dans la variable personnalisée persistante `nino_token` de Companion. Conserver ce jeton uniquement sur ce PC ; ne pas l’inclure dans un export partagé.
+5. Dans **Surfaces**, sélectionner le MK.2, choisir **Accueil** comme page au démarrage et désactiver la reprise de la dernière page utilisée. Affecter l’Accueil à la surface pour voir le logo Nino. Cette affectation USB est propre à ce PC et n’est pas incluse dans un export de pages.
+6. Fermer la session Windows, puis la rouvrir pour vérifier le parcours : Companion et les services Nino démarrent ; le Stream Deck affiche l’Accueil. **OBS, le navigateur, l’enregistrement, le retour programme et le live ne démarrent pas automatiquement.**
+7. Appuyer sur **Ouvrir le studio** : Nino ouvre OBS et son interface avec le lanceur installé. Si les logiciels sont déjà ouverts, ils sont réutilisés. Vérifier la connexion OBS et la salle, puis sélectionner la production avec **Utiliser cette production sur le Stream Deck**. **Tout lancer** démarre ensuite la prise et l’intro ; le live reste séparé.
+
+Pour désactiver cette préparation, décocher l’ouverture de session dans **Configurer Companion**. La désinstallation retire uniquement le raccourci de démarrage créé par Nino et conserve les profils Companion, les projets et les réglages. Le fichier `%LOCALAPPDATA%\Nino\companion-settings.json` contient le chemin de Companion et le choix de démarrage ; les erreurs sont consignées dans `%LOCALAPPDATA%\Nino\logs\companion-launcher.log`.
+
+Si l’Accueil indique **NINO HORS LIGNE**, ouvrir **Nino + OBS** depuis Windows puis consulter les journaux. Si Companion ne répond pas, ouvrir **Configurer Companion**, vérifier son emplacement et terminer son premier réglage. Une demande « Ouvrir le studio » ne confirme jamais à elle seule qu’OBS, les caméras et les micros sont prêts.
+
+**VERSION NINO REQUISE** signifie que le serveur utilisé ne propose pas cette ouverture : installer le nouveau Setup Windows. L’ancien installateur et le Mac utilisé pour prévisualiser les touches ne l’activent pas.
 
 ## Arrêter, mettre à jour ou désinstaller
 
@@ -70,7 +88,7 @@ Les fichiers suivants restent hors du dossier du logiciel et sont conservés à 
 | `%LOCALAPPDATA%\Nino\settings.json` | Réglages du lancement Windows. |
 | Dossier de production choisi dans Nino | Enregistrements vidéo réels. |
 
-La désinstallation ne désinstalle pas OBS, ne supprime pas son profil et ne retire pas les vidéos. Prévoir malgré cela une sauvegarde indépendante avant une mise à jour. Il n’y a pas de démarrage automatique avec Windows ni de mise à jour silencieuse dans cette première version.
+La désinstallation ne désinstalle pas OBS, ne supprime pas son profil et ne retire pas les vidéos. Prévoir malgré cela une sauvegarde indépendante avant une mise à jour. Le démarrage à l’ouverture de session est limité aux services Nino et à Companion lorsque cette option est activée ; OBS et l’interface attendent l’appui sur **Ouvrir le studio**. Les mises à jour du logiciel se font avec un nouveau Setup.
 
 ## Passer d’une installation manuelle à ce Setup
 

@@ -101,13 +101,77 @@ function startButton(template, connectionId) {
   return control;
 }
 
+const pageNumbers = { regie: 2, audio: 3, medias: 4, invites: 5, menu: 6, accueil: 7 };
+function welcomeControl(layers = [], actions = [], notes = '') {
+  return { type: 'button-layered', options: { rotaryActions: false, stepProgression: 'auto', canModifyStyleInApis: true, notes }, feedbacks: [], localVariables: [], style: { layers: [{ id: randomUUID(), type: 'canvas', usage: 'auto', decoration: V('none'), showStatusIcons: V('default') }, box('Nino · Accueil fond', V(0x202028)), ...layers] }, steps: { '0': { options: { runWhileHeld: [] }, action_sets: { down: actions, up: [], rotate_left: [], rotate_right: [] } } } };
+}
+function welcomeNavigation(page, label) {
+  const action = { type: 'action', id: randomUUID(), connectionId: 'internal', definitionId: 'set_page', options: { surfaceId: V('self'), page: V(`${ref(`nino_suite_page_${page}`)} || ${pageNumbers[page]}`, true) } };
+  return welcomeControl([text('Nino · Navigation', V(label), { x: 6, y: 16, width: 88, height: 68 }, 38)], [action], 'Navigation locale, disponible même lorsque Nino ne répond pas. Le numéro par défaut est utilisé avant la création de la variable.');
+}
+function enabled(layer, expression) { layer.enabled = V(expression, true); return layer; }
+function welcomeStatus(title, unknownLabel, knownLabel, knownExpression, activeExpression) {
+  return welcomeControl([
+    text('Nino · Nom état', V(title), { x: 7, y: 14, width: 86, height: 40 }, 68),
+    box('Nino · Bandeau', V(0x282832), { y: 70, height: 30 }),
+    text('Nino · État par défaut', V(unknownLabel), { x: 3, y: 70, width: 94, height: 30 }, 42),
+    enabled(box('Nino · État observé fond', V(0x282832), { y: 70, height: 30 }), knownExpression),
+    enabled(text('Nino · État observé', V(knownLabel, true), { x: 3, y: 70, width: 94, height: 30 }, 42), knownExpression),
+    enabled(box('Nino · Voyant réel', V(0xcee5ff), { x: 85, y: 8, width: 8, height: 8 }), activeExpression),
+  ], [], 'Indication de disponibilité réellement reçue depuis Nino. Le libellé par défaut reste visible avant la première synchronisation.');
+}
+
+/** A welcome page remains readable without Nino or its variables; software opening is an authenticated request only. */
+export function createWelcomeProfile(template, logoImage) {
+  const result = structuredClone(template);
+  const connectionId = Object.keys(result.instances || {}).find(id => result.instances[id].moduleId === 'generic-http');
+  if (!connectionId || !logoImage?.startsWith('data:image/png;base64,')) throw new Error('La connexion Nino et son logo PNG embarqué sont nécessaires.');
+  const controls = {};
+  for (let row = 0; row < 3; row++) { controls[row] = {}; for (let column = 0; column < 5; column++) controls[row][column] = welcomeControl([], [], 'Emplacement libre.'); }
+  controls[0][2] = welcomeControl([
+    { ...layerBase('image', 'Nino · Logo', { x: 10, y: 1, width: 80, height: 72 }), base64Image: V(logoImage), fillMode: V('fit'), halign: V('center'), valign: V('center') },
+    text('Nino · Marque', V('NINO'), { x: 5, y: 76, width: 90, height: 20 }, 82),
+  ], [], 'Logo Nino intégré au profil, sans commande et sans dépendance à un serveur.');
+  controls[1][1] = welcomeStatus('NINO', 'HORS LIGNE', "'JOIGNABLE'", FRESH, FRESH);
+  controls[1][3] = welcomeStatus('OBS', 'ÉTAT INCONNU', `${OBS} ? 'CONNECTÉ' : 'NON CONNECTÉ'`, FRESH, `(${FRESH}) && (${OBS})`);
+  const openAvailable = `${ref('nino_state_studio_open_available')} == 1`;
+  const canOpen = `(${FRESH}) && !!${ref('nino_token')} && (${openAvailable})`;
+  const open = { type: 'action', id: randomUUID(), connectionId, definitionId: 'post', upgradeIndex: 2, options: { url: V('/api/control'), body: V('{"action":"studio.open"}'), header: V('{"Authorization":"Bearer $(custom:nino_token)"}'), contenttype: V('application/json'), jsonResultDataVariable: V(''), result_stringify: V(true), statusCodeVariable: V('nino_suite_last_http') } };
+  const guardedOpen = { type: 'action', id: randomUUID(), connectionId: 'internal', definitionId: 'logic_if', options: {}, children: { condition: [{ type: 'feedback', id: randomUUID(), connectionId: 'internal', definitionId: 'check_expression', isInverted: false, options: { expression: V(canOpen) } }], actions: [open], else_actions: [] } };
+  controls[1][2] = welcomeControl([
+    text('Nino · Ouvrir logiciels', V('OUVRIR\nLE STUDIO'), { x: 7, y: 14, width: 86, height: 52 }, 44),
+    box('Nino · Ouvrir bandeau', V(0x282832), { y: 73, height: 27 }),
+    text('Nino · Ouvrir hors ligne', V('NINO HORS LIGNE'), { x: 3, y: 73, width: 94, height: 27 }, 42),
+    enabled(box('Nino · Ouvrir état fond', V(0x282832), { y: 73, height: 27 }), FRESH),
+    enabled(text('Nino · Ouvrir état réel', V(`!${ref('nino_token')} ? 'LIER LE DECK' : (${openAvailable}) ? 'LOGICIELS SEULS' : 'VERSION NINO REQUISE'`, true), { x: 3, y: 73, width: 94, height: 27 }, 42), FRESH),
+    enabled(box('Nino · Ouvrir contour haut', V(0xcee5ff), { height: 3.5 }), canOpen),
+    enabled(box('Nino · Ouvrir contour bas', V(0xcee5ff), { y: 96.5, height: 3.5 }), canOpen),
+    enabled(box('Nino · Ouvrir contour gauche', V(0xcee5ff), { width: 3.5 }), canOpen),
+    enabled(box('Nino · Ouvrir contour droite', V(0xcee5ff), { x: 96.5, width: 3.5 }), canOpen),
+  ], [guardedOpen], 'Windows : demander au lanceur fixe de montrer Nino et OBS. Aucun enregistrement, aucune intro, aucun live. Si Nino est éteint, utiliser le raccourci Windows Nino + OBS.');
+  controls[2][0] = welcomeNavigation('regie', 'RÉGIE\n→');
+  controls[2][2] = welcomeNavigation('menu', 'MENU\n→');
+  controls[2][4] = welcomeControl([
+    text('Nino · Production par défaut', V('PRODUCTION\nÀ CHOISIR'), { x: 5, y: 15, width: 90, height: 70 }, 34),
+    enabled(box('Nino · Production observée fond', V(0x202028)), FRESH),
+    enabled(text('Nino · Production observée', V(ref('nino_state_project_title'), true), { x: 5, y: 10, width: 90, height: 80 }, 27), FRESH),
+  ], [], 'Nom de la production reçue depuis Nino. Ce panneau ne sélectionne ni ne démarre une production.');
+  result.oldPageNumber = 7;
+  result.page = { id: 'nino-accueil-template', name: 'Nino · Accueil', gridSize: { minColumn: 0, maxColumn: 4, minRow: 0, maxRow: 2 }, controls };
+  return result;
+}
+
 /** Upgrade an existing secret-free Nino page export; all unrelated pages and connections stay intact. */
-export function upgradeCompanionProfile(exported, key, connection) {
+export function upgradeCompanionProfile(exported, key, connection, options = {}) {
   const result = structuredClone(exported);
   if (result.type !== 'page' || !result.page?.name?.startsWith('Nino · ')) throw new Error('Une page Nino exportée est nécessaire.');
   if (connection) { result.instances ||= {}; result.instances[connection.id] ||= structuredClone(connection.instance); }
   const connectionId = Object.keys(result.instances || {}).find(id => result.instances[id].moduleId === 'generic-http');
   if (!connectionId) throw new Error('Connexion HTTP Nino introuvable.');
+  if (key === 'accueil') {
+    const embedded = Object.values(result.page.controls).flatMap(row => Object.values(row)).flatMap(control => control.style.layers).find(layer => layer.name === 'Nino · Logo')?.base64Image?.value;
+    return createWelcomeProfile(result, options.logoImage || embedded);
+  }
   if (key === 'menu') result.page.controls['0']['4'] = startButton(result.page.controls['0']['4'], connectionId);
   for (const row of Object.values(result.page.controls)) for (const control of Object.values(row)) {
     const found = getPost(control);
@@ -122,6 +186,7 @@ export function upgradeCompanionProfile(exported, key, connection) {
   }
   // On the Menu, show the production name without reducing the navigation hit area.
   if (key === 'menu') {
+    result.page.controls['2']['2'] = welcomeNavigation('accueil', 'ACCUEIL\n←');
     const control = result.page.controls['2']['3'];
     control.style.layers = [control.style.layers.find(layer => layer.type === 'canvas'), box('Nino · fond', V(0x202028)), text('Nino · production', V(`(${FRESH}) ? ${ref('nino_state_project_title')} : 'Nino hors ligne'`, true), { x: 6, y: 10, width: 88, height: 80 }, 24)].filter(Boolean);
     control.options.notes = 'Nom réel de la production sélectionnée dans Nino. Aucune commande.';

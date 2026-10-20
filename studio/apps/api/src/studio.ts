@@ -47,12 +47,16 @@ export class Studio {
   private launchAbort: AbortController | null = null;
   private launchOwnerId: string | null = null;
   private launchMedia: { assetId: string; sceneName: string | null } | null = null;
+  private readonly studioOpener?: () => Promise<void>;
+  private studioOpenTask: Promise<void> | null = null;
+  private lastStudioOpenAt: number | null = null;
 
-  constructor(readonly store: Store, readonly obs: ObsGateway, readonly media?: MediaGateway, options: { now?: () => number; autoIntervalMs?: number; guests?: GuestService } = {}) {
+  constructor(readonly store: Store, readonly obs: ObsGateway, readonly media?: MediaGateway, options: { now?: () => number; autoIntervalMs?: number; guests?: GuestService; studioOpener?: () => Promise<void> } = {}) {
     this.pristineAtStartup = store.projects().length === 0 && store.takes().length === 0
       && !store.setting('pendingTake') && !store.setting('activeTakeId');
     this.observedObs = obs.getState().connected || obs.getState().recording || obs.getState().streaming;
     this.now = options.now ?? Date.now;
+    this.studioOpener = options.studioOpener;
     this.guests = options.guests;
     this.unsubscribeGuests = options.guests?.subscribe(() => {
       if (this.closing) return;
@@ -173,7 +177,7 @@ export class Studio {
       takes: this.store.takes(), activeTake: this.activeTake(), markers: this.store.markers(), library: this.store.library(),
       projectMedia: this.store.projectMedia(), mediaPlayback: this.obs.getMediaPlayback?.() ?? this.mediaPlayback,
       autoDirection: structuredClone(this.autoDirection), autoDirectionSettings: this.store.autoDirectionSettings(), sceneChanges: this.store.sceneChanges(), guestRooms: this.guests?.rooms(),
-      streamDeck: { projectId: this.store.setting<string>('streamDeckProjectId'), ...this.streamDeckConnection }, launch: structuredClone(this.launch) };
+      streamDeck: { projectId: this.store.setting<string>('streamDeckProjectId'), ...this.streamDeckConnection }, launch: structuredClone(this.launch), studioOpenAvailable: Boolean(this.studioOpener) };
   }
   setStreamDeckConnection(status: Omit<StreamDeckState, 'projectId'>): void {
     if (JSON.stringify(status) !== JSON.stringify(this.streamDeckConnection)) { this.streamDeckConnection = { ...status }; this.changed(); }
@@ -231,6 +235,24 @@ export class Studio {
     try { await this.releaseLaunchMedia(); }
     catch { this.setLaunch({ message: `${message} OBS n’a pas confirmé le retour au plan ; vérifiez le programme.` }); }
     return this.changed();
+  }
+  /** The injected Windows opener accepts no command, path, project or arguments. */
+  private async openStudio(actor?: { deviceId: string }): Promise<StudioState> {
+    const device = actor && this.store.device(actor.deviceId);
+    if (!device || device.role === 'viewer') throw new ApiFailure(403, 'Un appareil opérateur autorisé doit ouvrir le studio.', 'STUDIO_OPEN_AUTH_REQUIRED');
+    if (this.closing || this.draining) throw new ApiFailure(503, 'Nino est en cours d’arrêt.', 'LOCAL_SHUTDOWN_DRAINING');
+    if (!this.studioOpener) throw new ApiFailure(503, 'L’ouverture des logiciels est disponible uniquement sur le PC Windows configuré pour la salle.', 'STUDIO_OPEN_UNAVAILABLE');
+    const elapsed = this.lastStudioOpenAt === null ? Infinity : this.now() - this.lastStudioOpenAt;
+    if (!this.studioOpenTask && elapsed >= 0 && elapsed < 3000) return this.state();
+    if (!this.studioOpenTask) this.studioOpenTask = Promise.resolve().then(() => this.studioOpener!());
+    const task = this.studioOpenTask;
+    try {
+      await task;
+      this.lastStudioOpenAt = this.now();
+    } catch { throw new ApiFailure(503, 'Le lanceur Windows n’a pas pu être ouvert. Utilisez le raccourci Nino + OBS sur le PC et consultez ses journaux.', 'STUDIO_OPEN_FAILED'); }
+    finally { if (this.studioOpenTask === task) this.studioOpenTask = null; }
+    // HTTP confirms the opening request, never OBS readiness or an output start.
+    return this.state();
   }
   private async startProduction(command: Extract<ControlCommand, { action: 'production.start' }>, actor?: { deviceId: string }): Promise<StudioState> {
     const device = actor && this.store.device(actor.deviceId);
@@ -792,6 +814,7 @@ export class Studio {
     return { projectId, sceneName, recordingDirectory, freeBytes, checks, canStart: checks.every((check) => check.status !== 'blocked') };
   }
   async control(command: ControlCommand, actor?: { deviceId: string }, launchId?: string): Promise<StudioState> {
+    if (command.action === 'studio.open') return this.openStudio(actor);
     if (command.action === 'production.start') return this.startProduction(command, actor);
     if (command.action === 'production.cancel') {
       const device = actor && this.store.device(actor.deviceId);

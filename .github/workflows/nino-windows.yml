@@ -53,6 +53,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & .\windows\tests\runtime.Tests.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & .\windows\tests\companion.Tests.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Préparer le paquet Windows et les runtimes vérifiés
         run: |
           node scripts/build-windows.mjs --output "$env:RUNNER_TEMP\nino-payload"

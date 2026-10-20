@@ -24,7 +24,7 @@ import { CompanionBridge } from './companion.js';
 import { LOCAL_SHUTDOWN_PATH, registerLocalLifecycle, type LocalLifecycleOptions } from './local-lifecycle.js';
 
 declare module 'fastify' { interface FastifyRequest { device?: Device } interface FastifyInstance { guests: GuestService } }
-export interface AppOptions { dataDir: string; obs?: ObsGateway; media?: MediaGateway; webDir?: string; logger?: boolean; guestConfig?: GuestConfig; companion?: boolean; localLifecycle?: LocalLifecycleOptions }
+export interface AppOptions { dataDir: string; obs?: ObsGateway; media?: MediaGateway; webDir?: string; logger?: boolean; guestConfig?: GuestConfig; companion?: boolean; localLifecycle?: LocalLifecycleOptions; studioOpener?: () => Promise<void> }
 const roles: DeviceRole[] = ['viewer', 'operator', 'technician'];
 const kinds = ['pc', 'ipad', 'streamdeck'] as const;
 const loopbackPeer = (ip: string | undefined): boolean => ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
@@ -60,7 +60,7 @@ export async function buildApp(options: AppOptions) {
   const media = options.media ?? new RealMediaGateway();
   const guests = new GuestService(store, options.guestConfig);
   app.decorate('guests', guests);
-  const studio = new Studio(store, options.obs ?? new RealObsGateway(), media, { guests });
+  const studio = new Studio(store, options.obs ?? new RealObsGateway(), media, { guests, studioOpener: options.studioOpener });
   const takeThumbnails = new TakeThumbnails();
   void media.refresh().catch(() => undefined);
   const clients = new Map<WebSocket, Device>();

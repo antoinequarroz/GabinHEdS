@@ -4,9 +4,21 @@ Le Stream Deck pilote Nino par **la même API authentifiée que le PC et l’iPa
 
 Les profils Companion Nino utilisent le module **Generic HTTP Requests** pour les commandes et un pont local Nino pour leurs états réels. Le pont met à jour les variables des touches ; toutes les commandes de production restent authentifiées par Nino. La [documentation du module HTTP](https://github.com/bitfocus/companion-module-generic-http/blob/master/companion/HELP.md) décrit les requêtes JSON et les en-têtes.
 
+## Arriver dans la salle : accueil et ouverture du studio
+
+Les six pages importables, leurs variables de navigation et les étapes d’installation sont dans [`config/stream-deck`](../config/stream-deck/README.md). L’Accueil affiche le logo Nino et la touche **Ouvrir le studio**. Le Menu ouvre ensuite Régie, Audio, Médias et Invités. Les exports ne contiennent aucun jeton : créer l’accès opérateur dans Nino et le saisir directement dans Companion, dans une variable locale persistante `nino_token`.
+
+Sur Windows, le raccourci d’ouverture de session prépare les services Nino en arrière-plan, puis ouvre Companion. Il n’ouvre pas OBS ni le navigateur et ne démarre ni prise, ni retour programme, ni live. L’Accueil reste visible même lorsqu’aucune production n’a encore été sélectionnée. Configurer la surface USB pour démarrer sur Accueil, sans reprendre la dernière page utilisée ; les numéros proposés conservent les pages 2 à 6 et ajoutent l’Accueil en page 7.
+
+**Ouvrir le studio** appelle `POST /api/control` avec `{"action":"studio.open"}` et l’accès opérateur habituel. Sur Windows, Nino demande au lanceur installé d’ouvrir OBS et son interface, en réutilisant les composants déjà ouverts. La commande ne reçoit aucun chemin, argument de programme ni commande à exécuter. Elle ne sélectionne pas de production et ne lance pas d’enregistrement ou de live. Les états affichés restent ceux réellement observés par Nino et OBS ; une demande d’ouverture n’est pas une confirmation que la salle est prête.
+
+Si Nino est hors ligne, utiliser le raccourci Windows **Nino + OBS**, puis vérifier la connexion. Si la touche indique **LIER LE DECK**, vérifier l’accès opérateur dans Companion. Voir la [configuration du démarrage Windows](windows-installer.md#accueil-du-stream-deck-à-louverture-de-session).
+
+**VERSION NINO REQUISE** désactive l’ouverture lorsqu’elle n’est pas disponible sur le serveur utilisé, notamment avec une ancienne version ou sur le Mac de prévisualisation. Installer la nouvelle version Windows avant d’utiliser cette touche ; les pages de régie existantes gardent leurs commandes habituelles.
+
 ## Choisir la production et tout lancer
 
-Les cinq pages importables, leurs variables de navigation et les étapes d’installation sont dans [`config/stream-deck`](../config/stream-deck/README.md). Elles conservent le style sombre, avec un bandeau d’état, un contour et un voyant pour les fonctions actives. Les exports ne contiennent aucun jeton : créer l’accès opérateur dans Nino et le saisir directement dans Companion.
+Les pages de contrôle conservent le style sombre, avec un bandeau d’état, un contour et un voyant pour les fonctions actives.
 
 1. Démarrer Nino, OBS et Companion sur le même ordinateur. Companion doit être disponible sur `127.0.0.1:8000`. Importer les pages du profil Nino et renseigner son accès Stream Deck comme décrit ci-dessous.
 2. Dans la production Nino, cliquer **Utiliser cette production sur le Stream Deck**. Attendre la confirmation de synchronisation avec Companion. La sélection de la production est conservée après redémarrage ; elle ne démarre aucun enregistrement.
@@ -52,6 +64,7 @@ La réponse `AuthResult` contient `{ "token": "…", "device": { "id": "…", "n
 
 | Bouton | Corps JSON du POST `/api/control` |
 | --- | --- |
+| Ouvrir OBS et l’interface Nino sur Windows | `{"action":"studio.open"}` |
 | Enregistrer | `{"action":"record.start","projectId":"ID_DU_PROJET"}` |
 | Arrêter | `{"action":"record.stop"}` |
 | Pause | `{"action":"record.pause"}` |
