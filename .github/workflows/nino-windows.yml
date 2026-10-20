@@ -49,11 +49,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Vérifier le lanceur PowerShell 5.1
         run: |
-          & .\windows\tests\launcher.Tests.ps1
+          $ErrorActionPreference = 'Stop'
+          $powerShell = "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe"
+          & $powerShell -NoLogo -NoProfile -NonInteractive -File .\windows\tests\launcher.Tests.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & .\windows\tests\runtime.Tests.ps1
+          & $powerShell -NoLogo -NoProfile -NonInteractive -File .\windows\tests\runtime.Tests.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & .\windows\tests\companion.Tests.ps1
+          & $powerShell -NoLogo -NoProfile -NonInteractive -File .\windows\tests\companion.Tests.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Préparer le paquet Windows et les runtimes vérifiés
         run: |
