@@ -87,6 +87,10 @@ export function controlInput(value: unknown): ControlCommand {
   const data = object(value);
   const requestId = data.requestId === undefined ? undefined : string(data.requestId, 'identifiant de commande', 128);
   switch (data.action) {
+    case 'studio.open': {
+      if (Object.keys(data).some(key => !['action', 'requestId'].includes(key))) throw new ApiFailure(400, 'L’ouverture du studio n’accepte aucun argument.');
+      return { action: data.action, requestId };
+    }
     case 'production.start': {
       if (data.includeLive !== undefined && typeof data.includeLive !== 'boolean') throw new ApiFailure(400, 'Le choix de diffuser en direct doit être explicite.');
       return { action: data.action, projectId: string(data.projectId, 'projet', 100), includeLive: data.includeLive ?? false, requestId };

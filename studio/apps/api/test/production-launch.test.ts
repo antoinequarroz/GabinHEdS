@@ -66,10 +66,10 @@ async function until(check: () => boolean, message: string) {
   while (!check() && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
   assert.ok(check(), message);
 }
-async function fixture(t: TestContext, intro = false) {
+async function fixture(t: TestContext, intro = false, options: { studioOpener?: () => Promise<void> } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'nino-production-launch-'));
   const store = new Store(path.join(directory, 'db')); const obs = new ObsFixture(); const media = new MediaFixture();
-  const studio = new Studio(store, obs, media, { autoIntervalMs: 0 });
+  const studio = new Studio(store, obs, media, { autoIntervalMs: 0, ...options });
   studio.updateRoom({ recordingRoot: path.join(directory, 'recordings') });
   const project = studio.createProject({ title: 'Épisode', format: 'podcast', participants: [{ id: 'one', name: 'Alice', micInput: 'Micro', sceneName: 'Caméra' }] });
   const auth = store.createDevice('MK.2', 'streamdeck', 'operator', true); const actor = { deviceId: auth.device.id };
@@ -176,6 +176,18 @@ test('manual media pause cancels subsequent automation without stealing the medi
   await new Promise(resolve => setTimeout(resolve, 250));
   assert.equal(studio.state().launch?.status, 'cancelled'); assert.equal(obs.playback?.status, 'paused');
   assert.equal(obs.mediaStops, 0); assert.equal(obs.state.recording, true); assert.equal(obs.state.currentScene, 'Nino · Médias');
+});
+
+test('opening the studio during a launch leaves its intro, recording and automatic sequence untouched', async t => {
+  let opens = 0;
+  const { studio, obs, project, actor } = await fixture(t, true, { studioOpener: async () => { opens++; } });
+  await studio.serial(() => studio.control({ action: 'production.start', projectId: project.id }, actor));
+  await until(() => !!obs.playback, 'intro begins');
+  const launch = structuredClone(studio.state().launch); const takeId = studio.state().activeTake!.id; const calls = obs.calls.length;
+  await studio.serial(() => studio.control({ action: 'studio.open' }, actor));
+  assert.equal(opens, 1); assert.deepEqual(studio.state().launch, launch); assert.equal(studio.state().activeTake!.id, takeId);
+  assert.equal(obs.calls.length, calls); assert.equal(obs.state.recording, true); assert.equal(obs.playback!.status, 'playing');
+  obs.playback!.status = 'stopped'; await until(() => studio.state().launch?.status === 'completed', 'original launch still completes');
 });
 
 test('explicit cancel restores only its own intro and leaves its confirmed recording running', async t => {

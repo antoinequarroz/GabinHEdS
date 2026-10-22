@@ -84,8 +84,9 @@ await writeFile(join(destination, 'THIRD-PARTY-NOTICES.txt'), [
   `OBS : ${lock.obs.source}`, '',
 ].join('\n'));
 const required = ['app/apps/web/dist/index.html', 'app/node_modules/tsx/dist/loader.mjs', 'app/node_modules/@esbuild/win32-x64/esbuild.exe',
-  'runtime/node/node.exe', 'runtime/mediamtx/mediamtx.exe', 'windows/Launch-Nino.ps1', 'windows/Prepare-Runtime.ps1',
+  'runtime/node/node.exe', 'runtime/mediamtx/mediamtx.exe', 'windows/Launch-Nino.ps1', 'windows/Prepare-Runtime.ps1', 'windows/Start-Companion.ps1',
   'windows/nino.ico', 'app/docs/guides/nino-installation-salle.pdf', 'app/node_modules/ws/index.js',
-  'app/config/stream-deck/README.md'];
+  'app/config/stream-deck/README.md', 'app/config/stream-deck/Nino-Accueil.companionconfig',
+  'app/apps/api/src/windows-studio-opener.ts'];
 for (const file of required) await readFile(join(destination, file));
 console.log(JSON.stringify({ payload: destination, revision: metadata.revision, requiredFiles: required.length }, null, 2));

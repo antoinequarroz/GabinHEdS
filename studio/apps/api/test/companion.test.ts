@@ -60,6 +60,18 @@ test('feedback reports observed OBS and public live state, and fails closed for 
   assert.equal(companionFeedback(state, 'one', bindings).nino_state_recording, 0, 'a stale connected cache is not confirmed recording');
 });
 
+test('software opening capability fails closed for older API states and does not require OBS or a selected production', () => {
+  const state = fixture();
+  state.obs.connected = false; state.projects = [];
+  const bindings = companionBindings(state, null);
+  assert.equal(companionFeedback(state, null, bindings).nino_state_studio_open_available, 0, 'An older API without this capability cannot enable the welcome action');
+  state.studioOpenAvailable = false;
+  assert.equal(companionFeedback(state, null, bindings).nino_state_studio_open_available, 0);
+  state.studioOpenAvailable = true;
+  const feedback = companionFeedback(state, null, bindings);
+  assert.equal(feedback.nino_state_studio_open_available, 1); assert.equal(feedback.nino_state_obs_connected, 0); assert.equal(feedback.nino_state_project_id, '');
+});
+
 test('another production or an external recording disarms this production without changing selection', () => {
   const state = fixture(); const bindings = companionBindings(state, 'one');
   state.obs.recording = true;
@@ -119,6 +131,8 @@ async function until(check: () => boolean) {
 }
 
 test('bridge disarms before binding and arms last, never reads credentials, updates feedback without commands', async t => {
+  let now = 25_000;
+  t.mock.method(Date, 'now', () => now);
   const companion = await fakeCompanion(t); const state = fixture();
   const statuses: CompanionStatus[] = [];
   const bridge = new CompanionBridge({ getState: () => state, onStatus: status => statuses.push(status), url: companion.url, intervalMs: 60_000, rpcTimeoutMs: 200 });
@@ -133,8 +147,17 @@ test('bridge disarms before binding and arms last, never reads credentials, upda
   assert.ok(companion.calls.every(call => call.input.name !== 'nino_token'));
   assert.ok(companion.requests.every(path => !path.includes('nino_token') && path.startsWith('/api/custom-variable/nino_suite_')));
   assert.equal(companion.values.get('nino_token'), 'never-read-or-modify');
-  const before = companion.calls.length; bridge.refresh(); await new Promise(resolve => setTimeout(resolve, 30));
-  assert.equal(companion.calls.length, before, 'unchanged state is not rewritten');
+  const beforeHeartbeat = companion.calls.length;
+  now += 1000; bridge.refresh();
+  await until(() => companion.values.get('nino_state_updated_at') === 26);
+  // Let the response and the remaining resolved variable writes finish in the
+  // event loop; wall-clock time is fixed and no arbitrary sleep is needed.
+  await new Promise<void>(resolve => setImmediate(resolve));
+  assert.deepEqual(companion.calls.slice(beforeHeartbeat), [{ method: 'mutation', path: 'customVariables.setCurrent', input: { name: 'nino_state_updated_at', value: 26 } }],
+    'the next second rewrites only the heartbeat, with its exact observed value');
+  const beforeUnchanged = companion.calls.length;
+  bridge.refresh(); await new Promise<void>(resolve => setImmediate(resolve));
+  assert.equal(companion.calls.length, beforeUnchanged, 'unchanged state and heartbeat are not rewritten');
   state.obs.inputs[0].muted = true; bridge.refresh();
   await until(() => companion.values.get('nino_state_mic_1') === 'muted');
   await bridge.stop();

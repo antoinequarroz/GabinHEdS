@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 // Native Companion exports are JSON, intentionally usable without the API TS runtime.
 // @ts-expect-error JavaScript authoring utility has no declaration file.
-import { upgradeCompanionProfile, FRESH } from '../scripts/companion-profile.mjs';
+import { upgradeCompanionProfile, createWelcomeProfile, FRESH } from '../scripts/companion-profile.mjs';
 
 const V = (value: unknown) => ({ value, isExpression: false });
 const template = () => ({ type: 'button-layered', options: {}, feedbacks: [], localVariables: [], style: { layers: [{ id: 'canvas', type: 'canvas' }, { id: 'image', type: 'image', base64Image: V('data:image/png;base64,placeholder') }] }, steps: { '0': { action_sets: { down: [], up: [] } } } });
@@ -70,4 +70,49 @@ test('clear activity borders distinguish REC, pause and stop without lighting ev
   assert.equal(led(2).color.value, 0xf1c27b, 'confirmed pause uses amber');
   const band = upgraded.page.controls['0']['0'].style.layers.find((layer: { name: string }) => layer.name === 'Nino · État fond');
   assert.equal(band.height.value, 24);
+});
+
+test('welcome opens software with fresh operator access but needs neither OBS nor a production', () => {
+  const welcome = createWelcomeProfile(page(), 'data:image/png;base64,iVBOR-test-placeholder');
+  const open = welcome.page.controls['1']['2'];
+  const guarded = open.steps['0'].action_sets.down[0];
+  const expression = guarded.children.condition[0].options.expression.value;
+  const noProduction = { nino_state_online: 1, nino_state_updated_at: 100, nino_token: 'fake-test-token', nino_state_obs_connected: 0, nino_state_studio_open_available: 1 };
+  assert.equal(evaluate(expression, noProduction), true);
+  assert.equal(evaluate(expression, {}), false, 'an uninitialized/offline page never sends an unauthenticated request');
+  assert.equal(evaluate(expression, { ...noProduction, nino_token: '' }), false);
+  assert.equal(evaluate(expression, { ...noProduction, nino_state_studio_open_available: 0 }), false, 'unsupported runtimes must not display a ready opening command');
+  const oldApi: Record<string, unknown> = { ...noProduction };
+  delete oldApi.nino_state_studio_open_available;
+  assert.equal(evaluate(expression, oldApi), false, 'an older API without capability information fails closed');
+  const status = open.style.layers.find((layer: any) => layer.name === 'Nino · Ouvrir état réel').text.value;
+  assert.equal(evaluate(status, noProduction), 'LOGICIELS SEULS');
+  assert.equal(evaluate(status, { ...noProduction, nino_state_studio_open_available: 0 }), 'VERSION NINO REQUISE');
+  assert.equal(evaluate(status, oldApi), 'VERSION NINO REQUISE');
+  assert.equal(evaluate(status, { ...noProduction, nino_token: '' }), 'LIER LE DECK');
+  assert.equal(evaluate(expression, noProduction, 105), false);
+  assert.ok(!/nino_project_id|nino_suite_binding_project_id|nino_state_obs_connected|nino_state_project_conflict/.test(expression));
+  assert.deepEqual(JSON.parse(guarded.children.actions[0].options.body.value), { action: 'studio.open' });
+  const allActions = Object.values(welcome.page.controls).flatMap((row: any) => Object.values(row)).flatMap((control: any) => control.steps['0'].action_sets.down);
+  const allPosts = allActions.flatMap((action: any) => action.children?.actions || []);
+  assert.equal(allPosts.length, 1);
+  assert.ok(!allActions.some((action: any) => action.definitionId === 'exec'));
+  assert.ok(open.style.layers.some((layer: any) => layer.text?.value === 'OUVRIR\nLE STUDIO' && layer.enabled.value === true));
+  assert.ok(open.style.layers.some((layer: any) => layer.text?.value === 'NINO HORS LIGNE' && layer.enabled.value === true));
+  assert.ok(welcome.page.controls['0']['2'].style.layers.some((layer: any) => layer.name === 'Nino · Logo' && layer.enabled.value === true));
+});
+
+test('welcome navigation works before Nino variables exist, and the Menu keeps its existing controls', () => {
+  const welcome = createWelcomeProfile(page(), 'data:image/png;base64,iVBOR-test-placeholder');
+  const goMenu = welcome.page.controls['2']['2'].steps['0'].action_sets.down[0];
+  const goRegie = welcome.page.controls['2']['0'].steps['0'].action_sets.down[0];
+  assert.equal(evaluate(goMenu.options.page.value, {}), 6);
+  assert.equal(evaluate(goRegie.options.page.value, {}), 2);
+  assert.equal(evaluate(goMenu.options.page.value, { nino_suite_page_menu: '12' }), '12');
+  const original = page();
+  const next = upgradeCompanionProfile(original, 'menu');
+  const goHome = next.page.controls['2']['2'].steps['0'].action_sets.down[0];
+  assert.equal(evaluate(goHome.options.page.value, {}), 7);
+  for (const column of [0, 1, 2, 3]) assert.deepEqual(next.page.controls['0'][column], original.page.controls['0'][column]);
+  assert.deepEqual(next.page.controls['2']['4'], original.page.controls['2']['4']);
 });

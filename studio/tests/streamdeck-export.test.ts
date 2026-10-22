@@ -33,12 +33,19 @@ test('published pages contain the complete MK.2 controls, guarded authenticated 
       if (action.definitionId === 'set_page') {
         assert.equal(action.options.surfaceId.value, 'self');
         assert.equal(action.options.page.isExpression, true);
-        navigationNames.add(action.options.page.value);
+        navigationNames.add(action.options.page.value.match(/^\$\([^)]*\)/)[0]);
       } else {
         const guard = action.children.condition[0].options.expression.value;
         assert.ok(guard.includes('internal:time_unix'));
-        assert.ok(guard.includes('nino_suite_binding_project_id'));
-        assert.ok(guard.includes('nino_state_project_conflict'));
+        const isSoftwareOpening = JSON.parse(action.children.actions[0].options.body.value).action === 'studio.open';
+        if (isSoftwareOpening) {
+          assert.ok(!/nino_suite_binding_project_id|nino_state_project_conflict|nino_project_id|nino_state_obs_connected/.test(guard));
+          assert.ok(guard.includes('$(custom:nino_state_studio_open_available) == 1'));
+        }
+        else {
+          assert.ok(guard.includes('nino_suite_binding_project_id'));
+          assert.ok(guard.includes('nino_state_project_conflict'));
+        }
       }
     }
     for (const action of posts(page)) {
@@ -54,7 +61,7 @@ test('published pages contain the complete MK.2 controls, guarded authenticated 
       if (payload.action === 'media.play') assert.match(payload.assetId, /^\$\(custom:nino_suite_asset_(intro|outro|logo|music)\)$/);
     }
     const images = controls(page).flatMap(control => control.style.layers).filter(layer => layer.type === 'image');
-    assert.ok(images.length >= 4, 'committed pages include their own raster glyphs');
+    assert.ok(images.length >= (key === 'accueil' ? 1 : 4), 'committed pages include their own raster glyphs');
     for (const image of images) assert.ok(image.base64Image.value.includes('data:image/png;base64,iVBOR'), 'no local image file is needed');
   }
   assert.equal(connectionIds.size, 1, 'the five pages are designed to reuse one Nino connection');
@@ -62,18 +69,37 @@ test('published pages contain the complete MK.2 controls, guarded authenticated 
   assert.deepEqual([...navigationNames].sort(), Object.keys(navigationDefaults).map(name => `$(custom:${name})`).sort());
 });
 
-test('all five page exports can be regenerated using only published repository inputs', async t => {
+test('all six page exports can be regenerated using only published repository inputs', async t => {
   const output = await mkdtemp(path.join(os.tmpdir(), 'nino-streamdeck-exports-'));
   t.after(() => rm(output, { recursive: true, force: true }));
   const hashes = async () => Promise.all((Object.values(profileFiles) as string[]).map(async file => createHash('sha256').update(await readFile(new URL(file, directory))).digest('hex')));
   const before = await hashes();
   const result = await buildStreamDeckProfiles(output);
   assert.equal(result.credentialsIncluded, false);
-  assert.equal(result.files.length, 5);
+  assert.equal(result.files.length, 6);
   for (const file of result.files) assertShareableProfile(JSON.parse(await readFile(path.join(output, file), 'utf8')), file);
   assert.deepEqual(JSON.parse(await readFile(path.join(output, 'variables-navigation.json'), 'utf8')), navigationDefaults);
   assert.ok((await readFile(path.join(output, 'README.md'), 'utf8')).includes('Tout lancer'));
+  assert.deepEqual(await readFile(path.join(output, 'nino-logo.png')), await readFile(new URL('nino-logo.png', directory)));
   assert.deepEqual(await hashes(), before, 'regeneration leaves the committed source templates unchanged');
+});
+
+test('welcome has exactly one software-only POST and cannot acquire arbitrary process arguments', async () => {
+  const welcome = await load(profileFiles.accueil);
+  const softwarePosts = posts(welcome);
+  assert.equal(softwarePosts.length, 1);
+  assert.deepEqual(JSON.parse(softwarePosts[0].options.body.value), { action: 'studio.open' });
+  const guard = commands(welcome).find(command => command.definitionId === 'logic_if').children.condition[0].options.expression;
+  const originalGuard = guard.value;
+  guard.value = originalGuard.replace('$(custom:nino_state_studio_open_available) == 1', 'true');
+  assert.throws(() => assertShareableProfile(welcome), /Ouverture logicielle non bornée/, 'portable profiles must require a positively announced software-opening capability');
+  guard.value = originalGuard;
+  softwarePosts[0].options.body.value = '{"action":"studio.open","command":"arbitrary-command-sentinel"}';
+  assert.throws(() => assertShareableProfile(welcome), /Ouverture logicielle non bornée/);
+  const logo = await readFile(new URL('nino-logo.png', directory));
+  assert.equal(logo.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
+  assert.equal(logo.readUInt32BE(16), 192);
+  assert.equal(logo.readUInt32BE(20), 192);
 });
 
 test('the export validation rejects a literal device credential or an unguarded action', async () => {
