@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { WebSocketServer, type WebSocket } from 'ws';
-import type { StudioState } from '@gabin/shared';
+import type { StudioState } from '@nino/shared';
 import { companionBindings, companionFeedback, CompanionBridge, type CompanionStatus } from '../src/companion.js';
 import { emptyObsState } from '../src/obs.js';
 import { emptyMediaState } from '../src/media.js';

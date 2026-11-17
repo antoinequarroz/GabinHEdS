@@ -3,8 +3,8 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { executable } from './media-runtime.mjs';
 
-const binary = process.env.GABIN_MEDIAMTX_PATH ?? executable;
-if (!existsSync(binary)) throw new Error('MediaMTX manque. Exécutez npm run setup:media ou définissez GABIN_MEDIAMTX_PATH.');
+const binary = process.env.NINO_MEDIAMTX_PATH ?? executable;
+if (!existsSync(binary)) throw new Error('MediaMTX manque. Exécutez npm run setup:media ou définissez NINO_MEDIAMTX_PATH.');
 const configuration = fileURLToPath(new URL('../config/mediamtx.yml', import.meta.url));
 const child = spawn(binary, [configuration], { stdio: 'inherit', windowsHide: true });
 let stopping = false;

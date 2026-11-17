@@ -41,7 +41,7 @@ Les invités rejoignent ce mode après admission et réception réelle par leur 
 
 ## Prérequis
 
-Installer Node.js **24 ou supérieur**, npm et OBS Studio sur le PC de la salle. Ajouter **MediaMTX** et **FFmpeg** pour le retour vidéo et la diffusion live. Vérifier `node --version` avant l’installation. Le dépôt est un workspace npm ; exécuter les commandes dans `studio/`, jamais dans les dossiers historiques `desktop-app/` ou `gabinOneclick/`.
+Installer Node.js **24 ou supérieur**, npm et OBS Studio sur le PC de la salle. Ajouter **MediaMTX** et **FFmpeg** pour le retour vidéo et la diffusion live. Vérifier `node --version` avant l’installation. Le dépôt est un workspace npm ; exécuter les commandes dans `studio/`.
 
 OBS Studio intègre le contrôle WebSocket depuis la version 28. Dans **Outils → Paramètres du serveur WebSocket**, activer le serveur et l’authentification, conserver le port **4455** et choisir un mot de passe. Nino se connecte à `ws://127.0.0.1:4455` sur le même PC. Voir [le guide officiel OBS](https://obsproject.com/kb/remote-control-guide).
 
@@ -54,7 +54,7 @@ Le programme vidéo envoyé à MediaMTX doit utiliser **H.264 et AAC** pour ce p
 Sur ce dépôt, Portly supervise les serveurs et les travaux ponctuels. Si `portly` n’est pas dans le PATH, utiliser `/Applications/Portly.app/Contents/Resources/portly-cli` à sa place.
 
 ```sh
-cd /Users/antoinequarroz/Lab/projets/GabinHEdS/studio
+cd /Users/antoinequarroz/Lab/projets/nino-studio/studio
 portly status
 job_id="$(portly temp 'npm install' --path "$PWD" --timeout 30m)"
 portly wait "$job_id"
@@ -67,17 +67,29 @@ portly wait "$job_id"
 La construction vérifie les types et produit l’interface. Pour enregistrer durablement le serveur de la salle, réutiliser le projet Portly s’il existe ; sinon :
 
 ```sh
-portly add-project --name GabinHEdS --path "$PWD" --icon video --color '#175A4B' --json
+portly add-project --name Nino --path "$PWD" --icon video --color '#175A4B' --json
 portly port 4310 --json
-portly add-server --project GabinHEdS --name studio --command 'npm start' --port 4310 --start --json
+portly add-server --project Nino --name studio --command 'npm start' --port 4310 --start --json
 portly port 1935 --json
-portly add-server --project GabinHEdS --name media --command 'npm run start:media' --port 1935 --start --json
+portly add-server --project Nino --name media --command 'npm run start:media' --port 1935 --start --json
 portly status
 ```
 
-Le téléchargement MediaMTX utilise une version fixe et vérifie l’empreinte SHA-256 de sa publication officielle avant l’extraction. `npm run start:media` charge ensuite la configuration locale de `config/mediamtx.yml`. Réutiliser le serveur `media` déjà enregistré et sain plutôt que d’en créer un deuxième. Installer séparément [FFmpeg](https://ffmpeg.org/download.html), puis vérifier `ffmpeg -version` ; `GABIN_FFMPEG_PATH` permet d’indiquer son exécutable si nécessaire.
+Le téléchargement MediaMTX utilise une version fixe et vérifie l’empreinte SHA-256 de sa publication officielle avant l’extraction. `npm run start:media` charge ensuite la configuration locale de `config/mediamtx.yml`. Réutiliser le serveur `media` déjà enregistré et sain plutôt que d’en créer un deuxième. Installer séparément [FFmpeg](https://ffmpeg.org/download.html), puis vérifier `ffmpeg -version` ; `NINO_FFMPEG_PATH` permet d’indiquer son exécutable si nécessaire.
 
-Ouvrir `http://127.0.0.1:4310`. Le serveur sert l’interface construite et l’API sur la même adresse. Les logs se consultent avec `portly logs GabinHEdS/studio --tail 100` et `portly logs GabinHEdS/media --tail 100` ; les commandes `portly stop` et `portly restart` ciblent le serveur concerné.
+Ouvrir `http://127.0.0.1:4310`. Le serveur sert l’interface construite et l’API sur la même adresse. Les logs se consultent avec `portly logs Nino/studio --tail 100` et `portly logs Nino/media --tail 100` ; les commandes `portly stop` et `portly restart` ciblent le serveur concerné.
+
+## Mettre à jour une installation existante
+
+Cette version remplace les anciens noms techniques par `Nino`. Sur un poste déjà installé depuis les sources :
+
+1. Dans la commande du serveur Portly et dans les fichiers `.env.local` ou `.env.guests`, remplacer l’ancien préfixe des variables d’environnement par `NINO_`. Une variable portant l’ancien préfixe est ignorée sans message : le serveur revient alors à l’écoute sur `127.0.0.1` et au dossier de données par défaut.
+2. Renommer le projet Portly en `Nino`, ou le recréer avec les commandes ci-dessus.
+3. Exécuter une fois `npm run setup:media` : le binaire MediaMTX est maintenant cherché dans `~/.cache/nino-studio/`.
+4. Redémarrer ensemble les serveurs `studio` et `media`, puis arrêter une diffusion OBS restée active : le chemin interne du programme devient `nino/program` et Nino reconfigure OBS au prochain retour vidéo.
+5. Associer de nouveau chaque iPad avec un code, puis révoquer les anciens appareils dans **Appareils**.
+
+L’installateur Windows applique ces changements lui-même.
 
 ## Installation sur le PC Windows
 
@@ -88,7 +100,7 @@ La procédure manuelle suivante reste disponible pour un technicien travaillant 
 Dans PowerShell, depuis le dépôt, adapter le chemin si nécessaire :
 
 ```powershell
-Set-Location 'C:\GabinHEdS\studio'
+Set-Location 'C:\Nino\studio'
 node --version
 npm install
 npm run build
@@ -96,12 +108,12 @@ npm run setup:media
 npm start
 ```
 
-Installer [FFmpeg](https://ffmpeg.org/download.html) et rendre son exécutable accessible dans le PATH, ou définir `$env:GABIN_FFMPEG_PATH` avec son chemin complet. Dans une seconde fenêtre PowerShell ouverte dans `studio/`, exécuter `npm run start:media`. Garder les deux fenêtres ouvertes pendant l’utilisation, puis accéder à `http://127.0.0.1:4310`. Pour éviter ces commandes au quotidien, utiliser le raccourci de l’installateur. Le démarrage automatique avec la session Windows reste à préparer séparément. Portly est le superviseur utilisé sur le Mac de développement ; il n’est pas requis sur ce PC Windows.
+Installer [FFmpeg](https://ffmpeg.org/download.html) et rendre son exécutable accessible dans le PATH, ou définir `$env:NINO_FFMPEG_PATH` avec son chemin complet. Dans une seconde fenêtre PowerShell ouverte dans `studio/`, exécuter `npm run start:media`. Garder les deux fenêtres ouvertes pendant l’utilisation, puis accéder à `http://127.0.0.1:4310`. Pour éviter ces commandes au quotidien, utiliser le raccourci de l’installateur. Le démarrage automatique avec la session Windows reste à préparer séparément. Portly est le superviseur utilisé sur le Mac de développement ; il n’est pas requis sur ce PC Windows.
 
 ## Première utilisation dans la salle
 
 1. Lancer OBS et ouvrir Nino sur le PC à l’adresse locale ci-dessus. Le navigateur local obtient un accès technicien ; une tablette doit être associée depuis cet accès.
-2. Ouvrir les réglages de la salle : nom, adresse WebSocket locale, mot de passe OBS et racine des enregistrements. Choisir un disque du PC disposant de suffisamment d’espace, par exemple `D:\Gabin\Enregistrements` sur Windows.
+2. Ouvrir les réglages de la salle : nom, adresse WebSocket locale, mot de passe OBS et racine des enregistrements. Choisir un disque du PC disposant de suffisamment d’espace, par exemple `D:\Nino\Enregistrements` sur Windows.
 3. Enregistrer les réglages, connecter OBS, puis sélectionner les scènes disponibles pour les trois formats.
 4. Créer une production avec un titre réel, son responsable et ses intervenants. Associer les micros et la **Scène affichée au démarrage**. Le choix « Profil de la salle » utilise la scène associée au format dans les réglages de la salle.
 5. Passer à la préparation. Corriger les blocages et écouter/tester physiquement les micros et vérifier les images dans OBS. Les contrôles logiciels ne garantissent pas que la caméra est bien cadrée ni que le micro capte correctement.
@@ -141,21 +153,21 @@ Fermer ou déconnecter un navigateur PC/iPad ne coupe ni la prise ni le relais p
 
 ## Contrôle iPad et réseau local
 
-Le serveur écoute sur `127.0.0.1` par défaut et n’est accessible que depuis le PC. Pour un pilote sur le réseau privé de la salle, le configurer avec `GABIN_HOST=0.0.0.0` et `GABIN_PORT=4310`, puis autoriser le port dans le pare-feu uniquement pour le réseau concerné.
+Le serveur écoute sur `127.0.0.1` par défaut et n’est accessible que depuis le PC. Pour un pilote sur le réseau privé de la salle, le configurer avec `NINO_HOST=0.0.0.0` et `NINO_PORT=4310`, puis autoriser le port dans le pare-feu uniquement pour le réseau concerné.
 
 Sur Windows, avant `npm start` :
 
 ```powershell
-$env:GABIN_HOST = '0.0.0.0'
-$env:GABIN_PORT = '4310'
+$env:NINO_HOST = '0.0.0.0'
+$env:NINO_PORT = '4310'
 npm start
 ```
 
 Sur macOS, enregistrer ces variables dans la commande du serveur Portly, puis redémarrer :
 
 ```sh
-portly update-server GabinHEdS/studio --command 'GABIN_HOST=0.0.0.0 GABIN_PORT=4310 npm start'
-portly restart GabinHEdS/studio
+portly update-server Nino/studio --command 'NINO_HOST=0.0.0.0 NINO_PORT=4310 npm start'
+portly restart Nino/studio
 ```
 
 Depuis l’iPad connecté au même réseau, ouvrir `http://ADRESSE-IP-DU-PC:4310` dans Safari. Sur le PC, ouvrir **Appareils**, générer un code d’association et le saisir sur l’iPad avec un nom identifiable. Le code expire après **cinq minutes** et ne sert qu’une fois ; la tablette obtient son propre accès opérateur, valable **30 jours**. Elle retrouve les mêmes projets, scènes et commandes. Révoquer une tablette dans **Appareils** invalide son jeton ; après expiration, l’associer à nouveau.
@@ -164,7 +176,7 @@ Cette association contrôle l’accès, mais HTTP ne chiffre pas les jetons ni l
 
 ## Données et récupération
 
-La base locale `studio/.data/studio.sqlite` conserve les projets, les prises, les repères, les paramètres privés OBS/live et les empreintes des jetons d’appareils. Le dossier de données peut être déplacé avec `GABIN_DATA_DIR` avant le lancement du serveur. Cette variable ne déplace pas les vidéos : leur racine se règle séparément dans l’interface.
+La base locale `studio/.data/studio.sqlite` conserve les projets, les prises, les repères, les paramètres privés OBS/live et les empreintes des jetons d’appareils. Le dossier de données peut être déplacé avec `NINO_DATA_DIR` avant le lancement du serveur. Cette variable ne déplace pas les vidéos : leur racine se règle séparément dans l’interface.
 
 Par défaut, la racine des médias des nouvelles installations est `Videos/Nino` dans le dossier personnel du compte qui exécute le serveur. Les chemins déjà configurés sont conservés. OBS écrit chaque prise dans un sous-dossier propre au projet et à la prise. Le téléchargement utilise le chemin confirmé par OBS, vérifie qu’il reste dans le dossier de cette prise et exige un appareil autorisé.
 
@@ -193,9 +205,9 @@ Les tests comprennent des doubles d’OBS et un serveur de protocole WebSocket d
 
 Le contrôle navigateur `npm run test:browser` utilise l’interface compilée, l’API réelle et l’adaptateur OBS réel contre ce serveur de protocole. Il lance également un vrai MediaMTX et une source FFmpeg de mire animée avec sinus audio sur des ports temporaires. Il vérifie les trames HLS décodées et changeantes, l’audio AAC activable sur PC et au format iPad, le live réellement reçu par une deuxième destination RTMP locale, les arrêts indépendants, le contrôle Stream Deck par jeton dédié, l’association de l’iPad, la bibliothèque, la lecture et l’export. Construire l’interface et installer MediaMTX/FFmpeg avant de l’exécuter. Le test n’utilise ni caméra ni micro du poste et ne touche pas le serveur de la salle. Le protocole de capture reste un double ; les fichiers de mire des tests de lecture sont réellement encodés et décodés.
 
-Playwright et Chromium doivent être disponibles pour ce contrôle supplémentaire. Sur le Mac Codex, le script retrouve les dépendances du runtime. Sur un autre poste, fournir un module Playwright déjà installé via `GABIN_PLAYWRIGHT_MODULE` et, si nécessaire, l’exécutable via `GABIN_CHROMIUM_PATH`. `GABIN_SCREENSHOT_DIR` permet de choisir la destination des captures ; par défaut, elles vont dans le dossier temporaire du système. Aucune nouvelle dépendance du projet n’est nécessaire pour utiliser le runtime fourni.
+Playwright et Chromium doivent être disponibles pour ce contrôle supplémentaire. Sur le Mac Codex, le script retrouve les dépendances du runtime. Sur un autre poste, fournir un module Playwright déjà installé via `NINO_PLAYWRIGHT_MODULE` et, si nécessaire, l’exécutable via `NINO_CHROMIUM_PATH`. `NINO_SCREENSHOT_DIR` permet de choisir la destination des captures ; par défaut, elles vont dans le dossier temporaire du système. Aucune nouvelle dépendance du projet n’est nécessaire pour utiliser le runtime fourni.
 
-`GABIN_TEST_BROWSER=webkit` exécute aussi le parcours avec le moteur WebKit installé pour Playwright, afin de vérifier la branche HLS native. Ce test utilise une deuxième origine sur une adresse IPv4 du poste pour l’association distante ; `GABIN_IPAD_HOST` permet de la choisir explicitement. Le test WebKit utilise temporairement l’écoute sur les interfaces réseau et conserve sa propre base. WebKit sur le Mac ne remplace pas la recette Safari sur le véritable iPad. `GABIN_TEST_LOGGER=1` active les journaux diagnostiques du test.
+`NINO_TEST_BROWSER=webkit` exécute aussi le parcours avec le moteur WebKit installé pour Playwright, afin de vérifier la branche HLS native. Ce test utilise une deuxième origine sur une adresse IPv4 du poste pour l’association distante ; `NINO_IPAD_HOST` permet de la choisir explicitement. Le test WebKit utilise temporairement l’écoute sur les interfaces réseau et conserve sa propre base. WebKit sur le Mac ne remplace pas la recette Safari sur le véritable iPad. `NINO_TEST_LOGGER=1` active les journaux diagnostiques du test.
 
 ```sh
 job_id="$(portly temp 'npm run test:browser' --path "$PWD" --timeout 5m)"

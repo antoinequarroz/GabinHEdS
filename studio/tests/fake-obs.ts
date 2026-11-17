@@ -44,7 +44,7 @@ export interface FakeObsOptions {
 }
 
 export async function startFakeObs(options: FakeObsOptions = {}) {
-  const ownedDirectory = options.recordDirectory ? null : await mkdtemp(join(tmpdir(), 'gabin-fake-obs-'));
+  const ownedDirectory = options.recordDirectory ? null : await mkdtemp(join(tmpdir(), 'nino-fake-obs-'));
   let recordDirectory = options.recordDirectory ?? ownedDirectory!;
   let currentScene = 'Table ronde';
   const outgoingScenes = new Map<string, number>();
@@ -147,7 +147,7 @@ export async function startFakeObs(options: FakeObsOptions = {}) {
         const fail = (value: number, reason: string) => { code = value; comment = reason; };
         switch (request.requestType) {
           case 'GetVersion': responseData = { obsVersion: 'test-fixture', obsWebSocketVersion: '5.6.0', rpcVersion: 1,
-            availableRequests: supported, supportedImageFormats: ['jpeg'], platform: 'test', platformDescription: 'Gabin protocol fixture' }; break;
+            availableRequests: supported, supportedImageFormats: ['jpeg'], platform: 'test', platformDescription: 'Nino protocol fixture' }; break;
           case 'GetSourceScreenshot':
             if (!scenes.includes(String(request.requestData.sourceName))) fail(600, 'Scene not found');
             else if (request.requestData.imageFormat !== 'jpeg') fail(400, 'The fixture supports JPEG only');

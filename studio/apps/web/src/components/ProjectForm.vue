@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { formatLabels, type Participant, type ProductionFormat, type Project, type ProjectInput } from '@gabin/shared';
+import { formatLabels, type Participant, type ProductionFormat, type Project, type ProjectInput } from '@nino/shared';
 import { newId, useStudio } from '../composables/useStudio';
 import Icon from './Icon.vue';
 const props = defineProps<{ project?: Project }>();

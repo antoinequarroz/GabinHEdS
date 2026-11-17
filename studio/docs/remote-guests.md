@@ -137,8 +137,8 @@ Pour le tunnel inversé en boucle locale, le proxy doit écraser `X-Nino-Client-
 ```sh
 portly status
 chmod 600 .env.local
-portly update-server GabinHEdS/studio --command 'node --env-file=.env.local --import tsx apps/api/src/index.ts'
-portly restart GabinHEdS/studio
+portly update-server Nino/studio --command 'node --env-file=.env.local --import tsx apps/api/src/index.ts'
+portly restart Nino/studio
 ```
 
 Le chemin du serveur Portly doit être `studio/`. Garder dans ce fichier les autres variables nécessaires à l’installation avant de remplacer une commande qui les définissait auparavant. Le chargement `--env-file` est documenté dans [la référence Node](https://nodejs.org/api/cli.html#--env-filefile). Cette opération de maintenance doit se faire hors prise et hors live ; le redémarrage termine les sessions invitées.

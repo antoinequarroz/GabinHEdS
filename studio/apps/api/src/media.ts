@@ -1,4 +1,4 @@
-import type { MediaState } from '@gabin/shared';
+import type { MediaState } from '@nino/shared';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync } from 'node:fs';
 
@@ -63,13 +63,13 @@ export class RealMediaGateway implements MediaGateway {
   private refreshing: Promise<MediaState> | null = null;
 
   constructor(options: MediaOptions = {}) {
-    this.apiUrl = localUrl(options.apiUrl ?? process.env.GABIN_MEDIA_API_URL ?? 'http://127.0.0.1:9997', ['http:']);
-    this.hlsUrl = localUrl(options.hlsUrl ?? process.env.GABIN_MEDIA_HLS_URL ?? 'http://127.0.0.1:8888', ['http:']);
-    this.rtspUrl = localUrl(options.rtspUrl ?? process.env.GABIN_MEDIA_RTSP_URL ?? 'rtsp://127.0.0.1:8554', ['rtsp:']);
-    this.rtmpUrl = localUrl(options.rtmpUrl ?? process.env.GABIN_MEDIA_RTMP_URL ?? 'rtmp://127.0.0.1:1935', ['rtmp:']);
-    this.path = options.path ?? process.env.GABIN_MEDIA_PATH ?? 'gabin/program';
+    this.apiUrl = localUrl(options.apiUrl ?? process.env.NINO_MEDIA_API_URL ?? 'http://127.0.0.1:9997', ['http:']);
+    this.hlsUrl = localUrl(options.hlsUrl ?? process.env.NINO_MEDIA_HLS_URL ?? 'http://127.0.0.1:8888', ['http:']);
+    this.rtspUrl = localUrl(options.rtspUrl ?? process.env.NINO_MEDIA_RTSP_URL ?? 'rtsp://127.0.0.1:8554', ['rtsp:']);
+    this.rtmpUrl = localUrl(options.rtmpUrl ?? process.env.NINO_MEDIA_RTMP_URL ?? 'rtmp://127.0.0.1:1935', ['rtmp:']);
+    this.path = options.path ?? process.env.NINO_MEDIA_PATH ?? 'nino/program';
     if (!/^[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*$/.test(this.path)) throw new Error('Chemin média invalide.');
-    this.ffmpeg = options.ffmpegPath ?? process.env.GABIN_FFMPEG_PATH
+    this.ffmpeg = options.ffmpegPath ?? process.env.NINO_FFMPEG_PATH
       ?? (existsSync('/opt/homebrew/bin/ffmpeg') ? '/opt/homebrew/bin/ffmpeg' : 'ffmpeg');
     this.timer = setInterval(() => { void this.refresh(); }, options.pollIntervalMs ?? 1500);
     this.timer.unref();

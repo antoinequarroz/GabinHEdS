@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import type { Project, GuestSlot } from '@gabin/shared';
+import type { Project, GuestSlot } from '@nino/shared';
 import { useStudio, newId } from '../composables/useStudio';
 import { bridgeSessionKey } from '../guests/guestApi';
 import Icon from './Icon.vue';

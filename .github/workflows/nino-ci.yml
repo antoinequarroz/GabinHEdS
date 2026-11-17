@@ -79,8 +79,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     env:
-      GABIN_TEST_BROWSER: ${{ matrix.browser }}
-      GABIN_CHROMIUM_CHANNEL: ${{ matrix.chromium-channel }}
+      NINO_TEST_BROWSER: ${{ matrix.browser }}
+      NINO_CHROMIUM_CHANNEL: ${{ matrix.chromium-channel }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -125,28 +125,28 @@ jobs:
       - name: Tester le parcours complet
         timeout-minutes: 10
         env:
-          GABIN_PLAYWRIGHT_MODULE: ${{ runner.temp }}/nino-playwright/node_modules/playwright
-          GABIN_SCREENSHOT_DIR: ${{ runner.temp }}/nino-artifacts/${{ matrix.browser }}
+          NINO_PLAYWRIGHT_MODULE: ${{ runner.temp }}/nino-playwright/node_modules/playwright
+          NINO_SCREENSHOT_DIR: ${{ runner.temp }}/nino-artifacts/${{ matrix.browser }}
         run: |
-          mkdir -p "$GABIN_SCREENSHOT_DIR"
-          npm run test:browser 2>&1 | tee "$GABIN_SCREENSHOT_DIR/browser.log"
+          mkdir -p "$NINO_SCREENSHOT_DIR"
+          npm run test:browser 2>&1 | tee "$NINO_SCREENSHOT_DIR/browser.log"
       - name: Tester le téléchargement MP4 sur PC et iPad
         timeout-minutes: 5
         env:
-          GABIN_PLAYWRIGHT_MODULE: ${{ runner.temp }}/nino-playwright/node_modules/playwright
-          GABIN_SCREENSHOT_DIR: ${{ runner.temp }}/nino-artifacts/${{ matrix.browser }}/mp4
+          NINO_PLAYWRIGHT_MODULE: ${{ runner.temp }}/nino-playwright/node_modules/playwright
+          NINO_SCREENSHOT_DIR: ${{ runner.temp }}/nino-artifacts/${{ matrix.browser }}/mp4
         run: |
-          mkdir -p "$GABIN_SCREENSHOT_DIR"
-          npm run test:mp4:browser 2>&1 | tee "$GABIN_SCREENSHOT_DIR/mp4.log"
+          mkdir -p "$NINO_SCREENSHOT_DIR"
+          npm run test:mp4:browser 2>&1 | tee "$NINO_SCREENSHOT_DIR/mp4.log"
       - name: Tester les invités WebRTC et le retour audio sans voix propre
         timeout-minutes: 10
         env:
-          GABIN_PLAYWRIGHT_MODULE: ${{ runner.temp }}/nino-playwright/node_modules/playwright
-          GABIN_GUEST_SCREENSHOT_DIR: ${{ runner.temp }}/nino-artifacts/${{ matrix.browser }}/guests
-          GABIN_GUEST_TEST_STUN: '1'
+          NINO_PLAYWRIGHT_MODULE: ${{ runner.temp }}/nino-playwright/node_modules/playwright
+          NINO_GUEST_SCREENSHOT_DIR: ${{ runner.temp }}/nino-artifacts/${{ matrix.browser }}/guests
+          NINO_GUEST_TEST_STUN: '1'
         run: |
-          mkdir -p "$GABIN_GUEST_SCREENSHOT_DIR"
-          npm run test:guests:browser 2>&1 | tee "$GABIN_GUEST_SCREENSHOT_DIR/guests.log"
+          mkdir -p "$NINO_GUEST_SCREENSHOT_DIR"
+          npm run test:guests:browser 2>&1 | tee "$NINO_GUEST_SCREENSHOT_DIR/guests.log"
       - name: Conserver les captures et le journal du test
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

@@ -1,8 +1,6 @@
-# GabinHEdS
+# Nino
 
-The new studio application lives in `studio/`. The legacy `desktop-app/` and
-`gabinOneclick/` directories are references only; do not run their installation
-or launch scripts when working on the new version.
+The studio application lives in `studio/`. Run every npm command from that directory.
 
 ## Development servers
 

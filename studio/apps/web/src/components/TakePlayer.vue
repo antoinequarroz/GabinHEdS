@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
-import type { Take } from '@gabin/shared';
+import type { Take } from '@nino/shared';
 import { useStudio } from '../composables/useStudio';
 import { failureText, playbackUrl } from './filePlayback';
 import Icon from './Icon.vue';

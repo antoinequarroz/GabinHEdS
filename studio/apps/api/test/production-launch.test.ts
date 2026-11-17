@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { MediaAsset, MediaPlayback, MediaState, ObsState } from '@gabin/shared';
+import type { MediaAsset, MediaPlayback, MediaState, ObsState } from '@nino/shared';
 import { Studio } from '../src/studio.js';
 import { Store } from '../src/store.js';
 import { emptyObsState, type ObsEvent, type ObsGateway, type ObsMediaOptions } from '../src/obs.js';
@@ -54,7 +54,7 @@ class MediaFixture implements MediaGateway {
   liveStarts = 0;
   getState() { return structuredClone(this.state); }
   async refresh() { this.state.previewReady = true; return this.getState(); }
-  ingestSettings() { return { server: 'rtmp://127.0.0.1:1935/gabin', key: 'program' }; }
+  ingestSettings() { return { server: 'rtmp://127.0.0.1:1935/nino', key: 'program' }; }
   async startLive() { this.liveStarts++; this.state.liveStatus = 'live'; }
   async stopLive() { this.state.liveStatus = 'idle'; }
   async hlsResource() { return new Response(''); }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import type { MediaAsset, MediaKind } from '@gabin/shared';
+import type { MediaAsset, MediaKind } from '@nino/shared';
 import { useStudio } from '../composables/useStudio';
 import Icon from '../components/Icon.vue';
 import MediaPreview from '../components/MediaPreview.vue';

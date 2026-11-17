@@ -1,5 +1,5 @@
 {
-  "name": "gabinheds-studio",
+  "name": "nino-studio",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,14 +12,14 @@
     "node": ">=24.0.0"
   },
   "scripts": {
-    "dev:api": "npm run dev --workspace @gabin/api",
-    "dev:web": "npm run dev --workspace @gabin/web",
-    "build": "npm run typecheck && npm run build --workspace @gabin/web",
+    "dev:api": "npm run dev --workspace @nino/api",
+    "dev:web": "npm run dev --workspace @nino/web",
+    "build": "npm run typecheck && npm run build --workspace @nino/web",
     "build:streamdeck": "node scripts/build-streamdeck.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "check": "npm run build && npm test",
     "test": "npm run test --workspaces --if-present && npm run test:integration",
-    "start": "npm run start --workspace @gabin/api",
+    "start": "npm run start --workspace @nino/api",
     "test:integration": "tsx --test tests/*.test.ts",
     "test:browser": "tsx tests/browser-check.ts",
     "test:mp4:browser": "tsx tests/mp4-browser-check.ts",

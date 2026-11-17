@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { formatLabels, type Project, type Take } from '@gabin/shared';
+import { formatLabels, type Project, type Take } from '@nino/shared';
 import { useStudio } from '../composables/useStudio';
 import Icon from '../components/Icon.vue';
 import TakePoster from '../components/TakePoster.vue';

@@ -1,5 +1,5 @@
 {
-  "name": "@gabin/api",
+  "name": "@nino/api",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -14,7 +14,7 @@
     "@fastify/rate-limit": "^10.3.0",
     "@fastify/static": "^10.1.6",
     "@fastify/websocket": "^11.2.0",
-    "@gabin/shared": "*",
+    "@nino/shared": "*",
     "fastify": "^5.6.0",
     "file-type": "^22.1.1",
     "obs-websocket-js": "^5.0.6",

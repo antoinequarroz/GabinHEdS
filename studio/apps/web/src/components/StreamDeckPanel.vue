@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
-import type { ProductionLaunchState, Project } from '@gabin/shared';
+import type { ProductionLaunchState, Project } from '@nino/shared';
 import { useStudio } from '../composables/useStudio';
 import Icon from './Icon.vue';
 

@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process';
 import { Readable } from 'node:stream';
 import { request as httpRequest, type IncomingMessage } from 'node:http';
 import OBSWebSocket from 'obs-websocket-js/json';
-import type { AuthResult, FilePlaybackSession, MediaAsset, PairingCode, Project, StudioState } from '@gabin/shared';
+import type { AuthResult, FilePlaybackSession, MediaAsset, PairingCode, Project, StudioState } from '@nino/shared';
 import { buildApp } from '../src/app.js';
 import { libraryFile } from '../src/library.js';
 import { Store } from '../src/store.js';
@@ -17,7 +17,7 @@ import { emptyMediaState, type MediaGateway } from '../src/media.js';
 import { startFakeObs, type FakeObsOptions } from '../../../tests/fake-obs.js';
 
 const dormantMedia: MediaGateway = { getState: emptyMediaState, refresh: async () => emptyMediaState(),
-  ingestSettings: () => ({ server: 'rtmp://127.0.0.1:9/gabin', key: 'test' }), startLive: async () => { throw new Error('No live in library tests'); },
+  ingestSettings: () => ({ server: 'rtmp://127.0.0.1:9/nino', key: 'test' }), startLive: async () => { throw new Error('No live in library tests'); },
   stopLive: async () => undefined, hlsResource: async () => new Response('', { status: 404 }), subscribe: () => () => undefined, close: async () => undefined };
 
 async function setup(t: TestContext, connect = false, ownerId?: string, obsOptions: FakeObsOptions = {}) {
@@ -33,7 +33,7 @@ async function setup(t: TestContext, connect = false, ownerId?: string, obsOptio
     assert.equal((await app.inject({ method: 'PATCH', url: '/api/room', headers, payload: { obsUrl: fixture.url, recordingRoot: path.join(directory, 'recordings') } })).statusCode, 200);
     assert.equal((await app.inject({ method: 'POST', url: '/api/obs/connect', headers })).statusCode, 200);
   }
-  const ffmpeg = process.env.GABIN_FFMPEG_PATH ?? (existsSync('/opt/homebrew/bin/ffmpeg') ? '/opt/homebrew/bin/ffmpeg' : 'ffmpeg');
+  const ffmpeg = process.env.NINO_FFMPEG_PATH ?? (existsSync('/opt/homebrew/bin/ffmpeg') ? '/opt/homebrew/bin/ffmpeg' : 'ffmpeg');
   const image = path.join(directory, 'image.png'); const audio = path.join(directory, 'music.wav'); const video = path.join(directory, 'clip.mp4');
   await promisify(execFile)(ffmpeg, ['-hide_banner', '-nostdin', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=red:s=320x180:r=1', '-frames:v', '1', '-threads', '1', image], { timeout: 5000 });
   await promisify(execFile)(ffmpeg, ['-hide_banner', '-nostdin', '-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', audio], { timeout: 5000 });

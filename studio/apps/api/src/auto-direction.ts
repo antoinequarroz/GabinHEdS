@@ -1,4 +1,4 @@
-import type { AudioFrame, AutoDirectionSettings, ObsState, Participant, SceneChange } from '@gabin/shared';
+import type { AudioFrame, AutoDirectionSettings, ObsState, Participant, SceneChange } from '@nino/shared';
 
 export const defaultAutoDirectionSettings = (wideScene: string): AutoDirectionSettings => ({ wideScene, thresholdDb: -38, dominanceDb: 6,
   confirmationMs: 600, minShotMs: 3000, silenceMs: 5000, overlapMs: 1000 });

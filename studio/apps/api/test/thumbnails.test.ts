@@ -6,13 +6,13 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { AuthResult, PairingCode, SceneThumbnail, Take } from '@gabin/shared';
+import type { AuthResult, PairingCode, SceneThumbnail, Take } from '@nino/shared';
 import { buildApp } from '../src/app.js';
 import { Store } from '../src/store.js';
 import { startFakeObs } from '../../../tests/fake-obs.js';
 
 test('scene thumbnails use real OBS protocol, cache/coalesce work, reject arbitrary sources and honor revocation', async t => {
-  const directory = await mkdtemp(path.join(tmpdir(), 'gabin-thumbnails-'));
+  const directory = await mkdtemp(path.join(tmpdir(), 'nino-thumbnails-'));
   const fixture = await startFakeObs({ meters: false });
   const app = await buildApp({ dataDir: directory });
   t.after(async () => { await app.close(); await fixture.close(); await rm(directory, { recursive: true, force: true }); });
@@ -54,11 +54,11 @@ test('scene thumbnails use real OBS protocol, cache/coalesce work, reject arbitr
 });
 
 test('completed-take posters decode authorized real video, reject symlink escape, incomplete takes and revoked devices', async t => {
-  const directory = await mkdtemp(path.join(tmpdir(), 'gabin-posters-'));
+  const directory = await mkdtemp(path.join(tmpdir(), 'nino-posters-'));
   const recordingDirectory = path.join(directory, 'recordings', 'take');
   await mkdir(recordingDirectory, { recursive: true });
   const outputPath = path.join(recordingDirectory, 'test.mp4');
-  const ffmpeg = process.env.GABIN_FFMPEG_PATH ?? (existsSync('/opt/homebrew/bin/ffmpeg') ? '/opt/homebrew/bin/ffmpeg' : 'ffmpeg');
+  const ffmpeg = process.env.NINO_FFMPEG_PATH ?? (existsSync('/opt/homebrew/bin/ffmpeg') ? '/opt/homebrew/bin/ffmpeg' : 'ffmpeg');
   await promisify(execFile)(ffmpeg, ['-hide_banner', '-nostdin', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=red:s=320x180:r=1',
     '-frames:v', '1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', outputPath], { timeout: 5000 });
   const second = path.join(recordingDirectory, 'second.mp4');

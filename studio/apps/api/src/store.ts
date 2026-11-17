@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, chmodSync } from 'node:fs';
 import path from 'node:path';
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
-import type { AuthResult, AutoDirectionSettings, Device, DeviceKind, DeviceRole, Marker, MediaAsset, PairingCode, Project, ProjectMediaLink, RoomConfig, SceneChange, Take } from '@gabin/shared';
+import type { AuthResult, AutoDirectionSettings, Device, DeviceKind, DeviceRole, Marker, MediaAsset, PairingCode, Project, ProjectMediaLink, RoomConfig, SceneChange, Take } from '@nino/shared';
 
 export interface PrivateRoom extends RoomConfig { obsPassword: string; liveKey: string }
 interface DeviceRow { id: string; token_hash: string; json: string }

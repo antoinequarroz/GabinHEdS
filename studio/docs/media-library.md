@@ -41,9 +41,9 @@ Les liens de lecture et de téléchargement sont temporaires et liés à l’acc
 
 ## Emplacements sur le PC
 
-Les originaux OBS gardent la racine d’enregistrement réglée dans **Salle et OBS**. La bibliothèque est privée dans `studio/.data/library/` et les copies de lecture dans `studio/.data/playback/` (ou dans le dossier `GABIN_DATA_DIR` configuré). Ces dossiers ne sont pas servis publiquement et ne sont jamais ajoutés au dépôt Git.
+Les originaux OBS gardent la racine d’enregistrement réglée dans **Salle et OBS**. La bibliothèque est privée dans `studio/.data/library/` et les copies de lecture dans `studio/.data/playback/` (ou dans le dossier `NINO_DATA_DIR` configuré). Ces dossiers ne sont pas servis publiquement et ne sont jamais ajoutés au dépôt Git.
 
-Le cache de lecture est limité à 20 Go par défaut et ses copies inutilisées vieillissent après sept jours ; une session de lecture valide protège sa copie. La préparation utilise un seul traitement à la fois et conserve une réserve de 1 Go sur le disque. Une conversion qui dépasse trente minutes, manque d’espace ou tronque la vidéo est refusée avec un message : télécharger l’original reste possible. Le technicien peut adapter le budget avec `GABIN_PLAYBACK_CACHE_MAX_BYTES`, exprimé en octets, avant le démarrage du serveur.
+Le cache de lecture est limité à 20 Go par défaut et ses copies inutilisées vieillissent après sept jours ; une session de lecture valide protège sa copie. La préparation utilise un seul traitement à la fois et conserve une réserve de 1 Go sur le disque. Une conversion qui dépasse trente minutes, manque d’espace ou tronque la vidéo est refusée avec un message : télécharger l’original reste possible. Le technicien peut adapter le budget avec `NINO_PLAYBACK_CACHE_MAX_BYTES`, exprimé en octets, avant le démarrage du serveur.
 
 Le ZIP ne contient ni base de données privée, ni mot de passe OBS, ni clé de live, ni jeton d’appareil. Il constitue un dossier de production partageable. Pour sauvegarder toute la salle et ses réglages, réaliser séparément une copie du dossier de données à l’arrêt et des originaux OBS.
 

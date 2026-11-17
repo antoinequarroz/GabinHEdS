@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
-import type { MediaState } from '@gabin/shared';
+import type { MediaState } from '@nino/shared';
 import { buildApp } from '../src/app.js';
 import { emptyMediaState, type MediaGateway, type PrivateLiveDestination } from '../src/media.js';
 
@@ -13,7 +13,7 @@ class MediaFixture implements MediaGateway {
   playlist = '#EXTM3U\n#EXT-X-MAP:URI="init.mp4"\n#EXTINF:2.0,\nseg1.mp4\n';
   getState() { return structuredClone(this.state); }
   async refresh() { return this.getState(); }
-  ingestSettings() { return { server: 'rtmp://127.0.0.1:1935/gabin', key: 'program' }; }
+  ingestSettings() { return { server: 'rtmp://127.0.0.1:1935/nino', key: 'program' }; }
   async startLive(_destination: PrivateLiveDestination) {}
   async stopLive() {}
   subscribe(_listener: (state: MediaState) => void) { return () => undefined; }
@@ -26,7 +26,7 @@ class MediaFixture implements MediaGateway {
 }
 
 test('monitor tickets permit native HLS without bearer, protect resources and honor device revocation', async (t) => {
-  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'gabin-monitor-'));
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'nino-monitor-'));
   const media = new MediaFixture();
   const app = await buildApp({ dataDir, media });
   t.after(async () => { await app.close(); await rm(dataDir, { recursive: true, force: true }); });
@@ -56,7 +56,7 @@ test('monitor tickets permit native HLS without bearer, protect resources and ho
 });
 
 test('monitor session creation cannot invent a program when media has not confirmed ready', async (t) => {
-  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'gabin-monitor-empty-'));
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'nino-monitor-empty-'));
   const media = new MediaFixture();
   media.state.previewReady = false;
   const app = await buildApp({ dataDir, media });
@@ -69,7 +69,7 @@ test('monitor session creation cannot invent a program when media has not confir
 });
 
 test('MediaMTX session references remain protected and only its single UUID parameter is relayed', async (t) => {
-  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'gabin-monitor-session-'));
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'nino-monitor-session-'));
   const media = new MediaFixture();
   const upstreamSession = '8a87f601-6ed8-4b7a-8c0d-b3a08eabf3b5';
   const query = `?session=${upstreamSession}`;

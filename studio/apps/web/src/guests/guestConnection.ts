@@ -1,4 +1,4 @@
-import type { GuestPeer, GuestRoomState, GuestSession, GuestServerMessage, GuestClientMessage } from '@gabin/shared';
+import type { GuestPeer, GuestRoomState, GuestSession, GuestServerMessage, GuestClientMessage } from '@nino/shared';
 import { MixMinus } from './mixMinus';
 import { validSession } from './guestApi';
 

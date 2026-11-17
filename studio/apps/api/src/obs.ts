@@ -1,6 +1,6 @@
 import OBSWebSocket, { EventSubscription, type OBSRequestTypes, type OBSResponseTypes } from 'obs-websocket-js/json';
 import path from 'node:path';
-import type { AudioFrame, MediaKind, MediaMode, MediaPlayback, ObsState, SceneThumbnail } from '@gabin/shared';
+import type { AudioFrame, MediaKind, MediaMode, MediaPlayback, ObsState, SceneThumbnail } from '@nino/shared';
 
 export type ObsEvent =
   | { type: 'state'; state: ObsState }

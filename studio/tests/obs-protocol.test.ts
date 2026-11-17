@@ -9,7 +9,7 @@ import { buildApp } from '../apps/api/src/app.js';
 import { RealObsGateway } from '../apps/api/src/obs.js';
 import { emptyMediaState, type MediaGateway, type PrivateLiveDestination } from '../apps/api/src/media.js';
 import { startFakeObs } from './fake-obs.js';
-import type { AudioFrame, AuthResult, MediaState, Project, StudioState, PairingCode, PreviewSession } from '@gabin/shared';
+import type { AudioFrame, AuthResult, MediaState, Project, StudioState, PairingCode, PreviewSession } from '@nino/shared';
 
 /** Control regression double; browser checks use the real MediaMTX/FFmpeg chain. */
 class FakeMediaGateway implements MediaGateway {
@@ -17,7 +17,7 @@ class FakeMediaGateway implements MediaGateway {
   private listeners = new Set<(state: MediaState) => void>();
   getState(): MediaState { return structuredClone(this.state); }
   async refresh(): Promise<MediaState> { return this.getState(); }
-  ingestSettings() { return { server: 'rtmp://127.0.0.1:1935/gabin', key: 'program' }; }
+  ingestSettings() { return { server: 'rtmp://127.0.0.1:1935/nino', key: 'program' }; }
   setPreview(ready: boolean): void { this.update({ previewReady: ready }); }
   private update(changes: Partial<MediaState>): void {
     this.state = { ...this.state, ...changes };
@@ -35,7 +35,7 @@ class FakeMediaGateway implements MediaGateway {
 }
 
 test('real OBS protocol through the authenticated API, with iPad updates and saved takes', { timeout: 30_000 }, async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'gabin-wire-test-'));
+  const directory = await mkdtemp(join(tmpdir(), 'nino-wire-test-'));
   const media = new FakeMediaGateway();
   const obs = await startFakeObs({ recordDirectory: join(directory, 'recordings'),
     recordStartDelayMs: 600, streamStartDelayMs: 1700,

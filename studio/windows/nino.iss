@@ -44,8 +44,8 @@ AppName=Nino
 AppVersion={#NinoVersion}
 AppVerName=Nino {#NinoVersion}
 AppPublisher=Nino
-AppSupportURL=https://github.com/antoinequarroz/GabinHEdS/issues
-AppUpdatesURL=https://github.com/antoinequarroz/GabinHEdS/releases
+AppSupportURL=https://github.com/antoinequarroz/nino-studio/issues
+AppUpdatesURL=https://github.com/antoinequarroz/nino-studio/releases
 VersionInfoDescription=Nino — installation du studio
 VersionInfoProductName=Nino
 VersionInfoVersion={#NinoVersion}
@@ -89,6 +89,10 @@ Name: "companionstartup"; Description: "Ouvrir Companion à ma connexion Windows
 [Dirs]
 ; The uninstaller must preserve diagnostics together with the user's productions.
 Name: "{localappdata}\Nino\logs"; Flags: uninsneveruninstall
+
+[InstallDelete]
+; Workspaces were renamed to @nino/*; remove the copies left by an older install.
+Type: filesandordirs; Name: "{app}\app\node_modules\@gabin"
 
 [Files]
 ; The builder supplies an allowlisted payload. These exclusions add a final guard

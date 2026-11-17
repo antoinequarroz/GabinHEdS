@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { once } from 'node:events';
 import WebSocket from 'ws';
-import type { AuthResult, ControlCommand, GuestInvitation, GuestSession, GuestSlot, MediaState, ObsState, Project, StudioState } from '@gabin/shared';
+import type { AuthResult, ControlCommand, GuestInvitation, GuestSession, GuestSlot, MediaState, ObsState, Project, StudioState } from '@nino/shared';
 import { buildApp } from '../src/app.js';
 import { buildGuestApp } from '../src/guest-app.js';
 import { emptyObsState, ObsGuestFailure, type ObsEvent, type ObsGateway, type ObsGuestSourceOptions } from '../src/obs.js';

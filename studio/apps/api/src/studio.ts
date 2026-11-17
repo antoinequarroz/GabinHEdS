@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { access, mkdir, open, statfs, unlink } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import type { AudioFrame, AutoDirectionState, ControlCommand, GuestSlot, Marker, MediaPlayback, ObsState, Participant, Preparation, PreparationCheck, ProductionLaunchState, Project, ProjectInput, RoomConfigInput, SceneChange, StreamDeckState, StudioState, Take } from '@gabin/shared';
+import type { AudioFrame, AutoDirectionState, ControlCommand, GuestSlot, Marker, MediaPlayback, ObsState, Participant, Preparation, PreparationCheck, ProductionLaunchState, Project, ProjectInput, RoomConfigInput, SceneChange, StreamDeckState, StudioState, Take } from '@nino/shared';
 import { ObsFeedConflict, ObsGuestFailure, ObsMediaFailure, type ObsEvent, type ObsGateway, timecodeMs } from './obs.js';
 import { emptyMediaState, type MediaGateway } from './media.js';
 import { Store } from './store.js';
@@ -799,7 +799,7 @@ export class Studio {
     try {
       await mkdir(recordingDirectory, { recursive: true });
       await access(recordingDirectory, constants.W_OK);
-      const probe = path.join(recordingDirectory, `.gabin-write-${randomUUID()}`);
+      const probe = path.join(recordingDirectory, `.nino-write-${randomUUID()}`);
       const file = await open(probe, 'wx', 0o600);
       await file.close();
       await unlink(probe);

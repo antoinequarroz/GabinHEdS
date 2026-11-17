@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { MediaState, ObsState, Project, Take } from '@gabin/shared';
+import type { MediaState, ObsState, Project, Take } from '@nino/shared';
 import { emptyObsState, type ObsEvent, type ObsGateway } from '../src/obs.js';
 import { Store } from '../src/store.js';
 import { Studio } from '../src/studio.js';
@@ -54,7 +54,7 @@ class MediaFixture implements MediaGateway {
   getState() { return structuredClone(this.state); }
   private changed() { for (const listener of this.listeners) listener(this.getState()); }
   async refresh() { this.state.previewReady = this.obs.getState().streaming; return this.getState(); }
-  ingestSettings() { return { server: 'rtmp://127.0.0.1:1935/gabin', key: 'program' }; }
+  ingestSettings() { return { server: 'rtmp://127.0.0.1:1935/nino', key: 'program' }; }
   async startLive(destination: PrivateLiveDestination) {
     this.liveStarts++; this.state.liveStatus = 'starting'; this.state.liveDestination = destination.name; this.changed();
     this.state.liveStatus = 'live'; this.changed();
@@ -66,7 +66,7 @@ class MediaFixture implements MediaGateway {
 }
 
 async function fixture(t: TestContext, withMedia = false) {
-  const directory = await mkdtemp(path.join(os.tmpdir(), 'gabin-recording-'));
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'nino-recording-'));
   const store = new Store(path.join(directory, 'db'));
   const obs = new Gateway();
   const media = withMedia ? new MediaFixture(obs) : undefined;
@@ -306,7 +306,7 @@ test('OBS disconnect loses attribution without stopping or silently adopting rec
 });
 
 test('restart preserves a completed take behind stale active ID and interrupts orphan recordings', async (t) => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), 'gabin-crash-'));
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'nino-crash-'));
   const dataDir = path.join(directory, 'db');
   const stored = new Store(dataDir);
   const timestamp = new Date().toISOString();

@@ -11,7 +11,7 @@ import { emptyMediaState, type MediaGateway } from '../apps/api/src/media.js';
 import { startFakeObs } from './fake-obs.js';
 import { createMediaFixture } from './media-fixture.js';
 import { noOverflow, proofScreenshot } from './browser-rendering.js';
-import type { AuthResult, PairingCode, Project, StudioState } from '@gabin/shared';
+import type { AuthResult, PairingCode, Project, StudioState } from '@nino/shared';
 
 // Isolated API + compiled web UI + OBS protocol fixture. No physical capture,
 // live Nino server, production files, microphone or camera are accessed.
@@ -20,7 +20,7 @@ const execute = promisify(execFile);
 const bundledModules = join(homedir(), '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
 let playwright: any;
 let usesBundledRuntime = false;
-if (process.env.GABIN_PLAYWRIGHT_MODULE) playwright = require(process.env.GABIN_PLAYWRIGHT_MODULE);
+if (process.env.NINO_PLAYWRIGHT_MODULE) playwright = require(process.env.NINO_PLAYWRIGHT_MODULE);
 else {
   try { playwright = require('playwright'); }
   catch (error) {
@@ -28,17 +28,17 @@ else {
     playwright = require(bundledModules); usesBundledRuntime = true;
   }
 }
-const engine = process.env.GABIN_TEST_BROWSER ?? 'chromium';
-assert(['chromium', 'webkit'].includes(engine), 'GABIN_TEST_BROWSER doit être chromium ou webkit');
+const engine = process.env.NINO_TEST_BROWSER ?? 'chromium';
+assert(['chromium', 'webkit'].includes(engine), 'NINO_TEST_BROWSER doit être chromium ou webkit');
 const bundledChromium = join(homedir(), 'Library/Caches/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-mac-arm64/chrome-headless-shell');
-const channel = process.env.GABIN_CHROMIUM_CHANNEL;
+const channel = process.env.NINO_CHROMIUM_CHANNEL;
 assert(!channel || ['chromium', 'chrome', 'msedge'].includes(channel), 'Canal Chromium non reconnu');
-const executablePath = process.env.GABIN_CHROMIUM_PATH ?? (usesBundledRuntime && !channel && existsSync(bundledChromium) ? bundledChromium : undefined);
+const executablePath = process.env.NINO_CHROMIUM_PATH ?? (usesBundledRuntime && !channel && existsSync(bundledChromium) ? bundledChromium : undefined);
 const temp = await mkdtemp(join(tmpdir(), 'nino-mp4-browser-'));
-const screenshotDir = process.env.GABIN_SCREENSHOT_DIR ?? join(tmpdir(), `nino-mp4-proof-${engine}`);
+const screenshotDir = process.env.NINO_SCREENSHOT_DIR ?? join(tmpdir(), `nino-mp4-proof-${engine}`);
 const dormantMedia: MediaGateway = {
   getState: emptyMediaState, refresh: async () => emptyMediaState(),
-  ingestSettings: () => ({ server: 'rtmp://127.0.0.1:9/gabin', key: 'fixture' }),
+  ingestSettings: () => ({ server: 'rtmp://127.0.0.1:9/nino', key: 'fixture' }),
   startLive: async () => { throw new Error('Aucun live dans cette recette MP4'); }, stopLive: async () => undefined,
   hlsResource: async () => new Response('', { status: 404 }), subscribe: () => () => undefined, close: async () => undefined,
 };
@@ -118,7 +118,7 @@ try {
     ...(engine === 'chromium' ? { ...(executablePath ? { executablePath } : channel ? { channel } : {}) } : {}),
   });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, acceptDownloads: true });
-  await context.addInitScript((deviceToken: string) => localStorage.setItem('gabin.studio.device', deviceToken), token);
+  await context.addInitScript((deviceToken: string) => localStorage.setItem('nino.studio.device', deviceToken), token);
   pc = await context.newPage(); pc.setDefaultTimeout(15_000);
   pc.on('pageerror', (error: Error) => pageErrors.push(error.message));
   await openTakes(pc, project.id);
@@ -133,13 +133,13 @@ try {
   assert.equal(download.suggestedFilename().normalize('NFC'), `${take.title}.mp4`.normalize('NFC'), 'Nom UTF8 canonique de la prise et extension MP4');
   const saved = join(temp, 'download.mp4'); await download.saveAs(saved);
   assert((await readFile(saved)).subarray(0, 32).includes(Buffer.from('ftyp')), 'Le téléchargement est un MP4, pas une archive');
-  const ffprobe = process.env.GABIN_FFPROBE_PATH ?? (existsSync('/opt/homebrew/bin/ffprobe') ? '/opt/homebrew/bin/ffprobe' : 'ffprobe');
+  const ffprobe = process.env.NINO_FFPROBE_PATH ?? (existsSync('/opt/homebrew/bin/ffprobe') ? '/opt/homebrew/bin/ffprobe' : 'ffprobe');
   const { stdout } = await execute(ffprobe, ['-v', 'error', '-show_streams', '-show_format', '-of', 'json', saved], { timeout: 15_000 });
   const probe = JSON.parse(stdout);
   assert(probe.streams.some((stream: any) => stream.codec_type === 'video' && stream.codec_name === 'h264' && stream.width === 640 && stream.height === 360));
   assert(probe.streams.some((stream: any) => stream.codec_type === 'audio' && stream.codec_name === 'aac'));
   assert(Math.abs(Number(probe.format.duration) - 4) < .15, 'Toute la durée vidéo/audio est conservée');
-  const ffmpeg = process.env.GABIN_FFMPEG_PATH ?? (existsSync('/opt/homebrew/bin/ffmpeg') ? '/opt/homebrew/bin/ffmpeg' : 'ffmpeg');
+  const ffmpeg = process.env.NINO_FFMPEG_PATH ?? (existsSync('/opt/homebrew/bin/ffmpeg') ? '/opt/homebrew/bin/ffmpeg' : 'ffmpeg');
   await execute(ffmpeg, ['-v', 'error', '-nostdin', '-i', saved, '-f', 'null', '-'], { timeout: 15_000 });
   assert.deepEqual(await readFile(take.outputPath), await readFile(encoded.mkv), 'Original OBS inchangé');
   await pc.getByText('Le téléchargement du MP4 a été lancé. Consultez les téléchargements de votre navigateur ; l’original est conservé.', { exact: true }).waitFor();
@@ -222,7 +222,7 @@ try {
   const pairing = await api<PairingCode>('/pairing', 'POST', { role: 'viewer', kind: 'ipad' });
   const viewer = await api<AuthResult>('/auth/pair', 'POST', { code: pairing.code, name: 'iPad consultation fixture', kind: 'ipad' });
   const tabletContext = await browser.newContext({ viewport: { width: 1024, height: 768 }, isMobile: true, hasTouch: true, acceptDownloads: true });
-  await tabletContext.addInitScript((deviceToken: string) => localStorage.setItem('gabin.studio.device', deviceToken), viewer.token);
+  await tabletContext.addInitScript((deviceToken: string) => localStorage.setItem('nino.studio.device', deviceToken), viewer.token);
   const ipad = await tabletContext.newPage(); ipad.setDefaultTimeout(15_000);
   ipad.on('pageerror', (error: Error) => pageErrors.push(error.message));
   await openTakes(ipad, project.id); await controlsFit(ipad, 'iPad 1024 consultation');

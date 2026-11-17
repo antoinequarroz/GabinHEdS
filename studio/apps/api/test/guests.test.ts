@@ -6,7 +6,7 @@ import path from 'node:path';
 import { once } from 'node:events';
 import { createHmac } from 'node:crypto';
 import WebSocket from 'ws';
-import type { GuestServerMessage, GuestSession, Project } from '@gabin/shared';
+import type { GuestServerMessage, GuestSession, Project } from '@nino/shared';
 import { Store } from '../src/store.js';
 import { GuestService, type GuestConfig } from '../src/guests.js';
 import { buildGuestApp } from '../src/guest-app.js';

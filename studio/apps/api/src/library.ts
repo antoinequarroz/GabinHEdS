@@ -1,6 +1,6 @@
 import multipart from '@fastify/multipart';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import type { Device, DeviceRole, FilePlaybackSession, MediaAsset, MediaKind, StudioState } from '@gabin/shared';
+import type { Device, DeviceRole, FilePlaybackSession, MediaAsset, MediaKind, StudioState } from '@nino/shared';
 import { randomBytes, randomUUID, createHash } from 'node:crypto';
 import { createReadStream, createWriteStream, existsSync, type Stats } from 'node:fs';
 import { chmod, lstat, mkdir, realpath, rename, rm, stat } from 'node:fs/promises';
@@ -59,8 +59,8 @@ export async function libraryFile(store: Store, id: string): Promise<{ asset: Me
 }
 
 function probe(file: string, demuxer: string, children: Set<ChildProcess>): Promise<{ durationMs: number | null; width: number | null; height: number | null; hasVideo: boolean; hasAudio: boolean }> {
-  const configured = process.env.GABIN_FFPROBE_PATH;
-  const ffmpeg = process.env.GABIN_FFMPEG_PATH;
+  const configured = process.env.NINO_FFPROBE_PATH;
+  const ffmpeg = process.env.NINO_FFMPEG_PATH;
   const executable = configured ?? (ffmpeg ? path.join(path.dirname(ffmpeg), process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe') : existsSync('/opt/homebrew/bin/ffprobe') ? '/opt/homebrew/bin/ffprobe' : 'ffprobe');
   return new Promise((resolve, reject) => {
     const child = spawn(executable, ['-v', 'error', '-protocol_whitelist', 'file,pipe', '-f', demuxer, '-i', file,

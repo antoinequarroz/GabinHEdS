@@ -6,7 +6,7 @@ import { version, platform, architecture, directory, executable } from './media-
 
 if (!architecture || !['darwin', 'linux', 'win32'].includes(platform)) throw new Error('Plateforme non prise en charge. Installez MediaMTX manuellement.');
 const release = await fetch(`https://api.github.com/repos/bluenviron/mediamtx/releases/tags/${version}`, {
-  headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'GabinHEdS-local-setup',
+  headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Nino-local-setup',
     ...(process.env.GITHUB_TOKEN ? { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } : {}) }, signal: AbortSignal.timeout(20000),
 });
 if (!release.ok) throw new Error(`La version MediaMTX ${version} n’est pas accessible (${release.status}).`);

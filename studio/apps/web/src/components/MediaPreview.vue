@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import type { MediaAsset } from '@gabin/shared';
+import type { MediaAsset } from '@nino/shared';
 import { useStudio } from '../composables/useStudio';
 import { playbackUrl } from './filePlayback';
 import Icon from './Icon.vue';

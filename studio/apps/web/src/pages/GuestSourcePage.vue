@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
-import type { GuestRoomState, GuestSession } from '@gabin/shared';
+import type { GuestRoomState, GuestSession } from '@nino/shared';
 import { guestApi } from '../guests/guestApi';
 import { GuestConnection } from '../guests/guestConnection';
 const props = defineProps<{ token: string }>();

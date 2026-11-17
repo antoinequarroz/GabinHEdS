@@ -22,12 +22,12 @@ test('configuration rejects remote OBS and invalid projects/control', () => {
 });
 
 test('local bootstrap, one-use pairing, roles and revocation', async (t) => {
-  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'gabin-auth-'));
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'nino-auth-'));
   const app = await buildApp({ dataDir });
   t.after(async () => { await app.close(); await rm(dataDir, { recursive: true, force: true }); });
   assert.equal((await app.inject({ method: 'GET', url: '/api/state' })).statusCode, 401);
-  const ipadPage = await app.inject({ method: 'GET', url: '/', headers: { host: 'ipad.gabin.test:4310' } });
-  assert.match(String(ipadPage.headers['content-security-policy']), /connect-src 'self' ws:\/\/ipad\.gabin\.test:4310 wss:\/\/ipad\.gabin\.test:4310;/);
+  const ipadPage = await app.inject({ method: 'GET', url: '/', headers: { host: 'ipad.nino.test:4310' } });
+  assert.match(String(ipadPage.headers['content-security-policy']), /connect-src 'self' ws:\/\/ipad\.nino\.test:4310 wss:\/\/ipad\.nino\.test:4310;/);
   assert.equal((await app.inject({ method: 'POST', url: '/api/auth/local', headers: { host: 'studio.example', origin: 'http://studio.example' } })).statusCode, 403);
   assert.equal((await app.inject({ method: 'POST', url: '/api/auth/local', headers: { host: 'localhost', 'x-forwarded-for': '192.168.1.5' } })).statusCode, 403);
   assert.equal((await app.inject({ method: 'POST', url: '/api/auth/local', headers: { host: 'localhost', origin: 'https://evil.example' } })).statusCode, 403);

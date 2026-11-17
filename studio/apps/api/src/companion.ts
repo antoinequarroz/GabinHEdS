@@ -1,5 +1,5 @@
 import WebSocket from 'ws';
-import type { StudioState } from '@gabin/shared';
+import type { StudioState } from '@nino/shared';
 
 export interface CompanionStatus { connected: boolean; syncedProjectId: string | null; error: string | null; }
 interface CompanionOptions {
