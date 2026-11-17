@@ -1,0 +1,12 @@
+# À ajouter au Caddyfile existant, une fois l'enregistrement DNS nino-studio.postmelo.ch créé.
+nino-studio.postmelo.ch {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src https://api.github.com; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+		-Server
+	}
+	reverse_proxy nino-site:80
+}
