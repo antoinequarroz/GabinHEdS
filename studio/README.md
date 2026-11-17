@@ -79,6 +79,18 @@ Le téléchargement MediaMTX utilise une version fixe et vérifie l’empreinte 
 
 Ouvrir `http://127.0.0.1:4310`. Le serveur sert l’interface construite et l’API sur la même adresse. Les logs se consultent avec `portly logs Nino/studio --tail 100` et `portly logs Nino/media --tail 100` ; les commandes `portly stop` et `portly restart` ciblent le serveur concerné.
 
+## Mettre à jour une installation existante
+
+Cette version remplace les anciens noms techniques par `Nino`. Sur un poste déjà installé depuis les sources :
+
+1. Dans la commande du serveur Portly et dans les fichiers `.env.local` ou `.env.guests`, remplacer l’ancien préfixe des variables d’environnement par `NINO_`. Une variable portant l’ancien préfixe est ignorée sans message : le serveur revient alors à l’écoute sur `127.0.0.1` et au dossier de données par défaut.
+2. Renommer le projet Portly en `Nino`, ou le recréer avec les commandes ci-dessus.
+3. Exécuter une fois `npm run setup:media` : le binaire MediaMTX est maintenant cherché dans `~/.cache/nino-studio/`.
+4. Redémarrer ensemble les serveurs `studio` et `media`, puis arrêter une diffusion OBS restée active : le chemin interne du programme devient `nino/program` et Nino reconfigure OBS au prochain retour vidéo.
+5. Associer de nouveau chaque iPad avec un code, puis révoquer les anciens appareils dans **Appareils**.
+
+L’installateur Windows applique ces changements lui-même.
+
 ## Installation sur le PC Windows
 
 Pour le PC Windows 11 x64 de la salle, utiliser l’[installateur et son raccourci Nino + OBS](docs/windows-installer.md). Ce paquet inclut Node.js et MediaMTX, prépare FFmpeg depuis un téléchargement vérifié et conserve les données hors du dossier du logiciel. La construction et son installation sont vérifiées par le workflow **Nino Windows Installer** ; la recette des caméras, micros et OBS reste à faire dans la salle.

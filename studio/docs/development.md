@@ -1,6 +1,6 @@
 # Développer et livrer Nino
 
-La nouvelle application est dans `studio/`. Le contrat PC, iPad et Stream Deck est défini dans `packages/shared/src/index.ts` ; ces trois interfaces utilisent la même API authentifiée.
+L'application est dans `studio/`. Le contrat PC, iPad et Stream Deck est défini dans `packages/shared/src/index.ts` ; ces trois interfaces utilisent la même API authentifiée.
 
 ## Travailler sur une modification
 
@@ -22,7 +22,7 @@ portly wait "$job_id"
 
 `npm run check` lance les vérifications TypeScript, construit l’interface et exécute les tests API ainsi que le serveur de protocole OBS de test. Les tests utilisent une base et des ports temporaires ; ils ne pilotent pas l’OBS de la salle. Les tests d’affiches décodent un court média généré par FFmpeg. Une réussite logicielle ne valide pas les caméras ou les microphones physiques.
 
-Pour développer l’interface et l’API en parallèle, enregistrer les commandes `npm run dev:web` et `npm run dev:api` comme serveurs Portly, respectivement sur les ports **4311** et **4310**. Pour utiliser la version construite, le serveur `npm start` sur **4310** sert l’interface et l’API ensemble. Consulter les logs avec `portly logs Nino/studio --tail 100` ; ce nom technique conserve le projet Portly existant.
+Pour développer l’interface et l’API en parallèle, enregistrer les commandes `npm run dev:web` et `npm run dev:api` comme serveurs Portly, respectivement sur les ports **4311** et **4310**. Pour utiliser la version construite, le serveur `npm start` sur **4310** sert l’interface et l’API ensemble. Consulter les logs avec `portly logs Nino/studio --tail 100`.
 
 ## Vérifier le parcours navigateur
 
@@ -87,7 +87,7 @@ Les preuves navigateur sont conservées pendant **7 jours** : captures PNG et jo
 
 Après un push ou un lancement manuel réussi, télécharger l’artefact **nino-local-<commit>-<tentative>** dans le run Actions. Il contient une archive `nino-studio-<commit>.zip` et son fichier `.sha256`, conservés pendant **14 jours**. Le fichier `release.json` à l’intérieur indique le commit construit et la date de construction. Chaque relance possède ses propres artefacts.
 
-L’archive est créée dans un dossier neuf depuis une liste de fichiers autorisés. Elle contient les workspaces API/contrats, les sources et la construction du navigateur, les scripts MediaMTX, les tests et la documentation. Elle exclut les bases locales, les fichiers `.env`, les vidéos, les caches, `node_modules` et les sorties historiques. L’API utilise encore `tsx` pour démarrer : installer toutes les dépendances avec **`npm ci`**, sans `--omit=dev`. MediaMTX, FFmpeg et OBS s’installent sur le poste cible ; aucun binaire macOS n’est réutilisé pour Windows.
+L’archive est créée dans un dossier neuf depuis une liste de fichiers autorisés. Elle contient les workspaces API/contrats, les sources et la construction du navigateur, les scripts MediaMTX, les tests et la documentation. Elle exclut les bases locales, les fichiers `.env`, les vidéos, les caches et `node_modules`. L’API utilise encore `tsx` pour démarrer : installer toutes les dépendances avec **`npm ci`**, sans `--omit=dev`. MediaMTX, FFmpeg et OBS s’installent sur le poste cible ; aucun binaire macOS n’est réutilisé pour Windows.
 
 Consulter `INSTALLATION.txt`, puis `README.md` et les trois guides PDF dans `docs/guides/` de l’archive. Sur une salle déjà installée, conserver la base et les chemins des prises, terminer les captures et le direct avant de remplacer le code, puis vérifier OBS et relire une courte prise après le redémarrage. La réalisation automatique reste désactivée après redémarrage ; vérifier ses micros et plans avant de l’activer.
 
