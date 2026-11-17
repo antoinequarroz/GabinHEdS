@@ -9,6 +9,7 @@ import RoomPage from './pages/RoomPage.vue';
 import DevicesPage from './pages/DevicesPage.vue';
 import LibraryPage from './pages/LibraryPage.vue';
 import StudioBrand from './components/StudioBrand.vue';
+import ThemeSwitch from './components/ThemeSwitch.vue';
 import GuestPage from './pages/GuestPage.vue';
 import GuestBridgePage from './pages/GuestBridgePage.vue';
 import GuestSourcePage from './pages/GuestSourcePage.vue';
@@ -80,7 +81,7 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', onHash));
       </div>
       <div class="studio-device"><Icon name="devices" /><span>{{ device.name }}<small>{{ deviceRole }}</small></span></div>
     </header>
-    <div class="studio-workspace"><aside class="studio-rail sidebar"><nav class="studio-nav" aria-label="Navigation principale"><button v-for="item in nav" :key="item.id" :aria-label="item.label" :aria-current="currentSection === item.id ? 'page' : undefined" @click="navigate(item.id)"><Icon :name="item.icon" /><span>{{ item.label }}</span></button></nav><div class="studio-rail-footer"><span class="studio-sync" :class="{ 'is-offline': !live }"><span class="status-dot" :class="{ disconnected: !live }"></span>{{ live ? 'Connecté' : 'Reconnexion' }}</span><details class="studio-access"><summary :aria-label="`Accès de cet appareil : ${deviceRole}`"><Icon name="settings" /><span>Accès de cet appareil</span></summary><div><strong>{{ device.name }}</strong><span>{{ deviceRole }}</span><button class="text-button" @click="forgetDevice">Oublier cet appareil</button></div></details></div></aside>
+    <div class="studio-workspace"><aside class="studio-rail sidebar"><nav class="studio-nav" aria-label="Navigation principale"><button v-for="item in nav" :key="item.id" :aria-label="item.label" :aria-current="currentSection === item.id ? 'page' : undefined" @click="navigate(item.id)"><Icon :name="item.icon" /><span>{{ item.label }}</span></button></nav><div class="studio-rail-footer"><span class="studio-sync" :class="{ 'is-offline': !live }"><span class="status-dot" :class="{ disconnected: !live }"></span>{{ live ? 'Connecté' : 'Reconnexion' }}</span><details class="studio-access"><summary :aria-label="`Accès de cet appareil : ${deviceRole}`"><Icon name="settings" /><span>Accès de cet appareil</span></summary><div><strong>{{ device.name }}</strong><span>{{ deviceRole }}</span><span class="section-label">Apparence</span><ThemeSwitch /><button class="text-button" @click="forgetDevice">Oublier cet appareil</button></div></details></div></aside>
       <main id="main-content" class="studio-main" tabindex="-1">
         <div v-if="!live" class="banner warning sync-banner" role="status"><Icon name="warning" /><span>Synchronisation interrompue. Les commandes sont suspendues jusqu’à la reconnexion.</span><button class="button compact" :disabled="busy.refresh" @click="refresh">Actualiser</button></div>
         <div v-if="error" class="banner error" role="alert"><span class="grow">{{ error }}</span><button class="icon-button" aria-label="Fermer le message d’erreur" @click="error = ''"><Icon name="close" /></button></div>
@@ -93,7 +94,7 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', onHash));
         <section v-else class="surface empty-state"><h1>Cette page n’est pas disponible</h1><p>Retournez aux productions pour poursuivre.</p><button class="button primary" @click="navigate('projects')">Voir les productions</button></section>
       </main>
     </div>
-    <nav class="studio-touch-nav tablet-nav" aria-label="Navigation tactile"><button v-for="item in nav" :key="item.id" :aria-label="item.label" :aria-current="currentSection === item.id ? 'page' : undefined" @click="navigate(item.id)"><Icon :name="item.icon" /><span>{{ item.label }}</span></button><details class="studio-touch-access"><summary><Icon name="settings" /><span>Accès</span></summary><div><strong>{{ device.name }}</strong><span>{{ deviceRole }}</span><button class="text-button" @click="forgetDevice">Oublier cet appareil</button></div></details></nav>
+    <nav class="studio-touch-nav tablet-nav" aria-label="Navigation tactile"><button v-for="item in nav" :key="item.id" :aria-label="item.label" :aria-current="currentSection === item.id ? 'page' : undefined" @click="navigate(item.id)"><Icon :name="item.icon" /><span>{{ item.label }}</span></button><details class="studio-touch-access"><summary><Icon name="settings" /><span>Accès</span></summary><div><strong>{{ device.name }}</strong><span>{{ deviceRole }}</span><span class="section-label">Apparence</span><ThemeSwitch /><button class="text-button" @click="forgetDevice">Oublier cet appareil</button></div></details></nav>
     <div v-if="notice" class="toast" role="status" aria-live="polite"><Icon name="check" />{{ notice }}</div>
   </div>
   </template>

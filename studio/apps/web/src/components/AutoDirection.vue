@@ -80,16 +80,16 @@ async function start(): Promise<void> {
 </template>
 
 <style scoped>
-.auto-direction { flex-shrink: 0; padding: 20px 18px; background: rgba(32, 32, 40, .75); border: 1px solid #ffffff08; border-radius: 15px; }
+.auto-direction { flex-shrink: 0; padding: 20px 18px; background: color-mix(in srgb, var(--surface) 75%, transparent); border: 1px solid color-mix(in srgb, var(--ink) 3%, transparent); border-radius: 15px; }
 .auto-direction .regie-section-heading { flex-wrap: wrap; gap: 8px; }
-.auto-intro, .auto-message { color: var(--muted, #a3a4b1); font-size: 12px; line-height: 1.65; margin: 14px 0; }
-.auto-message { padding-left: 10px; border-left: 2px solid #8c91bb; }
+.auto-intro, .auto-message { color: var(--muted, var(--ink-2)); font-size: 12px; line-height: 1.65; margin: 14px 0; }
+.auto-message { padding-left: 10px; border-left: 2px solid color-mix(in srgb, var(--accent) 56%, var(--surface)); }
 .auto-associations { display: grid; gap: 6px; margin-bottom: 16px; }
-.auto-associations > div { padding: 9px 10px; border-radius: 6px; background: #ffffff04; display: grid; gap: 3px; min-width: 0; }
-.auto-associations .speaking { background: #9ea2da16; box-shadow: inset 2px 0 #a1a5df; }
+.auto-associations > div { padding: 9px 10px; border-radius: 6px; background: color-mix(in srgb, var(--ink) 2%, transparent); display: grid; gap: 3px; min-width: 0; }
+.auto-associations .speaking { background: color-mix(in srgb, var(--accent) 9%, transparent); box-shadow: inset 2px 0 color-mix(in srgb, var(--accent) 35%, transparent); }
 .auto-person { font-size: 12px; font-weight: 650; }
-.auto-associations small { font-size: 11px; color: var(--muted, #a3a4b1); overflow-wrap: anywhere; }
+.auto-associations small { font-size: 11px; color: var(--muted, var(--ink-2)); overflow-wrap: anywhere; }
 .auto-trigger { width: 100%; margin-top: 12px; white-space: normal; }
 .auto-settings-fields { display: grid; gap: 14px; margin: 16px 0; }
-.auto-settings-fields small { font-size: 11px; color: var(--muted, #a3a4b1); line-height: 1.5; }
+.auto-settings-fields small { font-size: 11px; color: var(--muted, var(--ink-2)); line-height: 1.5; }
 </style>
