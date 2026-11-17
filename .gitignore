@@ -28,6 +28,7 @@ Thumbs.db
 *.blockmap
 *.yml
 *.yaml
+!site/deploy/docker-compose.yml
 *.map
 *.app
 *.dmg

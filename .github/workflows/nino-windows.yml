@@ -2,6 +2,10 @@ name: Nino Windows Installer
 
 on:
   push:
+    branches: ['**']
+    # Une étiquette vX.Y.Z publie l'installateur testé dans une version GitHub (job « release »).
+    # GitHub n'applique pas le filtre « paths » aux étiquettes.
+    tags: ['v*']
     paths:
       - 'studio/**'
       - '.github/workflows/nino-windows.yml'
@@ -107,3 +111,47 @@ jobs:
             ${{ runner.temp }}/nino-installer/windows-smoke.json
           if-no-files-found: ignore
           retention-days: 7
+
+  release:
+    name: Publier la version GitHub
+    needs: installer
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+        working-directory: .
+    steps:
+      - name: Récupérer l’installateur testé
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nino-windows-${{ github.sha }}-${{ github.run_attempt }}
+          path: release
+      - name: Vérifier que l’étiquette correspond à la version de Nino
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          exes=(release/*.exe)
+          if [ "${#exes[@]}" -ne 1 ]; then echo "Un seul installateur attendu, ${#exes[@]} trouvés." >&2; exit 1; fi
+          name="$(basename "${exes[0]}")"
+          case "$name" in
+            "Nino-Setup-${TAG#v}-"*) ;;
+            *) echo "L’étiquette $TAG ne correspond pas à l’installateur $name (version de studio/package.json)." >&2; exit 1 ;;
+          esac
+          (cd release && sha256sum -c ./*.sha256)
+      - name: Créer la version et y joindre l’installateur
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" release/*.exe release/*.sha256 \
+            --verify-tag \
+            --title "Nino ${TAG#v}" \
+            --notes "Installateur Windows 11 x64 construit et vérifié par le workflow Nino Windows Installer (installation, double lancement, arrêt, désinstallation). Comparer l’empreinte avec Get-FileHash -Algorithm SHA256. Guide : studio/docs/windows-installer.md."

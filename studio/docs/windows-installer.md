@@ -6,7 +6,11 @@ La première préparation demande Internet pour récupérer FFmpeg et ffprobe di
 
 ## Obtenir le Setup
 
-Dans GitHub Actions, ouvrir **Nino Windows Installer**, choisir une exécution verte correspondant au code souhaité et télécharger l’artefact `nino-windows-<commit>-<tentative>`. Il contient :
+La version publiée se télécharge sur [nino-studio.postmelo.ch](https://nino-studio.postmelo.ch/#installer) ou dans les [versions GitHub](https://github.com/antoinequarroz/nino-studio/releases) : l'installateur et son fichier `.sha256`.
+
+Pour publier une version : mettre à jour `version` dans `studio/package.json`, fusionner sur `main`, puis pousser l'étiquette correspondante (`git tag v0.1.0 && git push origin v0.1.0`). Le workflow **Nino Windows Installer** construit et vérifie l'installateur sur Windows, puis le job « Publier la version GitHub » crée la version et y joint le `.exe` et son `.sha256`. Il refuse une étiquette qui ne correspond pas à la version de `package.json`.
+
+Pour essayer un commit qui n'est pas publié : dans GitHub Actions, ouvrir **Nino Windows Installer**, choisir une exécution verte correspondant au code souhaité et télécharger l’artefact `nino-windows-<commit>-<tentative>`. Il contient :
 
 - `Nino-Setup-0.1.0-<commit-court>-windows-x64.exe` ;
 - son fichier `.sha256` ;

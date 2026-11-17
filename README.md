@@ -13,3 +13,5 @@ décrit les branchements des trois Sony ZV-E10, des quatre Cam Link et de la
 RØDECaster Pro II, puis les réglages Windows, OBS et Nino jusqu'au premier MP4.
 
 La documentation complète est dans [`studio/README.md`](studio/README.md).
+
+La page vitrine [nino-studio.postmelo.ch](https://nino-studio.postmelo.ch) est dans [`site/`](site/README.md).
