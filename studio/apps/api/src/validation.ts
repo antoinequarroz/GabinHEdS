@@ -44,18 +44,19 @@ export function projectInput(value: unknown, partial = false): Partial<ProjectIn
 export function roomInput(value: unknown): RoomConfigInput {
   const data = object(value);
   const result: RoomConfigInput = {};
-  if (Object.keys(data).some((key) => !['name', 'obsUrl', 'obsPassword', 'recordingRoot', 'defaultScenes', 'liveDestination'].includes(key))) throw new ApiFailure(400, 'Champ de salle non reconnu.');
+  if (Object.keys(data).some((key) => !['name', 'captureSoftware', 'obsUrl', 'obsPassword', 'recordingRoot', 'defaultScenes', 'liveDestination'].includes(key))) throw new ApiFailure(400, 'Champ de salle non reconnu.');
   if ('name' in data) result.name = string(data.name, 'nom de la salle', 160);
+  if ('captureSoftware' in data) result.captureSoftware = choice(data.captureSoftware, ['obs', 'streamlabs', 'maya'] as const, 'logiciel de captation');
   if ('obsPassword' in data) {
-    if (typeof data.obsPassword !== 'string' || data.obsPassword.length > 512) throw new ApiFailure(400, 'Mot de passe OBS invalide.');
+    if (typeof data.obsPassword !== 'string' || data.obsPassword.length > 512) throw new ApiFailure(400, 'Mot de passe du logiciel de captation invalide.');
     result.obsPassword = data.obsPassword;
   }
   if ('obsUrl' in data) {
-    result.obsUrl = string(data.obsUrl, 'adresse OBS', 1000);
+    result.obsUrl = string(data.obsUrl, 'adresse du logiciel de captation', 1000);
     let url: URL;
-    try { url = new URL(result.obsUrl); } catch { throw new ApiFailure(400, 'Adresse WebSocket OBS invalide.'); }
+    try { url = new URL(result.obsUrl); } catch { throw new ApiFailure(400, 'Adresse WebSocket du logiciel de captation invalide.'); }
     if (!['ws:', 'wss:'].includes(url.protocol) || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) || url.username || url.password || url.search || url.hash || url.pathname !== '/') {
-      throw new ApiFailure(400, 'OBS doit se trouver sur ce PC : utilisez ws://127.0.0.1:4455.');
+      throw new ApiFailure(400, 'Le logiciel de captation doit se trouver sur ce PC : utilisez une adresse ws://127.0.0.1:<port>.');
     }
   }
   if ('recordingRoot' in data) {

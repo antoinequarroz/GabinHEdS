@@ -33,6 +33,9 @@ export interface ProjectInput {
 
 export interface RoomConfig {
   name: string;
+  /** Capture software of this studio. Absent in rooms saved before the choice existed: OBS. */
+  captureSoftware?: CaptureSoftware;
+  /** Local WebSocket address of the capture software (OBS, Streamlabs or Maya Studio). */
   obsUrl: string;
   obsPasswordConfigured: boolean;
   recordingRoot: string;
@@ -45,6 +48,7 @@ export interface LiveDestinationInput { name: string; server: string; key?: stri
 
 export interface RoomConfigInput {
   name?: string;
+  captureSoftware?: CaptureSoftware;
   obsUrl?: string;
   obsPassword?: string;
   recordingRoot?: string;
@@ -91,6 +95,18 @@ export const captureSoftwareLabels: Record<CaptureSoftware, string> = {
   obs: 'OBS Studio',
   streamlabs: 'Streamlabs Desktop',
   maya: 'Maya Studio',
+};
+/** Short names used in sentences ("Connecter OBS", "Maya Studio connecté"). */
+export const captureShortNames: Record<CaptureSoftware, string> = {
+  obs: 'OBS',
+  streamlabs: 'Streamlabs',
+  maya: 'Maya Studio',
+};
+/** Default local address of each capture software's control server. */
+export const captureDefaultUrls: Record<CaptureSoftware, string> = {
+  obs: 'ws://127.0.0.1:4455',
+  streamlabs: 'ws://127.0.0.1:59650',
+  maya: 'ws://127.0.0.1:4460',
 };
 
 export interface MediaState {
@@ -225,6 +241,8 @@ export interface StudioState {
   /** Capture state, whatever the software. Named `obs` for compatibility with iPad and Stream Deck. */
   obs: ObsState;
   capture?: CaptureInfo;
+  /** Capture software this installation can drive. */
+  captureAvailable?: CaptureSoftware[];
   media: MediaState;
   projects: Project[];
   takes: Take[];

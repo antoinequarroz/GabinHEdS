@@ -13,7 +13,7 @@ import ThemeSwitch from './components/ThemeSwitch.vue';
 import GuestPage from './pages/GuestPage.vue';
 import GuestBridgePage from './pages/GuestBridgePage.vue';
 import GuestSourcePage from './pages/GuestSourcePage.vue';
-const { device, state, initialized, live, busy, error, notice, technician, canEdit, initialize, pair, forgetDevice, refresh, suspendStudioConnection } = useStudio();
+const { device, state, initialized, live, busy, error, notice, technician, captureName, canEdit, initialize, pair, forgetDevice, refresh, suspendStudioConnection } = useStudio();
 const path = ref(location.hash.slice(1) || 'projects');
 const gateway = ref<'checking' | 'studio' | 'guest'>('checking');
 const guestRoute = computed(() => /^(guest|guest-source)\//.test(path.value) || path.value === 'guest-bridge' || location.pathname === '/guest-bridge');
@@ -43,7 +43,7 @@ const liveIndicator = computed(() => {
   return { label: 'À l’arrêt', status: 'is-idle' };
 });
 const currentSection = computed(() => ['room', 'devices', 'library'].includes(path.value) ? path.value : 'projects');
-const nav = computed(() => [{ id: 'projects', label: 'Productions', icon: 'projects' }, { id: 'library', label: 'Bibliothèque', icon: 'library' }, ...(technician.value ? [{ id: 'room', label: 'Salle et OBS', icon: 'room' }, { id: 'devices', label: 'Appareils', icon: 'devices' }] : [])]);
+const nav = computed(() => [{ id: 'projects', label: 'Productions', icon: 'projects' }, { id: 'library', label: 'Bibliothèque', icon: 'library' }, ...(technician.value ? [{ id: 'room', label: `Salle et ${captureName.value}`, icon: 'room' }, { id: 'devices', label: 'Appareils', icon: 'devices' }] : [])]);
 function navigate(next: string): void { path.value = next; location.hash = next; window.scrollTo({ top: 0, behavior: 'instant' }); }
 function onHash(): void { path.value = location.hash.slice(1) || 'projects'; if (guestRoute.value || gateway.value === 'guest') suspendStudioConnection(); else if (gateway.value === 'studio') void initialize(); }
 onMounted(async () => {
@@ -74,7 +74,7 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', onHash));
   <div v-else class="studio-app" :class="{ 'studio-app-production': selectedProject }">
     <header class="studio-topbar topbar">
       <button class="studio-brand" aria-label="Nino, voir les productions" @click="navigate('projects')"><StudioBrand /></button>
-      <div class="studio-room" :class="{ 'is-offline': !live || !state.obs.connected }"><span class="status-dot" :class="{ disconnected: !live || !state.obs.connected }"></span><span><strong>{{ state.room.name }}</strong><small>{{ !live ? 'OBS · état à vérifier' : state.obs.connected ? 'OBS connecté' : state.obs.connecting ? 'Connexion à OBS…' : 'OBS déconnecté' }}</small></span></div>
+      <div class="studio-room" :class="{ 'is-offline': !live || !state.obs.connected }"><span class="status-dot" :class="{ disconnected: !live || !state.obs.connected }"></span><span><strong>{{ state.room.name }}</strong><small>{{ !live ? `${captureName} · état à vérifier` : state.obs.connected ? `${captureName} connecté` : state.obs.connecting ? `Connexion à ${captureName}…` : `${captureName} déconnecté` }}</small></span></div>
       <div class="studio-transport-status" aria-label="État de la production" aria-live="polite">
         <span class="studio-status-item" :class="recordingIndicator.status"><span class="studio-status-light" aria-hidden="true"></span><strong>REC</strong><span>{{ recordingIndicator.label }}</span></span>
         <span class="studio-status-item" :class="liveIndicator.status"><span class="studio-status-light" aria-hidden="true"></span><strong>LIVE</strong><span>{{ liveIndicator.label }}</span></span>

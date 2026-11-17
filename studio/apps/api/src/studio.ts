@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { access, mkdir, open, statfs, unlink } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import type { AudioFrame, AutoDirectionState, ControlCommand, GuestSlot, Marker, MediaPlayback, ObsState, Participant, Preparation, PreparationCheck, ProductionLaunchState, Project, ProjectInput, RoomConfigInput, SceneChange, StreamDeckState, StudioState, Take } from '@nino/shared';
+import type { AudioFrame, AutoDirectionState, CaptureSoftware, ControlCommand, GuestSlot, Marker, MediaPlayback, ObsState, Participant, Preparation, PreparationCheck, ProductionLaunchState, Project, ProjectInput, RoomConfigInput, SceneChange, StreamDeckState, StudioState, Take } from '@nino/shared';
 import { CaptureFeedConflict, CaptureGuestFailure, CaptureMediaFailure, captureInfo, type CaptureDriver, type CaptureEvent, timecodeMs } from './capture.js';
 import { emptyMediaState, type MediaGateway } from './media.js';
 import { Store } from './store.js';
@@ -19,7 +19,9 @@ export class Studio {
   private queue: Promise<unknown> = Promise.resolve();
   private revision = 0;
   private readonly listeners = new Set<(state: StudioState) => void>();
-  private readonly unsubscribe: () => void;
+  private unsubscribe: () => void;
+  private captureDriver: CaptureDriver;
+  private readonly captureDrivers: Partial<Record<CaptureSoftware, () => CaptureDriver>>;
   private readonly unsubscribeMedia: () => void;
   private readonly audioListeners = new Set<(frame: AudioFrame) => void>();
   private liveProjectId: string | null = null;
@@ -51,7 +53,11 @@ export class Studio {
   private studioOpenTask: Promise<void> | null = null;
   private lastStudioOpenAt: number | null = null;
 
-  constructor(readonly store: Store, readonly capture: CaptureDriver, readonly media?: MediaGateway, options: { now?: () => number; autoIntervalMs?: number; guests?: GuestService; studioOpener?: () => Promise<void> } = {}) {
+  constructor(readonly store: Store, capture: CaptureDriver, readonly media?: MediaGateway, options: { now?: () => number; autoIntervalMs?: number; guests?: GuestService; studioOpener?: () => Promise<void>;
+    /** Drivers a studio may switch to. The driver passed above is always kept for its own software. */
+    captureDrivers?: Partial<Record<CaptureSoftware, () => CaptureDriver>> } = {}) {
+    this.captureDriver = capture;
+    this.captureDrivers = { ...options.captureDrivers, [capture.software ?? 'obs']: () => capture };
     this.pristineAtStartup = store.projects().length === 0 && store.takes().length === 0
       && !store.setting('pendingTake') && !store.setting('activeTakeId');
     this.observedObs = capture.getState().connected || capture.getState().recording || capture.getState().streaming;
@@ -68,6 +74,11 @@ export class Studio {
     if (!store.room()) store.saveRoom({ name: 'Studio Nino', obsUrl: 'ws://127.0.0.1:4455', obsPassword: '', obsPasswordConfigured: false,
       recordingRoot: path.join(os.homedir(), 'Videos', 'Nino'), defaultScenes: { podcast: 'Podcast', roundtable: 'Table ronde', slides: 'PowerPoint' },
       liveDestination: { name: '', server: '', keyConfigured: false }, liveKey: '' });
+    const roomSoftware = store.room()!.captureSoftware ?? 'obs';
+    if (roomSoftware !== (capture.software ?? 'obs')) {
+      // The saved choice has no driver in this installation: record what is really driven.
+      store.saveRoom({ ...store.room()!, captureSoftware: capture.software ?? 'obs' });
+    }
     const legacyRoom = store.room()!;
     if (!legacyRoom.liveDestination || legacyRoom.liveKey === undefined || legacyRoom.name === 'Studio GabinHEdS') store.saveRoom({ ...legacyRoom,
       name: legacyRoom.name === 'Studio GabinHEdS' ? 'Studio Nino' : legacyRoom.name,
@@ -91,16 +102,7 @@ export class Studio {
       store.setSetting('productionLaunch', this.launch);
     }
     this.lastObservedScene = capture.getState().connected ? capture.getState().currentScene : null;
-    this.unsubscribe = capture.subscribe((event) => {
-      if (event.type === 'state' && (event.state.connected || event.state.recording || event.state.streaming)) this.observedObs = true;
-      if (event.type === 'audio') {
-        this.latestAudio = structuredClone(event.frame);
-        if (!this.closing) for (const listener of this.audioListeners) listener(event.frame);
-        return; // Real meters are ephemeral; never increment revision or write SQLite.
-      }
-      const takeIdAtReception = this.activeTake()?.id ?? null;
-      if (!this.closing) void this.serial(() => this.onObsEvent(event, takeIdAtReception)).catch(() => undefined);
-    });
+    this.unsubscribe = this.attachCapture(capture);
     this.unsubscribeMedia = media?.subscribe(() => {
       if (!this.closing) {
         const status = media.getState().liveStatus;
@@ -118,6 +120,23 @@ export class Studio {
       }, options.autoIntervalMs ?? 250);
       this.autoTimer.unref();
     }
+  }
+  private attachCapture(capture: CaptureDriver): () => void {
+    return capture.subscribe((event) => {
+      if (event.type === 'state' && (event.state.connected || event.state.recording || event.state.streaming)) this.observedObs = true;
+      if (event.type === 'audio') {
+        this.latestAudio = structuredClone(event.frame);
+        if (!this.closing) for (const listener of this.audioListeners) listener(event.frame);
+        return; // Real meters are ephemeral; never increment revision or write SQLite.
+      }
+      const takeIdAtReception = this.activeTake()?.id ?? null;
+      if (!this.closing) void this.serial(() => this.onObsEvent(event, takeIdAtReception)).catch(() => undefined);
+    });
+  }
+  get capture(): CaptureDriver { return this.captureDriver; }
+  /** Software this installation can drive, in a stable order. */
+  availableCapture(): CaptureSoftware[] {
+    return (['obs', 'streamlabs', 'maya'] as const).filter(software => this.captureDrivers[software]);
   }
   subscribe(listener: (state: StudioState) => void): () => void {
     this.listeners.add(listener);
@@ -173,7 +192,7 @@ export class Studio {
     this.closing = true;
   }
   state(): StudioState {
-    return { revision: this.revision, room: this.store.publicRoom(), obs: this.capture.getState(), capture: captureInfo(this.capture), media: this.media?.getState() ?? emptyMediaState(), liveProjectId: this.liveProjectId, projects: this.store.projects(),
+    return { revision: this.revision, room: this.store.publicRoom(), obs: this.capture.getState(), capture: captureInfo(this.capture), captureAvailable: this.availableCapture(), media: this.media?.getState() ?? emptyMediaState(), liveProjectId: this.liveProjectId, projects: this.store.projects(),
       takes: this.store.takes(), activeTake: this.activeTake(), markers: this.store.markers(), library: this.store.library(),
       projectMedia: this.store.projectMedia(), mediaPlayback: this.capture.getMediaPlayback?.() ?? this.mediaPlayback,
       autoDirection: structuredClone(this.autoDirection), autoDirectionSettings: this.store.autoDirectionSettings(), sceneChanges: this.store.sceneChanges(), guestRooms: this.guests?.rooms(),
@@ -635,7 +654,14 @@ export class Studio {
     if (this.activeTake() || this.capture.getState().recording || this.capture.getState().streaming || this.store.setting('pendingTake') || this.liveActive() || this.launch.status === 'running') {
       throw new ApiFailure(409, 'Terminez ou vérifiez la prise, le retour et le direct avant de changer la configuration de la salle.', 'PRODUCTION_ACTIVE');
     }
-    const { liveDestination, ...other } = input;
+    const { liveDestination, captureSoftware, ...other } = input;
+    const currentSoftware = this.store.room()!.captureSoftware ?? 'obs';
+    const nextDriver = captureSoftware && captureSoftware !== currentSoftware ? this.captureDrivers[captureSoftware] : undefined;
+    if (captureSoftware && captureSoftware !== currentSoftware) {
+      if (!nextDriver) throw new ApiFailure(409, 'Ce logiciel de captation n’est pas encore pris en charge par cette installation de Nino.', 'CAPTURE_DRIVER_UNAVAILABLE');
+      const current = this.capture.getState();
+      if (current.connected || current.connecting) throw new ApiFailure(409, `Déconnectez ${captureInfo(this.capture).label} avant de changer de logiciel de captation.`, 'CAPTURE_CONNECTED');
+    }
     if (this.autoDirection.enabled) this.disableAuto('suspended', 'La configuration de la salle a changé. Vérifiez OBS puis reprenez l’automatique.');
     const room = { ...this.store.room()!, ...other };
     if (liveDestination) {
@@ -643,6 +669,14 @@ export class Studio {
       room.liveDestination = { name: liveDestination.name, server: liveDestination.server, keyConfigured: Boolean(room.liveKey) };
     }
     room.obsPasswordConfigured = Boolean(room.obsPassword);
+    if (nextDriver && captureSoftware) {
+      // The previous driver is idle and disconnected (checked above): no output is lost.
+      this.unsubscribe();
+      this.captureDriver = nextDriver();
+      this.unsubscribe = this.attachCapture(this.captureDriver);
+      this.lastObservedScene = null;
+      room.captureSoftware = captureSoftware;
+    }
     this.store.saveRoom(room);
     return this.changed();
   }

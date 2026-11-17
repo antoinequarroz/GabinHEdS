@@ -53,6 +53,10 @@ let meterLevels: [number, number] = [-65, -65];
 const steps: string[] = [];
 const pageErrors: string[] = [];
 const failedApi: string[] = [];
+/** HLS playlists polled while MediaMTX (re)creates a variant: the API answers a
+ * transient 404 PREVIEW_NOT_READY and the native player polls again. Kept for the
+ * log, not counted as a failed request; readiness is asserted on the video itself. */
+const hlsRetries: string[] = [];
 let baseUrl = '';
 let token = '';
 
@@ -61,7 +65,12 @@ const track = (page: any) => {
   page.on('response', async (response: any) => {
     if (response.url().includes('/api/') && response.status() >= 400) {
       const pathname = new URL(response.url()).pathname.replace(/\/(monitor|library-files|playback-files|production-exports|resolve-exports|mp4-downloads|downloads)\/[^/]+/, '/$1/<session>');
-      failedApi.push(`${response.status()} ${pathname} ${(await response.text().catch(() => '')).slice(0, 500)}`);
+      const body = (await response.text().catch(() => '')).slice(0, 500);
+      if (response.status() === 404 && /^\/api\/monitor\/<session>\/[^/]+\.m3u8$/.test(pathname) && body.includes('"PREVIEW_NOT_READY"')) {
+        hlsRetries.push(`${response.status()} ${pathname}`);
+        return;
+      }
+      failedApi.push(`${response.status()} ${pathname} ${body}`);
     }
   });
 };
@@ -683,7 +692,7 @@ try {
   assert.deepEqual(pageErrors, [], 'Aucune exception pendant la sélection et le lancement');
   assert.deepEqual(failedApi, [], 'Sélection et lancement utilisent des requêtes autorisées');
   steps.push('Production Stream Deck : sélection PC partagée sur iPad sans matériel ; Tout lancer depuis iPad avec retour local déjà actif, confirmation annulable, REC avant intro, fin OBS puis scène/AUTO, live séparé et arrêt confirmé');
-  console.log(JSON.stringify({ passed: true, steps, pageErrors, failedApi, screenshots: ['nino-studio-pc.png', 'nino-studio-ipad.png',
+  console.log(JSON.stringify({ passed: true, steps, pageErrors, failedApi, hlsRetries, screenshots: ['nino-studio-pc.png', 'nino-studio-ipad.png',
     'nino-auto-settings-pc.png', 'nino-auto-pc.png', 'nino-auto-ipad.png', 'nino-auto-ipad-portrait.png', 'nino-auto-pc-detail.png', 'nino-auto-ipad-detail.png',
     'nino-resolve-pc.png', 'nino-resolve-ipad.png', 'nino-streamdeck-selection-pc.png', 'nino-streamdeck-selection-ipad.png',
     'nino-tout-lancer-ipad.png'].map(name => join(screenshotDir, name)) }, null, 2));
@@ -696,7 +705,7 @@ try {
     paused: video.paused, muted: video.muted, error: video.error?.code ?? null,
     quality: typeof video.getVideoPlaybackQuality === 'function' ? video.getVideoPlaybackQuality() : null,
   }))).catch(() => undefined)));
-  console.error(JSON.stringify({ passed: false, steps, pageErrors, failedApi, videoStates, error: error instanceof Error ? error.stack : String(error) }, null, 2));
+  console.error(JSON.stringify({ passed: false, steps, pageErrors, failedApi, hlsRetries, videoStates, error: error instanceof Error ? error.stack : String(error) }, null, 2));
   process.exitCode = 1;
 } finally {
   if (meterTimer) clearInterval(meterTimer);

@@ -64,7 +64,7 @@ export class Store {
   saveRoom(room: PrivateRoom): void { this.setSetting('room', room); }
   publicRoom(): RoomConfig {
     const { obsPassword: _password, liveKey: _liveKey, ...room } = this.room()!;
-    return room;
+    return { ...room, captureSoftware: room.captureSoftware ?? 'obs' };
   }
 
   createDevice(name: string, kind: DeviceKind, role: DeviceRole, persistent = false): AuthResult {
