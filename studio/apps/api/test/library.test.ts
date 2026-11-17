@@ -14,17 +14,17 @@ import { buildApp } from '../src/app.js';
 import { libraryFile } from '../src/library.js';
 import { Store } from '../src/store.js';
 import { emptyMediaState, type MediaGateway } from '../src/media.js';
-import { startFakeObs } from '../../../tests/fake-obs.js';
+import { startFakeObs, type FakeObsOptions } from '../../../tests/fake-obs.js';
 
 const dormantMedia: MediaGateway = { getState: emptyMediaState, refresh: async () => emptyMediaState(),
   ingestSettings: () => ({ server: 'rtmp://127.0.0.1:9/gabin', key: 'test' }), startLive: async () => { throw new Error('No live in library tests'); },
   stopLive: async () => undefined, hlsResource: async () => new Response('', { status: 404 }), subscribe: () => () => undefined, close: async () => undefined };
 
-async function setup(t: TestContext, connect = false, ownerId?: string) {
+async function setup(t: TestContext, connect = false, ownerId?: string, obsOptions: FakeObsOptions = {}) {
   const directory = await mkdtemp(path.join(tmpdir(), 'nino-library-test-'));
   const dataDir = path.join(directory, 'data');
   if (ownerId) { const store = new Store(dataDir); store.setSetting('libraryOwnerId', ownerId); store.close(); }
-  const fixture = await startFakeObs({ meters: false });
+  const fixture = await startFakeObs({ ...obsOptions, meters: false });
   const app = await buildApp({ dataDir, media: dormantMedia });
   t.after(async () => { await app.close(); await fixture.close(); await rm(directory, { recursive: true, force: true }); });
   const auth = (await app.inject({ method: 'POST', url: '/api/auth/local', headers: { host: 'localhost' } })).json<AuthResult>();
@@ -179,10 +179,14 @@ test('replaying an ended fullscreen clip retains its original return plan and re
   assert.equal(first.statusCode, 200, first.body);
   assert.equal(first.json<StudioState>().mediaPlayback?.status, 'playing');
   assert.equal(first.json<StudioState>().obs.currentScene, 'Nino · Médias', 'The command response already contains the confirmed programme scene');
+  const inputName = String(fixture.requests.filter(request => request.requestType === 'CreateInput').at(-1)!.requestData.inputName);
+  assert.equal(fixture.snapshot().inputs[inputName]!.settings.clear_on_media_end, false, 'OBS keeps the final video frame instead of clearing it');
   fixture.finishMedia();
   const ended = await app.inject({ method: 'POST', url: '/api/obs/connect', headers });
   assert.equal(ended.json<StudioState>().mediaPlayback?.status, 'stopped');
   assert.equal(ended.json<StudioState>().obs.currentScene, 'Nino · Médias');
+  assert.equal(fixture.snapshot().sceneItems['Nino · Médias']!.find(item => item.sourceName === inputName)!.sceneItemEnabled, true,
+    'Natural EOF keeps the clip on programme until the explicit manual return');
   const replay = await control({ action: 'media.play', assetId: video.id, mode: 'fullscreen' });
   assert.equal(replay.statusCode, 200, replay.body);
   assert.equal(replay.json<StudioState>().mediaPlayback?.status, 'playing');
@@ -196,6 +200,74 @@ test('replaying an ended fullscreen clip retains its original return plan and re
   assert.equal((await control({ action: 'scene.set', sceneName: 'Plan large' })).statusCode, 200);
   assert.equal((await control({ action: 'media.play', assetId: video.id, mode: 'fullscreen' })).statusCode, 200);
   assert.equal((await control({ action: 'media.stop' })).json<StudioState>().obs.currentScene, 'Plan large', 'A manually changed plan remains the next clip’s return destination');
+});
+
+test('legacy Nino video sources migrate to holding their last frame only after OBS confirms the setting', async t => {
+  const ignored: string[] = [];
+  const { app, headers, fixture, upload, videoBytes } = await setup(t, true, undefined, { ignoreMutations: ignored });
+  const video = await upload(videoBytes, 'clip.mp4');
+  const control = (payload: object) => app.inject({ method: 'POST', url: '/api/control', headers, payload });
+  assert.equal((await control({ action: 'scene.set', sceneName: 'Caméra 1' })).statusCode, 200);
+  assert.equal((await control({ action: 'media.play', assetId: video.id, mode: 'fullscreen' })).statusCode, 200);
+  assert.equal((await control({ action: 'media.stop' })).statusCode, 200);
+  const inputName = String(fixture.requests.filter(request => request.requestType === 'CreateInput').at(-1)!.requestData.inputName);
+  const settings = fixture.snapshot().inputs[inputName]!.settings;
+  fixture.changeInput(inputName, { settings: { ...settings, clear_on_media_end: true } });
+
+  ignored.push('SetInputSettings');
+  const baseline = fixture.requests.length;
+  const unconfirmed = await control({ action: 'media.play', assetId: video.id, mode: 'fullscreen' });
+  assert.equal(unconfirmed.statusCode, 409, unconfirmed.body);
+  assert.match(unconfirmed.json().error, /dernière image/);
+  assert.equal(fixture.snapshot().currentScene, 'Caméra 1');
+  assert.equal(fixture.requests.slice(baseline).some(request => ['SetSceneItemEnabled', 'SetSceneItemTransform', 'SetCurrentProgramScene', 'TriggerMediaInputAction'].includes(request.requestType)), false,
+    'An ACK without the requested setting cannot activate the clip or change the programme');
+
+  ignored.length = 0;
+  const migrated = await control({ action: 'media.play', assetId: video.id, mode: 'fullscreen' });
+  assert.equal(migrated.statusCode, 200, migrated.body);
+  assert.equal(fixture.snapshot().inputs[inputName]!.settings.clear_on_media_end, false, 'The owned legacy source migrates on its next playback');
+  assert.equal((await control({ action: 'media.stop' })).statusCode, 200);
+  fixture.changeInput(inputName, { settings: { ...settings, nino_owner: 'another-owner', clear_on_media_end: true } });
+  const foreignBaseline = fixture.requests.length;
+  const foreign = await control({ action: 'media.play', assetId: video.id, mode: 'fullscreen' });
+  assert.equal(foreign.statusCode, 409, foreign.body);
+  assert.equal(fixture.requests.slice(foreignBaseline).some(request => ['SetInputSettings', 'SetSceneItemEnabled'].includes(request.requestType)), false,
+    'A source whose ownership changed is never migrated or disabled');
+  assert.equal(fixture.snapshot().inputs[inputName]!.settings.clear_on_media_end, true);
+});
+
+test('fullscreen media returns through the confirmed transition before stopping or hiding its source', async t => {
+  const ignored: string[] = [];
+  const { app, headers, fixture, upload, videoBytes } = await setup(t, true, undefined, { sceneTransitionDelayMs: 150, ignoreMutations: ignored });
+  const video = await upload(videoBytes, 'clip.mp4');
+  const control = (payload: object) => app.inject({ method: 'POST', url: '/api/control', headers, payload });
+  assert.equal((await control({ action: 'scene.set', sceneName: 'Caméra 1' })).statusCode, 200);
+  assert.equal((await control({ action: 'media.play', assetId: video.id, mode: 'fullscreen' })).statusCode, 200);
+  const inputName = String(fixture.requests.filter(request => request.requestType === 'CreateInput').at(-1)!.requestData.inputName);
+  const baseline = fixture.requests.length;
+  const stopped = await control({ action: 'media.stop' });
+  assert.equal(stopped.statusCode, 200, stopped.body);
+  const requests = fixture.requests.slice(baseline);
+  const returned = requests.findIndex(request => request.requestType === 'SetCurrentProgramScene' && request.requestData.sceneName === 'Caméra 1');
+  const transportStopped = requests.findIndex(request => request.requestType === 'TriggerMediaInputAction');
+  const hidden = requests.findIndex(request => request.requestType === 'SetSceneItemEnabled' && request.requestData.sceneItemEnabled === false);
+  assert(returned >= 0 && transportStopped > returned && hidden > transportStopped, 'The return precedes both STOP and hide');
+  assert(requests.slice(returned + 1, transportStopped).filter(request => request.requestType === 'GetSourceActive').length >= 2,
+    'An accepted scene change still waits for the outgoing fade to finish');
+  assert.equal(stopped.json<StudioState>().obs.currentScene, 'Caméra 1');
+
+  assert.equal((await control({ action: 'media.play', assetId: video.id, mode: 'fullscreen' })).statusCode, 200);
+  ignored.push('SetCurrentProgramScene');
+  const unconfirmedBaseline = fixture.requests.length;
+  const unconfirmed = await control({ action: 'media.stop' });
+  assert.equal(unconfirmed.statusCode, 409, unconfirmed.body);
+  assert.match(unconfirmed.json().error, /fin du retour/);
+  assert.equal(fixture.snapshot().currentScene, 'Nino · Médias');
+  assert.equal(fixture.snapshot().inputs[inputName]!.state, 'OBS_MEDIA_STATE_PLAYING');
+  assert.equal(fixture.snapshot().sceneItems['Nino · Médias']!.find(item => item.sourceName === inputName)!.sceneItemEnabled, true);
+  assert.equal(fixture.requests.slice(unconfirmedBaseline).some(request => ['TriggerMediaInputAction', 'SetSceneItemEnabled'].includes(request.requestType)), false,
+    'An unconfirmed return never clears the source that remains on programme');
 });
 
 test('OBS source and scene ownership reject collisions and modified private paths without replacing user sources', async t => {

