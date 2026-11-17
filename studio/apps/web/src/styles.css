@@ -1042,7 +1042,6 @@ input:not([type="checkbox"]), select, textarea { border-radius: 8px; border-colo
 .studio-main {
   position: relative;
   isolation: isolate;
-  min-height: calc(100dvh - var(--topbar-height));
   background-image:
     radial-gradient(60rem 40rem at 85% -10%, var(--accent-soft), transparent 60%),
     radial-gradient(50rem 30rem at -10% 110%, rgba(255, 150, 80, 0.06), transparent 60%);
