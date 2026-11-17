@@ -60,7 +60,7 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', onHash));
   <GuestSourcePage v-if="sourceToken" :key="sourceToken" :token="sourceToken" />
   <GuestPage v-else-if="invitationToken" :key="invitationToken" :token="invitationToken" />
   <GuestBridgePage v-else-if="bridgeRoute" />
-  <div v-else-if="gateway !== 'studio'" class="guest-layout"><header class="guest-header"><StudioBrand /><span>Invités à distance</span></header><main class="guest-main"><div class="guest-heading"><h1>{{ gateway === 'checking' ? 'Connexion au studio…' : 'Votre invitation vous attend' }}</h1><p>{{ gateway === 'checking' ? 'Vérification de l’accès.' : 'Ouvrez le lien personnel envoyé par la salle pour rejoindre votre conversation.' }}</p></div></main></div>
+  <div v-else-if="gateway !== 'studio'" class="guest-layout studio-gateway"><header class="guest-header"><StudioBrand /><span>Invités à distance</span></header><main class="guest-main"><div class="guest-heading"><h1>{{ gateway === 'checking' ? 'Connexion au studio…' : 'Votre invitation vous attend' }}</h1><p>{{ gateway === 'checking' ? 'Vérification de l’accès.' : 'Ouvrez le lien personnel envoyé par la salle pour rejoindre votre conversation.' }}</p></div></main></div>
   <template v-else>
   <a v-if="device && state" class="skip-link" href="#main-content">Aller au contenu</a>
   <div v-if="!device || !state" class="login-layout">

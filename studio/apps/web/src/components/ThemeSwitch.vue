@@ -10,8 +10,11 @@ const { theme, setTheme } = useTheme();
 </template>
 
 <style scoped>
-.theme-switch { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; padding: 2px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface-2); }
-.theme-switch button { min-height: 32px; padding: 4px 6px; border: 0; border-radius: 6px; background: transparent; color: var(--ink-2); font-size: 11px; font-weight: 500; }
+/* Suite segmented control, variant B (roomy), as in Lamio Réglages. */
+.theme-switch { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); }
+.theme-switch button { min-height: 32px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: var(--ink-2); font-size: 12.5px; font-weight: 400; line-height: 1; white-space: nowrap; transition: background-color 150ms cubic-bezier(.4, 0, .2, 1), color 150ms ease, box-shadow 150ms ease; }
 .theme-switch button:hover { color: var(--ink); }
-.theme-switch button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
+.theme-switch button[aria-pressed="true"] { background: var(--surface); color: var(--ink); font-weight: 500; box-shadow: var(--shadow); }
+.theme-switch button:focus-visible { outline: none; box-shadow: var(--suite-ring); }
+@media (max-width: 1024px) { .theme-switch button { min-height: 40px; } }
 </style>

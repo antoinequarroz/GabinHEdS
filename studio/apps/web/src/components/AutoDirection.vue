@@ -80,16 +80,22 @@ async function start(): Promise<void> {
 </template>
 
 <style scoped>
-.auto-direction { flex-shrink: 0; padding: 20px 18px; background: color-mix(in srgb, var(--surface) 75%, transparent); border: 1px solid color-mix(in srgb, var(--ink) 3%, transparent); border-radius: 15px; }
-.auto-direction .regie-section-heading { flex-wrap: wrap; gap: 8px; }
-.auto-intro, .auto-message { color: var(--muted, var(--ink-2)); font-size: 12px; line-height: 1.65; margin: 14px 0; }
-.auto-message { padding-left: 10px; border-left: 2px solid color-mix(in srgb, var(--accent) 56%, var(--surface)); }
-.auto-associations { display: grid; gap: 6px; margin-bottom: 16px; }
-.auto-associations > div { padding: 9px 10px; border-radius: 6px; background: color-mix(in srgb, var(--ink) 2%, transparent); display: grid; gap: 3px; min-width: 0; }
-.auto-associations .speaking { background: color-mix(in srgb, var(--accent) 9%, transparent); box-shadow: inset 2px 0 color-mix(in srgb, var(--accent) 35%, transparent); }
-.auto-person { font-size: 12px; font-weight: 650; }
-.auto-associations small { font-size: 11px; color: var(--muted, var(--ink-2)); overflow-wrap: anywhere; }
+/* Suite compact card (Cairn/Lamio Card: radius 12, line border, --shadow). */
+.auto-direction { flex-shrink: 0; padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+.auto-direction .regie-section-heading { flex-wrap: nowrap; gap: 8px; margin-bottom: 10px; }
+.auto-direction .regie-section-heading > div { min-width: 0; }
+.auto-direction .regie-section-heading h2 { min-width: 0; overflow-wrap: anywhere; }
+.auto-direction .regie-section-heading .regie-status { flex-shrink: 0; }
+.auto-intro, .auto-message { color: var(--ink-2); font-size: 13px; line-height: 1.5; margin: 0 0 14px; }
+.auto-message { padding: 8px 12px; border: 1px solid color-mix(in oklab, var(--accent) 30%, transparent); border-radius: 8px; background: color-mix(in oklab, var(--accent-soft) 40%, var(--surface)); font-size: 12.5px; margin-top: 12px; }
+.auto-associations { display: grid; gap: 4px; margin-bottom: 14px; }
+.auto-associations:empty { display: none; }
+.auto-associations > div { padding: 8px 12px; border-radius: 8px; background: var(--surface-2); display: grid; gap: 2px; min-width: 0; transition: background-color 150ms cubic-bezier(.4, 0, .2, 1); }
+.auto-associations .speaking { background: var(--accent-soft); }
+.auto-person { font-size: 13px; font-weight: 500; color: var(--ink); }
+.auto-associations .speaking .auto-person { color: var(--accent-text); }
+.auto-associations small { font-size: 12px; color: var(--ink-3); overflow-wrap: anywhere; }
 .auto-trigger { width: 100%; margin-top: 12px; white-space: normal; }
-.auto-settings-fields { display: grid; gap: 14px; margin: 16px 0; }
-.auto-settings-fields small { font-size: 11px; color: var(--muted, var(--ink-2)); line-height: 1.5; }
+.auto-settings-fields { display: grid; gap: 12px; margin: 12px 0 4px; }
+.auto-settings-fields small { font-size: 11.5px; font-weight: 400; color: var(--ink-3); line-height: 1.5; }
 </style>

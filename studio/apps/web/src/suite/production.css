@@ -1,1 +1,337 @@
-/* Suite Media components: production. Loaded after styles.css; see docs/brand.md. */
+/* Suite Media components: production. Loaded after styles.css; see docs/brand.md.
+   Production page chrome, preparation step, takes step and the production form,
+   restyled after Cairn/Lamio (PageHeader, Card, list-box, segmented control).
+   Shared controls (buttons, fields, badges, banners, dialog) live in base.css.
+   styles.css repeats many of these selectors inside breakpoints; because this
+   file loads later, the breakpoint values are restated at the bottom. */
+
+/* ------------------------------------------------------------------ */
+/* Page chrome: breadcrumb, title row, Modifier                        */
+/* ------------------------------------------------------------------ */
+.production-toolbar { display: block; padding: 0; border: 0; }
+.production-breadcrumbs { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; font-size: 12.5px; color: var(--ink-3); }
+.production-breadcrumbs > span[aria-hidden="true"] { color: var(--line-hover); }
+.production-breadcrumbs > span:last-child { color: var(--ink-2); }
+.production-back {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 28px; margin-left: -6px; padding: 0 6px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--ink-3); font-size: 12.5px;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+.production-back svg { width: 14px; height: 14px; }
+.production-back:hover { background: var(--suite-hover); color: var(--ink); }
+.production-heading-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+.production-heading-row h1, .production-toolbar h1 { font-family: var(--font-display); font-size: 28px; line-height: 1; font-weight: 400; letter-spacing: normal; overflow-wrap: anywhere; }
+.production-title { gap: 0; min-width: 0; }
+/* "Modifier" = suite secondary sm button */
+.button.production-edit { margin-left: auto; min-height: 32px; padding: 0 12px; font-size: 12.5px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); }
+.button.production-edit:hover:not(:disabled) { background: var(--surface-2); }
+.button.production-edit svg { width: 14px; height: 14px; }
+
+/* ------------------------------------------------------------------ */
+/* Workflow steps = segmented control (aria-current="step")            */
+/* ------------------------------------------------------------------ */
+.production-workflow {
+  display: flex; align-items: center; gap: 2px; width: fit-content; max-width: 100%; overflow-x: auto;
+  margin: 12px 0 20px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); box-shadow: none;
+}
+.production-workflow button {
+  display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 12px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--ink-3); font-size: 13px; font-weight: 400; white-space: nowrap; box-shadow: none;
+}
+.production-workflow button svg { width: 15px; height: 15px; color: var(--ink-3); }
+.production-workflow button:hover { color: var(--ink); }
+.production-workflow button[aria-current="step"] { background: var(--surface); color: var(--ink); font-weight: 500; border: 0; box-shadow: var(--shadow); }
+.production-workflow button[aria-current="step"] svg { color: var(--accent); }
+.production-workflow button[aria-current="step"] .workflow-number { background: var(--accent); border-color: var(--accent); color: var(--on-ink); }
+.production-workflow small { font-size: 10.5px; font-weight: 500; line-height: 17px; padding: 0 6px; border-radius: 9999px; background: color-mix(in oklab, var(--ink) 6%, transparent); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.production-workflow button[aria-current="step"] small { background: var(--accent-soft); color: var(--accent-text); }
+
+.production-notice { margin-bottom: 16px; }
+.production-notice .text-button { color: inherit; font-weight: 500; text-decoration: underline; text-underline-offset: 3px; }
+
+/* ------------------------------------------------------------------ */
+/* Shared inside the production: inline empties, file paths            */
+/* ------------------------------------------------------------------ */
+.production-workspace .empty-inline { padding: 16px 0; font-size: 13px; color: var(--ink-3); }
+.production-workspace .file-path {
+  margin: 10px 0 0; padding: 8px 12px; border: 0; border-radius: 8px; background: var(--surface-2);
+  color: var(--ink-2); font-family: var(--font-mono); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------------------ */
+/* Preparation step                                                    */
+/* ------------------------------------------------------------------ */
+.prep-layout { grid-template-columns: minmax(0, 1fr) minmax(320px, .9fr); gap: 20px; margin-top: 0; align-items: start; grid-template-rows: auto 1fr; }
+.prep-roster, .prep-readiness, .prep-delivery {
+  padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow);
+}
+.prep-roster { grid-column: 1; }
+.prep-readiness { grid-column: 2; grid-row: 1 / span 2; }
+.prep-delivery { grid-column: 1; border-top: 1px solid var(--line); }
+.prep-layout > :not(.prep-roster, .prep-readiness, .prep-delivery) { grid-column: 1 / -1; }
+
+.prep-section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.prep-section-heading h2 { margin: 0; font-size: 15px; font-weight: 500; line-height: 1.4; letter-spacing: normal; color: var(--ink); }
+.prep-section-heading p { margin-top: 4px; font-size: 13px; color: var(--ink-3); }
+.prep-description { margin: -4px 0 16px; max-width: 65ch; font-size: 13px; line-height: 1.6; color: var(--ink-2); }
+
+/* Participants: list-box rows */
+.prep-source-list:not(:empty) { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.prep-source { gap: 12px; padding: 12px 14px; border-top: 1px solid var(--line); }
+.prep-source:first-child { border-top: 0; }
+.prep-source-avatar {
+  width: 36px; height: 36px; border-radius: 9999px; background: var(--accent-soft); color: var(--accent-text);
+  font-size: 13.5px; font-weight: 600;
+}
+.prep-source-person { gap: 2px; min-width: 0; }
+.prep-source-person strong { font-size: 13.5px; font-weight: 500; color: var(--ink); }
+.prep-source-person span { gap: 6px; font-size: 12px; color: var(--ink-3); overflow-wrap: anywhere; }
+.prep-source-person svg { width: 12px; height: 12px; flex-shrink: 0; }
+.prep-source-state {
+  display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 9999px; flex-shrink: 0;
+  font-size: 11px; font-weight: 500; line-height: 1.5;
+  background: color-mix(in oklab, var(--warn) 14%, transparent); color: var(--warn-text);
+}
+.prep-source-state.ready { background: color-mix(in oklab, var(--ok) 14%, transparent); color: var(--ok-text); }
+.prep-source-state svg { width: 12px; height: 12px; }
+
+.prep-start-scene { gap: 12px; margin-top: 16px; padding: 10px 12px; border: 0; border-radius: 8px; background: var(--surface-2); color: var(--ink-3); }
+.prep-start-scene > svg { width: 16px; height: 16px; color: var(--ink-3); }
+.prep-start-scene > div { gap: 0; }
+.prep-start-scene span { font-size: 12px; color: var(--ink-3); }
+.prep-start-scene strong { font-size: 13.5px; font-weight: 500; color: var(--ink); }
+
+/* Room checks */
+.prep-readiness-summary {
+  gap: 12px; margin-bottom: 8px; padding: 12px 14px; border-radius: 8px;
+  background: color-mix(in oklab, var(--warn) 8%, var(--surface)); border: 1px solid color-mix(in oklab, var(--warn) 30%, transparent); color: var(--warn-text);
+}
+.prep-readiness-summary.ready { background: color-mix(in oklab, var(--ok) 8%, var(--surface)); border-color: color-mix(in oklab, var(--ok) 30%, transparent); color: var(--ok-text); }
+.prep-readiness-summary > svg { width: 18px; height: 18px; stroke-width: 1.75; flex-shrink: 0; }
+.prep-readiness-summary > div { gap: 2px; }
+.prep-readiness-summary strong { font-size: 13.5px; font-weight: 500; }
+.prep-readiness-summary > div span { font-size: 12px; color: var(--ink-3); }
+.prep-check-count { font-family: var(--font-mono); font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+.prep-check-row { gap: 12px; padding: 12px 2px; border-top: 1px solid var(--line); }
+.prep-readiness-summary + .prep-check-row, .prep-readiness-summary + .empty-inline + .prep-check-row { border-top: 0; }
+.prep-check-row strong { font-size: 13px; font-weight: 500; color: var(--ink); }
+.prep-check-row p { margin-top: 2px; font-size: 12px; line-height: 1.5; color: var(--ink-3); }
+.prep-readiness .check-icon {
+  width: 24px; height: 24px; border: 0; border-radius: 9999px;
+  background: color-mix(in oklab, var(--ok) 14%, transparent); color: var(--ok-text);
+}
+.prep-readiness .check-icon svg { width: 13px; height: 13px; }
+.prep-readiness .check-icon.warning { background: color-mix(in oklab, var(--warn) 14%, transparent); color: var(--warn-text); }
+.prep-readiness .check-icon.blocked { background: color-mix(in oklab, var(--danger) 12%, transparent); color: var(--danger-text); }
+.prep-check-status {
+  display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 9999px; white-space: nowrap; flex-shrink: 0;
+  font-size: 11px; font-weight: 500; line-height: 1.5;
+  background: color-mix(in oklab, var(--ok) 14%, transparent); color: var(--ok-text);
+}
+.prep-check-status.warning { background: color-mix(in oklab, var(--warn) 14%, transparent); color: var(--warn-text); }
+.prep-check-status.blocked { background: color-mix(in oklab, var(--danger) 12%, transparent); color: var(--danger-text); }
+.prep-readiness > .hint { margin-top: 12px; }
+
+/* Storage + "Ouvrir la régie" */
+.prep-storage { gap: 12px; align-items: flex-start; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.prep-storage > svg {
+  box-sizing: content-box; width: 18px; height: 18px; padding: 9px; margin: 0; flex-shrink: 0;
+  border-radius: 8px; background: color-mix(in oklab, var(--ink) 5%, transparent); color: var(--ink-3);
+}
+.prep-storage h2 { margin: 0; font-size: 15px; font-weight: 500; line-height: 1.4; color: var(--ink); }
+.prep-storage > div { min-width: 0; }
+.prep-storage-space { gap: 0; flex-shrink: 0; }
+.prep-storage-space strong { font-size: 15px; font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
+.prep-storage-space span { font-size: 11.5px; color: var(--ink-3); }
+.prep-launch { gap: 16px; margin: 16px 0 0; padding-top: 16px; border-top: 1px solid var(--line); }
+.prep-launch p { max-width: 46ch; font-size: 13px; color: var(--ink-2); }
+.prep-launch .button { border-radius: 8px; flex-shrink: 0; }
+
+/* ------------------------------------------------------------------ */
+/* Takes step                                                          */
+/* ------------------------------------------------------------------ */
+.takes-library { margin-top: 0; border-top: 0; }
+.takes-heading { align-items: flex-end; gap: 16px; padding: 4px 0 16px; }
+.takes-heading h2 { margin: 0; font-size: 15px; font-weight: 500; line-height: 1.4; color: var(--ink); }
+.takes-heading p { margin-top: 4px; font-size: 13px; color: var(--ink-3); }
+.takes-heading-actions { gap: 8px; }
+.takes-library > .hint { margin: 0 0 12px; }
+.takes-export-note {
+  margin: 0 0 12px; padding: 10px 12px; border-radius: 8px; font-size: 12.5px; line-height: 1.55; color: var(--ink-2);
+  border: 1px solid color-mix(in oklab, var(--accent) 30%, transparent); background: color-mix(in oklab, var(--accent-soft) 40%, var(--surface));
+}
+.takes-export-note + .takes-export-note { margin-top: -4px; }
+
+/* Empty: suite page-level empty state */
+.takes-empty {
+  gap: 12px; min-height: 280px; margin-top: 4px; padding: 32px; text-align: center;
+  border: 1px dashed var(--line-strong); border-radius: 12px; background: transparent;
+}
+.takes-empty > svg { width: 28px; height: 28px; color: var(--accent); }
+.takes-empty h3 { font-family: var(--font-display); font-size: 24px; line-height: 1; font-weight: 400; letter-spacing: normal; }
+.takes-empty p { max-width: 380px; font-size: 13.5px; color: var(--ink-3); }
+.takes-empty .button { margin-top: 8px; }
+
+/* List: suite list-box with a quiet header row */
+.takes-list { margin-top: 4px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--surface); box-shadow: var(--shadow); }
+.takes-list-heading {
+  grid-template-columns: 56px minmax(0, 1fr) 240px; gap: 20px; padding: 8px 16px;
+  border-bottom: 1px solid var(--line); background: var(--surface-2);
+  font-size: 11px; font-weight: 500; letter-spacing: .025em; text-transform: uppercase; color: var(--ink-3);
+}
+.takes-row { grid-template-columns: 56px minmax(0, 1fr) 240px; gap: 20px; padding: 16px; border-top: 1px solid var(--line); }
+.takes-list-heading + .takes-row { border-top: 0; }
+.takes-index {
+  display: grid; place-items: center; align-content: center; gap: 0; width: 48px; height: 48px;
+  border-radius: 8px; background: color-mix(in oklab, var(--ink) 5%, transparent); color: var(--ink-2);
+}
+.takes-index svg, .takes-index small { display: none; }
+.takes-index > span { font-family: var(--font-mono); font-size: 15px; font-weight: 500; line-height: 1; color: var(--ink); font-variant-numeric: tabular-nums; }
+.takes-title { align-items: center; gap: 10px; flex-wrap: wrap; }
+.takes-title h3 { font-size: 14px; font-weight: 500; line-height: 1.4; color: var(--ink); }
+.takes-metadata { gap: 4px 14px; margin-top: 4px; font-size: 12px; color: var(--ink-3); }
+.takes-metadata svg { width: 12px; height: 12px; }
+.takes-details .file-path { margin-top: 10px; }
+.takes-details .file-path.is-message { font-family: var(--font-sans); font-size: 12.5px; color: var(--ink-3); }
+/* Delivery: sizes stay tuned for touch (tests need ≥44px); only the skin changes. */
+.takes-delivery { gap: 10px; padding-top: 0; }
+.takes-delivery .button { font-size: 12.5px; }
+.take-download-option { gap: 4px; }
+.takes-delivery small { font-size: 11.5px; color: var(--ink-3); text-align: left; }
+.takes-delivery > .hint { padding: 0; font-size: 12px; text-align: left; }
+
+/* Take player */
+.take-playback { margin-top: 12px; }
+.take-player { padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+.take-player > header { margin: -2px 0 10px; gap: 12px; }
+.take-player > header > strong { font-size: 13px; font-weight: 500; color: var(--ink); }
+.take-player video { border-radius: 8px; background: var(--stage); }
+.take-player-wait { gap: 14px; padding: 20px 8px; }
+.take-player-wait strong { font-size: 13.5px; font-weight: 500; }
+.take-player-wait p { margin-top: 2px; font-size: 12.5px; color: var(--ink-3); }
+.take-player-error {
+  margin: 12px 0 0; padding: 10px 12px; border-radius: 8px; font-size: 12.5px; color: var(--warn-text);
+  border: 1px solid color-mix(in oklab, var(--warn) 30%, transparent); background: color-mix(in oklab, var(--warn) 8%, var(--surface));
+}
+.take-player-error .button { margin-top: 10px; }
+.take-player > .hint { margin-top: 10px; }
+.take-player > .button { margin-top: 10px; }
+
+/* ------------------------------------------------------------------ */
+/* Production form (#new and "Modifier")                               */
+/* ------------------------------------------------------------------ */
+.project-form { max-width: 960px; margin: 0; }
+.production-workspace .project-form { margin-top: 20px; }
+.form-identity { padding: 4px 0 24px; }
+.form-identity .field { font-size: 12px; }
+.form-identity .field input { min-height: 60px; padding: 0 16px; border-radius: 12px; background: var(--surface); font-size: 26px; font-weight: 500; letter-spacing: -0.01em; }
+.form-identity .hint { margin-top: 6px; }
+
+.form-section { grid-template-columns: 220px minmax(0, 1fr); gap: 28px; padding: 24px 0; border-top: 1px solid var(--line); }
+.form-section-heading { gap: 4px; }
+.form-section-heading h2 { font-size: 15px; font-weight: 500; line-height: 1.4; color: var(--ink); }
+.form-section-heading p { font-size: 13px; line-height: 1.5; color: var(--ink-3); }
+.form-section-heading .count {
+  margin-top: 6px; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 500; line-height: 1.5;
+  background: color-mix(in oklab, var(--ink) 6%, transparent); color: var(--ink-3); font-variant-numeric: tabular-nums;
+}
+.form-grid { gap: 16px; }
+
+/* Format choice: list-box of selectable rows */
+.form-format-options { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+.form-format-option {
+  gap: 12px; min-height: 60px; padding: 12px 14px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--ink);
+  transition: background-color 150ms var(--suite-ease-std);
+}
+.form-format-option:last-child { border-bottom: 0; }
+.form-format-option:hover { background: var(--suite-hover-row); }
+.form-format-option > svg:first-child {
+  box-sizing: content-box; width: 16px; height: 16px; padding: 10px; flex-shrink: 0;
+  border-radius: 8px; background: color-mix(in oklab, var(--ink) 5%, transparent); color: var(--ink-3);
+}
+.form-format-option strong { font-size: 13.5px; font-weight: 500; }
+.form-format-option small { margin-top: 2px; font-size: 12px; color: var(--ink-3); }
+.form-format-option[aria-pressed="true"] { background: color-mix(in oklab, var(--accent-soft) 55%, var(--surface)); box-shadow: none; }
+.form-format-option[aria-pressed="true"] > svg:first-child { background: var(--accent-soft); color: var(--accent); }
+.form-format-option[aria-pressed="true"] small { color: var(--ink-2); }
+.form-format-option > .form-format-check { width: 16px; height: 16px; color: var(--accent); }
+.form-format-option:focus-visible { outline-offset: -2px; }
+
+/* Participants */
+.participant-form { gap: 10px; padding: 14px 0; border-top: 1px solid var(--line); }
+.participant-form:first-child { padding-top: 0; border-top: 0; }
+.form-participant-number {
+  width: 24px; height: 24px; margin-top: 22px; border-radius: 9999px;
+  background: color-mix(in oklab, var(--ink) 6%, transparent); color: var(--ink-2); font-size: 11px; font-weight: 500;
+}
+.participant-form select { font-size: 13px; }
+.participant-form .icon-button { width: 40px; height: 40px; border: 0; background: transparent; box-shadow: none; color: var(--ink-3); }
+.participant-form .icon-button:hover:not(:disabled) { background: var(--suite-hover); color: var(--danger-text); }
+.form-participant-actions { margin-top: 14px; }
+.form-participants-empty {
+  gap: 12px; padding: 16px; border: 1px dashed var(--line-strong); border-radius: 12px; font-size: 13px; color: var(--ink-3);
+}
+.form-participants-empty svg { width: 18px; height: 18px; color: var(--accent); flex-shrink: 0; }
+.form-savebar { gap: 8px; padding: 20px 0; border-top: 1px solid var(--line); }
+
+/* ------------------------------------------------------------------ */
+/* Breakpoints (restate styles.css values that this file overrides)    */
+/* ------------------------------------------------------------------ */
+@media (max-width: 1180px) {
+  .form-section { grid-template-columns: 180px minmax(0, 1fr); gap: 22px; }
+}
+@media (max-width: 1024px) {
+  /* Touch: one compact row (back, title, Modifier) under a hairline. */
+  .production-toolbar { display: flex; align-items: center; gap: 12px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+  .production-breadcrumbs { margin: 0; flex-shrink: 0; }
+  .production-breadcrumbs > span { display: none; }
+  .production-back { min-height: 44px; margin-left: -8px; padding: 0 8px; border-radius: 8px; }
+  .production-back svg { width: 16px; height: 16px; }
+  .production-heading-row { flex: 1; min-width: 0; align-items: center; padding-bottom: 0; border-bottom: 0; }
+  .production-heading-row h1, .production-toolbar h1 { font-size: 24px; }
+  .button.production-edit { min-height: 44px; }
+  .production-workflow { margin: 12px 0 16px; }
+  /* Touch: title block on top, the three actions on their own row. */
+  .takes-heading { flex-direction: column; align-items: stretch; gap: 12px; }
+  .takes-heading-actions { width: 100%; justify-content: flex-start; }
+  .takes-heading-actions > .button { min-height: 44px; }
+  .production-workflow button { min-height: 44px; padding: 0 14px; }
+  .participant-form .icon-button { width: 44px; height: 44px; }
+}
+@media (max-width: 900px) {
+  .prep-layout { grid-template-columns: 1fr; grid-template-rows: none; gap: 16px; }
+  .prep-roster, .prep-readiness, .prep-delivery { grid-column: 1; grid-row: auto; }
+  /* Keep the room checks and storage with the roster, before media and guests. */
+  .prep-layout > :not(.prep-roster, .prep-readiness, .prep-delivery) { order: 4; }
+  .takes-list-heading { display: none; }
+  .takes-row { grid-template-columns: 48px minmax(0, 1fr); gap: 16px; }
+  .takes-delivery { grid-column: 2; flex-direction: row; flex-wrap: wrap; }
+}
+@media (max-width: 760px) {
+  .production-toolbar { gap: 8px; }
+  .production-back { min-width: 44px; justify-content: center; }
+  .production-heading-row h1, .production-toolbar h1 { font-size: 22px; }
+  .button.production-edit { padding: 0 10px; }
+  .production-workflow { width: 100%; }
+  .production-workflow button { flex: 1; justify-content: center; padding: 0 8px; font-size: 12px; gap: 6px; }
+  .production-workflow button svg { display: none; }
+  .prep-roster, .prep-readiness, .prep-delivery { padding: 16px; }
+  .prep-launch { flex-direction: column; align-items: stretch; }
+  .prep-launch p { max-width: none; }
+  .form-section { grid-template-columns: 1fr; gap: 16px; }
+  .form-identity .field input { font-size: 20px; }
+  .participant-form { grid-template-columns: 24px minmax(0, 1fr) 44px; gap: 10px; }
+  .form-participant-number { align-self: start; margin-top: 28px; }
+}
+@media (max-width: 430px) {
+  .production-heading-row h1, .production-toolbar h1 { font-size: 20px; }
+  .production-workflow button { font-size: 11px; padding: 0 4px; }
+  .takes-row { grid-template-columns: 40px minmax(0, 1fr); gap: 12px; padding: 14px 12px; }
+  .takes-index { width: 40px; height: 40px; }
+  .takes-index > span { font-size: 13px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .production-back, .form-format-option { transition: none; }
+}

@@ -1,1 +1,315 @@
-/* Suite Media components: shell. Loaded after styles.css; see docs/brand.md. */
+/* Suite Media components: shell. Loaded after styles.css and suite/base.css; see docs/brand.md.
+   App shell after Cairn/Lamio: a transparent 248px sidebar column (logo, nav,
+   footer card) beside one floating content panel. Nino keeps a compact sticky
+   status header on top so REC and LIVE stay visible on every route.
+   The document still scrolls (not the panel), so window.scrollTo() in the app
+   and in the browser tests keeps working; header and rail are sticky. */
+
+:root {
+  --topbar-height: 52px;
+  --rail-width: 248px; /* also offsets the fixed .regie-transport on PC */
+}
+
+/* ------------------------------------------------------------------ */
+/* Skip link                                                           */
+/* ------------------------------------------------------------------ */
+.skip-link {
+  left: 12px; padding: 0 14px; min-height: 36px; display: inline-flex; align-items: center;
+  border-radius: 8px; background: var(--accent); color: var(--on-ink); font-size: 13.5px; font-weight: 500;
+  text-decoration: none; box-shadow: var(--suite-shadow-primary);
+}
+.skip-link:hover { text-decoration: none; }
+.skip-link:focus { top: 8px; }
+.skip-link:focus-visible { outline: none; box-shadow: var(--suite-ring), var(--suite-shadow-primary); }
+
+/* ------------------------------------------------------------------ */
+/* Shell frame (PC)                                                    */
+/* ------------------------------------------------------------------ */
+.studio-app { min-height: 100dvh; background: var(--bg); }
+
+.studio-topbar {
+  position: sticky; top: 0; z-index: 12;
+  display: flex; align-items: center; gap: 12px;
+  height: var(--topbar-height); min-height: var(--topbar-height); padding: 0 8px 0 0;
+  border: 0; background: color-mix(in oklab, var(--bg) 88%, transparent);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+}
+
+/* Brand = top of the sidebar column */
+.studio-brand {
+  display: flex; align-items: center; align-self: stretch; flex-shrink: 0;
+  width: var(--rail-width); gap: 8px; padding: 0 18px; margin: 0;
+  border: 0; border-radius: 0; background: transparent; color: var(--ink);
+  font-size: 15px; font-weight: 600; line-height: 1.2; letter-spacing: -0.01em; text-align: left;
+}
+.studio-brand:focus-visible { outline-offset: -4px; border-radius: 12px; }
+.studio-brand .nino-brand { gap: 8px; }
+.studio-brand .nino-brand-mark, .studio-brand-symbol { width: 28px; height: 28px; border-radius: 8px; }
+.studio-brand .nino-brand-wordmark { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.studio-brand small { display: none; }
+
+/* Room + OBS state */
+.studio-room { display: flex; align-items: center; gap: 10px; min-width: 0; padding-left: 0; border: 0; font-size: 12.5px; line-height: 1.3; color: var(--ink-2); }
+.studio-room > span:last-child { min-width: 0; }
+.studio-room strong { display: block; font-weight: 500; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.studio-room small { display: block; font-size: 11px; color: var(--ink-3); white-space: nowrap; }
+.studio-room.is-offline small { color: var(--warn-text); }
+
+/* REC / LIVE: outlined status pills, always visible */
+.studio-transport-status { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-shrink: 0; }
+.studio-status-item {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px;
+  border: 1px solid var(--line); border-radius: 9999px; background: var(--surface); color: var(--ink-2);
+  font-size: 12px; font-weight: 500; line-height: 1; white-space: nowrap; box-shadow: var(--shadow);
+}
+.studio-status-item strong { font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: .04em; color: var(--ink-3); }
+.studio-status-light { display: block; width: 6px; height: 6px; flex-shrink: 0; border-radius: 9999px; background: var(--ink-3); opacity: 1; }
+.studio-status-item.is-warning { color: var(--warn-text); border-color: color-mix(in oklab, var(--warn) 30%, transparent); background: color-mix(in oklab, var(--warn) 8%, var(--surface)); }
+.studio-status-item.is-warning strong { color: var(--warn-text); }
+.studio-status-item.is-warning .studio-status-light { background: var(--warn); }
+.studio-status-item.is-active { color: var(--danger-text); border-color: color-mix(in oklab, var(--danger) 35%, transparent); background: color-mix(in oklab, var(--danger) 10%, var(--surface)); }
+.studio-status-item.is-active strong { color: var(--danger-text); }
+.studio-status-item.is-active .studio-status-light { background: var(--danger); box-shadow: 0 0 0 3px color-mix(in oklab, var(--danger) 18%, transparent); animation: suite-pulse 2s cubic-bezier(.4, 0, .6, 1) infinite; }
+
+/* Device (hidden at <= 1180px by styles.css) */
+.studio-device { display: flex; align-items: center; gap: 8px; margin-left: 4px; padding: 0 4px 0 12px; border-left: 1px solid var(--line); color: var(--ink-2); font-size: 12px; line-height: 1.3; white-space: nowrap; }
+.studio-device svg { width: 16px; height: 16px; color: var(--ink-3); }
+.studio-device small { display: block; font-size: 11px; color: var(--ink-3); }
+
+/* Sidebar + floating panel */
+.studio-workspace { display: grid; grid-template-columns: var(--rail-width) minmax(0, 1fr); min-height: calc(100dvh - var(--topbar-height)); }
+
+.studio-rail {
+  position: sticky; top: var(--topbar-height); z-index: 11;
+  display: flex; flex-direction: column; align-items: stretch; gap: 4px;
+  width: var(--rail-width); height: calc(100dvh - var(--topbar-height)); padding: 4px 12px 12px;
+  border: 0; background: transparent;
+  overflow-y: auto; scrollbar-width: thin;
+}
+
+.studio-main {
+  width: auto; margin: 0 8px 8px 0; min-height: calc(100dvh - var(--topbar-height) - 8px); padding: 28px;
+  border: 1px solid var(--line); border-radius: 16px;
+  background-color: color-mix(in oklab, var(--surface) 70%, transparent);
+  box-shadow: var(--shadow); -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px);
+}
+/* Keeps the grain inside the rounded panel. */
+.studio-main::before { border-radius: inherit; }
+.studio-app-production .studio-main { padding: 20px 28px 102px; }
+
+/* Sync / error banners sit at the top of the panel */
+.studio-main > .sync-banner, .studio-main > .banner.error { margin: -8px 0 20px; }
+.studio-main > .sync-banner .button { margin-left: auto; }
+
+/* ------------------------------------------------------------------ */
+/* Sidebar nav (§3.1)                                                  */
+/* ------------------------------------------------------------------ */
+.studio-nav { display: flex; flex-direction: column; gap: 1px; }
+.studio-nav button {
+  display: flex; flex-direction: row; justify-content: flex-start; align-items: center; gap: 10px;
+  min-height: 32px; height: 32px; padding: 0 8px; border: 0; border-radius: 8px; background: transparent;
+  color: var(--ink-2); font-size: 13.5px; font-weight: 400; line-height: 1; box-shadow: none; text-align: left;
+}
+.studio-nav button > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.studio-nav button svg { width: 16px; height: 16px; color: var(--ink-3); transition: color 150ms ease; }
+.studio-nav button:hover { background: var(--suite-hover-row); color: var(--ink); }
+.studio-nav button[aria-current="page"] { background: var(--surface); color: var(--ink); font-weight: 500; box-shadow: var(--shadow); border: 0; }
+.studio-nav button[aria-current="page"] svg { color: var(--accent); }
+.studio-nav button[aria-current="page"]:hover { background: var(--surface); }
+
+/* ------------------------------------------------------------------ */
+/* Sidebar footer card (§3.2)                                          */
+/* ------------------------------------------------------------------ */
+.studio-rail-footer {
+  margin-top: auto; display: flex; flex-direction: column; align-items: stretch; gap: 6px;
+  padding: 10px; border: 1px solid var(--line); border-radius: 12px;
+  background: color-mix(in oklab, var(--surface) 60%, transparent);
+  color: var(--ink-2); font-size: 12px; text-align: left;
+}
+.studio-sync { display: flex; align-items: center; justify-content: flex-start; gap: 8px; padding: 2px 6px 0; font-size: 12px; line-height: 1.5; color: var(--ink-2); }
+.studio-sync .status-dot { margin: 0 5px; background: var(--ok); box-shadow: 0 0 0 3px color-mix(in oklab, var(--ok) 18%, transparent); }
+.studio-sync.is-offline { color: var(--warn-text); }
+.studio-sync.is-offline .status-dot { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in oklab, var(--warn) 18%, transparent); }
+
+.studio-access summary {
+  display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px;
+  min-height: 32px; padding: 0 6px; border-radius: 8px; background: transparent;
+  color: var(--ink-2); font-size: 12.5px; line-height: 1.2; text-align: left;
+  transition: background-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
+}
+.studio-access summary svg { width: 16px; height: 16px; color: var(--ink-3); }
+.studio-access summary:hover { background: var(--suite-hover-row); color: var(--ink); }
+.studio-access[open] summary { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+.studio-access[open] summary svg { color: var(--accent); }
+.studio-access summary:focus-visible, .studio-touch-access summary:focus-visible { outline: none; box-shadow: var(--suite-ring); }
+
+/* Access popover (rail: opens above the footer card; touch: opens above the bar) */
+.studio-access > div, .studio-touch-access > div {
+  width: 272px; padding: 12px; gap: 8px; border-radius: 12px;
+  border: 1px solid var(--line-strong); background: var(--surface); box-shadow: var(--suite-shadow-menu);
+  color: var(--ink); font-size: 12.5px; line-height: 1.4; text-align: left; z-index: 30;
+  animation: suite-pop-menu 140ms var(--ease-out) both;
+}
+/* Opens above the trigger, inside the rail (the rail scrolls, so it must not overflow sideways). */
+/* Anchored on the footer card, not on the trigger, so it clears the sync row. */
+.studio-rail-footer { position: relative; }
+.studio-rail-footer .studio-access { position: static; }
+.studio-access > div { left: 0; right: 0; width: auto; bottom: calc(100% + 8px); }
+.studio-access > div strong, .studio-touch-access > div strong { font-size: 13px; font-weight: 500; color: var(--ink); overflow-wrap: anywhere; }
+.studio-access > div > span:not(.section-label), .studio-touch-access > div > span:not(.section-label) { margin-top: -6px; font-size: 12px; color: var(--ink-3); }
+.studio-access > div > .section-label, .studio-touch-access > div > .section-label { margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--line); }
+.studio-access > div > .text-button, .studio-touch-access > div > .text-button { align-self: flex-start; margin-top: 2px; }
+.studio-touch-access .text-button:hover:not(:disabled) { color: var(--danger-text); }
+
+/* ------------------------------------------------------------------ */
+/* Touch (iPad and phone) — rail hidden, status header + bottom bar    */
+/* ------------------------------------------------------------------ */
+@media (max-width: 1180px) {
+  .studio-device { display: none; }
+  .studio-main { padding: 26px; }
+  /* Same side gutter as the other pages, so titles do not jump when switching. */
+  .studio-app-production .studio-main { padding: 20px 26px 102px; }
+}
+
+@media (max-width: 1024px) {
+  .studio-workspace { display: block; min-height: 0; }
+  .studio-rail { display: none; }
+
+  .studio-topbar { height: 56px; min-height: 56px; padding: 0 16px; gap: 16px; border-bottom: 1px solid var(--line); }
+  .studio-brand { width: auto; padding: 0; }
+  .studio-brand:focus-visible { outline-offset: 2px; border-radius: 8px; }
+  .studio-room { padding-left: 16px; border-left: 1px solid var(--line); }
+  /* Pills are not buttons: 28px visual, 44px tap zone. */
+  .studio-transport-status { min-height: 44px; }
+
+  .studio-main {
+    margin: 8px; min-height: calc(100dvh - 56px - 16px);
+    padding: 24px 24px calc(86px + env(safe-area-inset-bottom));
+  }
+  .studio-app-production .studio-main { padding: 14px 24px calc(160px + env(safe-area-inset-bottom)); }
+
+  /* Bottom bar (§3.3) */
+  .studio-touch-nav {
+    gap: 4px; padding: 6px 12px calc(6px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--line); background: color-mix(in oklab, var(--bg) 88%, transparent);
+    -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+  }
+  .studio-touch-nav > button, .studio-touch-access summary {
+    min-height: 44px; border: 0; border-radius: 8px; background: transparent; box-shadow: none;
+    color: var(--ink-3); font-size: 12.5px; font-weight: 500; gap: 8px;
+    transition: background-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
+  }
+  .studio-touch-nav > button:hover, .studio-touch-access summary:hover { color: var(--ink); }
+  .studio-touch-nav svg, .studio-touch-access summary svg { width: 18px; height: 18px; }
+  .studio-touch-nav > button[aria-current="page"], .studio-touch-access[open] summary { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); border: 0; }
+  .studio-touch-nav > button[aria-current="page"] svg, .studio-touch-access[open] summary svg { color: var(--accent); }
+  .studio-touch-nav > button:focus-visible { outline: none; box-shadow: var(--suite-ring); }
+  .studio-touch-access > div { left: auto; right: 0; bottom: calc(100% + 12px); }
+  /* The popover lives inside the bar: undo the legacy bar-button rules. */
+  .studio-touch-access > div button { min-width: 0; flex: none; flex-direction: row; border: 0; }
+  .studio-touch-access > div .theme-switch button { justify-content: center; padding: 0 10px; }
+  .studio-touch-access > div .text-button { display: inline-block; min-height: 0; padding: 4px 0; font-size: 12.5px; color: var(--ink-2); }
+}
+
+/* iPad only: the floating panel ends above the bar so its bottom edge stays visible.
+   Production keeps its padding (régie transport bar sits above the bar). */
+@media (min-width: 761px) and (max-width: 1024px) {
+  .studio-app:not(.studio-app-production) .studio-main {
+    margin-bottom: calc(var(--touch-nav-height) + 8px + env(safe-area-inset-bottom));
+    padding-bottom: 24px;
+    min-height: calc(100dvh - 56px - 16px - var(--touch-nav-height) - env(safe-area-inset-bottom));
+  }
+}
+
+@media (max-width: 900px) {
+  .studio-room { display: none; }
+}
+
+@media (max-width: 760px) {
+  .studio-topbar { height: 52px; min-height: 52px; padding: 0 12px; gap: 10px; }
+  .studio-brand { font-size: 15px; }
+  .studio-brand .nino-brand { gap: 7px; }
+  .studio-brand .nino-brand-mark { width: 24px; height: 24px; border-radius: 7px; }
+  .studio-transport-status { gap: 4px; }
+  .studio-status-item { height: 26px; padding: 0 8px; gap: 5px; font-size: 11px; }
+  .studio-status-item strong { font-size: 10px; letter-spacing: .02em; }
+  .studio-status-light { display: block; width: 5px; height: 5px; }
+
+  /* Panel goes edge to edge */
+  .studio-main {
+    margin: 0; min-height: calc(100dvh - 52px); border: 0; border-radius: 0; box-shadow: none;
+    padding: 20px 16px calc(86px + env(safe-area-inset-bottom));
+  }
+  .studio-app-production .studio-main { padding: 14px 16px calc(182px + env(safe-area-inset-bottom)); }
+  .studio-main > .sync-banner, .studio-main > .banner.error { margin: -4px 0 16px; }
+
+  .studio-touch-nav { padding-inline: 8px; }
+  .studio-touch-nav > button, .studio-touch-access summary { font-size: 11px; }
+}
+
+@media (max-width: 430px) {
+  .studio-topbar { gap: 8px; }
+  .studio-brand .nino-brand-wordmark { font-size: 15px; }
+  .studio-status-item { padding: 0 7px; gap: 4px; font-size: 10.5px; }
+  .studio-touch-nav > button, .studio-touch-access summary { font-size: 10.5px; gap: 3px; }
+  .studio-touch-access > div { width: min(272px, calc(100vw - 24px)); right: -4px; }
+}
+
+/* ------------------------------------------------------------------ */
+/* Login / pairing                                                     */
+/* ------------------------------------------------------------------ */
+.login-layout {
+  position: relative; isolation: isolate; background-color: var(--bg);
+  background-image: radial-gradient(60rem 40rem at 15% -10%, var(--accent-soft), transparent 60%);
+}
+.login-intro { background: transparent; color: var(--ink); }
+.login-intro p { font-size: 15px; color: var(--ink-2); }
+.login-intro .login-footnote { font-size: 12px; color: var(--ink-3); }
+.login-form {
+  width: 100%; max-width: 400px; margin: auto; padding: 28px;
+  border: 1px solid var(--line); border-radius: 16px;
+  background: color-mix(in oklab, var(--surface) 80%, transparent); box-shadow: var(--shadow);
+  -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px);
+  animation: suite-rise 320ms var(--ease-out) both;
+}
+.login-form > .stack { gap: 12px; }
+.login-form h1 { font-family: var(--font-display); font-size: 30px; line-height: 1; font-weight: 400; letter-spacing: normal; }
+.login-form h2 { font-size: 15px; font-weight: 500; }
+.login-form .muted { margin-top: -4px; margin-bottom: 4px; font-size: 13px; color: var(--ink-3); }
+.login-form .button { width: 100%; }
+.login-form .button.primary { margin-top: 4px; }
+.login-form .banner { margin: 16px 0 0; }
+.login-form .pairing-input { font-family: var(--font-mono); letter-spacing: .08em; }
+.login-form .pairing-input::placeholder { font-family: var(--font-sans); letter-spacing: normal; }
+
+@media (max-width: 760px) {
+  .login-form { width: auto; margin: 16px; padding: 24px; }
+  .login-intro { padding: 32px 24px 8px; }
+}
+
+/* ------------------------------------------------------------------ */
+/* Studio gateway (App.vue, before the guest/studio mode is known)     */
+/* ------------------------------------------------------------------ */
+.studio-gateway .guest-header { min-height: 52px; }
+.studio-gateway .guest-header .nino-brand { color: var(--ink); gap: 8px; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.studio-gateway .guest-header .nino-brand-mark { width: 28px; height: 28px; border-radius: 8px; }
+.studio-gateway .guest-header small { display: none; }
+.studio-gateway .guest-header > span { font-size: 12.5px; color: var(--ink-3); }
+.studio-gateway .guest-main { display: grid; place-items: center; min-height: calc(100dvh - 160px); margin-top: 0; }
+.studio-gateway .guest-heading {
+  max-width: 440px; margin: 0; padding: 28px; text-align: center;
+  border: 1px solid var(--line); border-radius: 16px;
+  background: color-mix(in oklab, var(--surface) 80%, transparent); box-shadow: var(--shadow);
+  -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px);
+  animation: suite-rise 320ms var(--ease-out) both;
+}
+.studio-gateway .guest-heading h1 { font-family: var(--font-display); font-size: 30px; line-height: 1; font-weight: 400; letter-spacing: normal; margin-bottom: 10px; }
+.studio-gateway .guest-heading p { font-size: 13.5px; line-height: 1.5; color: var(--ink-3); }
+
+/* ------------------------------------------------------------------ */
+/* Reduced motion                                                      */
+/* ------------------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  .studio-status-item.is-active .studio-status-light { animation: none; }
+  .login-form, .studio-gateway .guest-heading, .studio-access > div, .studio-touch-access > div { animation: none; }
+}

@@ -1,1 +1,398 @@
-/* Suite Media components: regie. Loaded after styles.css; see docs/brand.md. */
+/* Suite Media components: regie. Loaded after styles.css; see docs/brand.md.
+   Régie step (Enregistrer et diffuser): program monitor, scene strip, inspector
+   cards (direct, réalisation automatique, invités, micros), markers and the
+   fixed transport bar. Restyled after Cairn/Lamio (Card, list rows, soft pills,
+   segmented look). Shared controls come from base.css; only régie contexts are
+   tuned here. styles.css repeats many régie selectors inside breakpoints, so the
+   touch values are restated at the bottom with the same media queries.
+   Video wells stay on var(--stage); red stays reserved for REC, LIVE and errors. */
+
+/* ------------------------------------------------------------------ */
+/* Fixed transport needs the viewport as its containing block          */
+/* ------------------------------------------------------------------ */
+/* The floating panel (shell.css) uses backdrop-filter, which would make it the
+   containing block of the fixed transport bar: the bar then sits at the bottom
+   of the whole page instead of the screen (and under the iPad bottom bar).
+   Only the régie drops the blur; the panel keeps its translucent fill. */
+.studio-main:has(.regie-transport) { -webkit-backdrop-filter: none; backdrop-filter: none; }
+
+/* ------------------------------------------------------------------ */
+/* Layout                                                              */
+/* ------------------------------------------------------------------ */
+.regie-layout { gap: 20px; }
+.regie-stage { gap: 16px; }
+.regie-notice {
+  gap: 10px; margin: 0 0 16px; padding: 8px 12px; min-height: 40px; border-radius: 8px;
+  border: 1px solid color-mix(in oklab, var(--warn) 30%, transparent);
+  background: color-mix(in oklab, var(--warn) 8%, var(--surface)); color: var(--warn-text); font-size: 12.5px; line-height: 1.375;
+}
+.regie-notice svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+/* ------------------------------------------------------------------ */
+/* Program monitor: card frame, video well on --stage                  */
+/* ------------------------------------------------------------------ */
+.program-panel {
+  border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow);
+}
+.program-video { background: var(--stage); }
+.program-header {
+  min-height: 44px; padding: 8px 8px 8px 14px; gap: 12px; border-bottom: 1px solid var(--line);
+  background: var(--surface); font-size: 13.5px;
+}
+.monitor-heading { gap: 8px; color: var(--ink); font-weight: 500; }
+.monitor-heading svg { width: 16px; height: 16px; color: var(--ink-3); }
+.program-header .badge {
+  padding: 2px 8px; border: 0; border-radius: 9999px; font-size: 11px; font-weight: 500; line-height: 1.5;
+  background: color-mix(in oklab, var(--ink) 6%, transparent); color: var(--ink-3);
+  max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Empty / waiting state over the monitor (suite empty state on an inset well). */
+.preview-overlay {
+  gap: 12px; padding: 32px; background: color-mix(in oklab, var(--surface-2) 96%, transparent);
+  justify-content: safe center; overflow-y: auto; scrollbar-width: thin;
+}
+.monitor-empty-icon {
+  width: auto; height: auto; margin: 0; border: 0; border-radius: 0;
+  background: none; box-shadow: none; color: var(--accent);
+}
+.monitor-empty-icon svg { width: 28px; height: 28px; color: var(--accent); stroke-width: 1.6; }
+.preview-overlay h2 {
+  font-family: var(--font-display); font-size: 26px; line-height: 1; font-weight: 400; letter-spacing: normal; color: var(--ink);
+}
+.preview-overlay p { max-width: 380px; font-size: 13.5px; line-height: 1.5; color: var(--ink-3); }
+.preview-overlay .button { margin-top: 8px; }
+.preview-overlay .monitor-connect {
+  min-height: 36px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: 8px;
+  background: var(--surface); color: var(--ink); font-size: 13.5px; box-shadow: var(--shadow);
+}
+.preview-overlay .monitor-connect:hover:not(:disabled) { background: var(--surface-2); border-color: var(--line-strong); }
+.preview-overlay .preview-note { max-width: 380px; font-size: 12.5px; color: var(--warn-text) !important; }
+.monitor-last-take > span {
+  top: 12px; left: 12px; padding: 2px 8px; border: 0; border-radius: 9999px; font-size: 11px; font-weight: 500;
+  background: color-mix(in oklab, var(--surface) 85%, transparent); color: var(--ink);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+}
+
+/* Monitor footer */
+.preview-toolbar {
+  min-height: 44px; padding: 6px 8px 6px 14px; gap: 10px; border-top: 1px solid var(--line);
+  background: var(--surface); color: var(--ink-3); font-size: 12px;
+}
+.monitor-latency { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-2); }
+.monitor-feed-dot {
+  width: 6px; height: 6px; border-radius: 9999px; background: var(--ink-3);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ink-3) 18%, transparent);
+}
+.monitor-feed-dot.ready { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in oklab, var(--ok) 18%, transparent); }
+.monitor-delay { margin-left: 0; color: var(--ink-3); font-size: 12px; }
+.monitor-controls { gap: 6px; }
+.preview-toolbar .button {
+  min-height: 30px; padding: 0 10px; gap: 6px; border: 1px solid var(--line-strong); border-radius: 8px;
+  background: var(--surface); color: var(--ink); font-size: 12.5px; box-shadow: var(--shadow);
+}
+.preview-toolbar .button:hover:not(:disabled) { background: var(--surface-2); border-color: var(--line-strong); }
+.preview-toolbar .button[aria-pressed="true"] { background: var(--accent-soft); border-color: color-mix(in oklab, var(--accent) 35%, transparent); color: var(--accent-text); }
+.preview-toolbar svg { width: 14px; height: 14px; }
+.preview-audio-note {
+  padding: 8px 14px; border-top: 1px solid color-mix(in oklab, var(--warn) 30%, transparent);
+  background: color-mix(in oklab, var(--warn) 8%, var(--surface)); color: var(--warn-text); font-size: 12.5px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Scene strip ("Changer de plan")                                     */
+/* ------------------------------------------------------------------ */
+.regie-strip-heading { align-items: baseline; gap: 12px; padding-bottom: 10px; }
+.regie-strip-heading h2 { font-size: 13.5px; font-weight: 500; color: var(--ink); }
+.regie-strip-heading > span { font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.regie-scene-list { gap: 12px; padding: 2px 2px 8px; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+.regie-scene {
+  border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink-2);
+  box-shadow: var(--shadow);
+  transition: transform 160ms var(--ease-out), background-color 150ms var(--suite-ease-std), border-color 150ms var(--suite-ease-std), box-shadow 150ms ease;
+}
+.regie-scene:hover:not(:disabled) { border-color: var(--line-strong); background: var(--surface-2); }
+.regie-scene:active:not(:disabled) { transform: scale(.97); }
+.regie-scene:focus-visible { outline: none; box-shadow: var(--suite-ring), var(--shadow); }
+.regie-scene[aria-pressed="true"] {
+  background: var(--accent-soft); color: var(--ink);
+  border-color: color-mix(in oklab, var(--accent) 55%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent) 35%, transparent), var(--shadow);
+}
+.regie-scene[aria-pressed="true"]:hover:not(:disabled) { background: var(--accent-soft); border-color: color-mix(in oklab, var(--accent) 65%, transparent); }
+.regie-scene:disabled { opacity: .6; cursor: not-allowed; }
+.regie-scene-image { background: var(--stage); border-bottom: 1px solid var(--line); }
+.regie-scene-tag {
+  left: 8px; top: 8px; gap: 5px; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 500; line-height: 1.5;
+  background: color-mix(in oklab, var(--surface) 85%, transparent); color: var(--ink);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+}
+.regie-scene-tag > span { width: 6px; height: 6px; border-radius: 9999px; background: var(--accent); }
+.regie-scene-footer { gap: 8px; padding: 10px 12px; }
+.regie-scene-copy { gap: 2px; }
+.regie-scene-copy strong { font-size: 13px; font-weight: 500; color: var(--ink); }
+.regie-scene-copy small { font-size: 11.5px; color: var(--ink-3); }
+.regie-scene-footer > svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--ink-3); }
+.regie-scene[aria-pressed="true"] .regie-scene-footer > svg { color: var(--accent); }
+.regie-scene-strip > .empty-inline {
+  margin: 0; padding: 20px 16px; border: 1px dashed var(--line-strong); border-radius: 12px;
+  text-align: center; font-size: 13px; color: var(--ink-3);
+}
+
+/* ------------------------------------------------------------------ */
+/* Inspector: a column of compact suite cards                          */
+/* ------------------------------------------------------------------ */
+.regie-inspector { gap: 12px; padding: 0 2px 2px; background: transparent; border: 0; border-radius: 0; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+.regie-live, .regie-audio, .regie-layout .regie-inspector .guest-panel {
+  flex-shrink: 0; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow);
+}
+.regie-section-heading { align-items: center; gap: 8px; margin-bottom: 14px; }
+.regie-section-heading > div { gap: 8px; min-width: 0; }
+.regie-section-heading h2 { font-size: 14px; font-weight: 500; line-height: 1.4; color: var(--ink); }
+.regie-section-heading svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--ink-3); }
+
+/* Status = suite soft pill. Red only for an active LIVE or an error. */
+.regie-status {
+  display: inline-flex; align-items: center; flex-shrink: 0; padding: 2px 8px; border: 0; border-radius: 9999px;
+  font-size: 11px; font-weight: 500; line-height: 1.5; white-space: nowrap;
+  background: color-mix(in oklab, var(--ink) 6%, transparent); color: var(--ink-2);
+}
+.regie-status.warning { border: 0; background: color-mix(in oklab, var(--warn) 14%, transparent); color: var(--warn-text); }
+.regie-status.active { border: 0; background: color-mix(in oklab, var(--danger) 12%, transparent); color: var(--danger-text); }
+.regie-status.error { border: 0; background: color-mix(in oklab, var(--danger) 12%, transparent); color: var(--danger-text); }
+/* Réalisation automatique "À l'écoute" is not LIVE: accent, never red. */
+.auto-direction .regie-status.active { background: var(--accent-soft); color: var(--accent-text); }
+
+/* Diffusion en direct */
+.regie-live-destination { gap: 10px; align-items: center; }
+.regie-live-destination > svg {
+  width: 32px; height: 32px; padding: 8px; flex-shrink: 0; border-radius: 8px; background: var(--accent-soft); color: var(--accent);
+}
+.regie-live-destination strong { font-size: 13.5px; font-weight: 500; color: var(--ink); overflow-wrap: anywhere; }
+.regie-live-state { gap: 4px; margin: 12px 0; font-size: 12.5px; color: var(--ink-3); }
+.regie-live-state .timecode { font-size: 20px; color: var(--ink); }
+.regie-inspector .regie-live-trigger {
+  min-height: 40px; padding: 0 12px 0 6px; gap: 10px; justify-content: flex-start; border: 1px solid var(--line-strong); border-radius: 8px;
+  background: var(--surface); color: var(--ink); font-size: 13.5px; box-shadow: var(--shadow);
+}
+.regie-inspector .regie-live-trigger:hover:not(:disabled) { background: var(--surface-2); border-color: var(--line-strong); }
+.regie-action-icon {
+  width: 28px; height: 28px; border-radius: 6px; background: color-mix(in oklab, var(--ink) 6%, transparent); color: var(--ink-2);
+}
+.regie-action-icon svg { width: 16px; height: 16px; }
+.regie-inspector .regie-live-trigger.danger { background: var(--surface); border-color: color-mix(in oklab, var(--danger) 30%, transparent); color: var(--danger-text); }
+.regie-inspector .regie-live-trigger.danger:hover:not(:disabled) { background: color-mix(in oklab, var(--danger) 6%, var(--surface)); }
+.regie-live-trigger.danger .regie-action-icon { background: color-mix(in oklab, var(--danger) 12%, transparent); color: var(--danger-text); }
+
+/* Shared inspector text and controls */
+.regie-inspector .hint { margin-top: 10px; font-size: 11.5px; line-height: 1.5; color: var(--ink-3); }
+.regie-inspector .banner { margin: 10px 0; padding: 8px 12px; font-size: 12.5px; }
+.regie-inspector .button { min-height: 36px; padding: 0 12px; font-size: 13px; border-radius: 8px; }
+.regie-inspector .button.compact { min-height: 28px; padding: 0 10px; font-size: 12.5px; }
+.regie-help { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--ink-2); }
+.regie-help summary {
+  display: flex; align-items: center; gap: 6px; min-height: 28px; list-style: none; cursor: pointer; color: var(--ink-2);
+  border-radius: 6px; transition: color 150ms ease;
+}
+.regie-help summary::-webkit-details-marker { display: none; }
+.regie-help summary::before {
+  content: ""; width: 6px; height: 6px; flex-shrink: 0; margin: 0 3px 0 2px; border-right: 1.5px solid var(--ink-3); border-bottom: 1.5px solid var(--ink-3);
+  transform: rotate(-45deg); transition: transform 150ms var(--suite-ease-std);
+}
+.regie-help[open] > summary::before { transform: rotate(45deg); }
+.regie-help summary:hover { color: var(--ink); }
+.regie-help p { padding-top: 6px; font-size: 12.5px; line-height: 1.5; color: var(--ink-3); }
+
+/* Micros des participants */
+.regie-input-count {
+  min-width: 20px; padding: 0 7px; border-radius: 9999px; text-align: center; font-size: 11px; font-weight: 500; line-height: 20px;
+  background: color-mix(in oklab, var(--ink) 6%, transparent); color: var(--ink-3); font-variant-numeric: tabular-nums;
+}
+.regie-audio > .empty-inline { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-3); }
+.regie-audio-channel { padding: 12px 0; border-top: 1px solid var(--line); }
+.regie-audio-channel:first-child { padding-top: 0; border-top: 0; }
+.regie-channel-heading { gap: 10px; font-size: 13px; }
+.regie-channel-heading strong { font-weight: 500; color: var(--ink); }
+.regie-channel-avatar {
+  width: 28px; height: 28px; border-radius: 8px; background: color-mix(in oklab, var(--ink) 5%, transparent); color: var(--ink-3);
+}
+.regie-channel-avatar svg { width: 14px; height: 14px; color: var(--ink-3); }
+.regie-channel-heading > span:last-child {
+  padding: 1px 8px; border-radius: 9999px; font-size: 11px; font-weight: 500;
+  background: color-mix(in oklab, var(--ok) 14%, transparent); color: var(--ok-text);
+}
+.regie-channel-heading > span.muted { background: color-mix(in oklab, var(--warn) 14%, transparent); color: var(--warn-text); }
+.regie-channel-control { gap: 10px; margin-top: 8px; font-size: 12px; color: var(--ink-3); }
+.regie-channel-control strong { font-weight: 500; color: var(--ink-2); font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+.regie-channel-control .button { background: var(--surface); border-color: var(--line-strong); border-radius: 8px; box-shadow: var(--shadow); }
+.regie-channel-control .button:hover:not(:disabled) { background: var(--surface-2); }
+.regie-channel-control .button.warning { color: var(--warn-text); }
+
+/* Audio meter (AudioMeter.vue; also used by the guest panel) */
+.audio-meter { margin-top: 10px; }
+.meter-track { height: 6px; border: 0; border-radius: 9999px; background: color-mix(in oklab, var(--ink) 8%, transparent); }
+.meter-fill { border-radius: 9999px; background: var(--ink-3); transition: width 120ms linear; }
+.meter-active .meter-fill { background: var(--ok); }
+.meter-peak { width: 2px; border-radius: 1px; background: var(--ink); }
+.meter-clipping .meter-fill { background: var(--warn); }
+.meter-clipping .meter-peak { background: var(--danger); }
+.meter-scale { margin-top: 4px; font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3); }
+.meter-description { margin-top: 2px; font-size: 11.5px; color: var(--ink-3); }
+
+/* Invités à distance, inside the inspector (guests.css owns the prepare step) */
+.regie-layout .regie-inspector .guest-panel h2 { gap: 8px; font-size: 14px; font-weight: 500; line-height: 1.4; color: var(--ink); }
+.regie-layout .regie-inspector .guest-panel h2 svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--ink-3); }
+.regie-layout .regie-inspector .guest-panel .section-heading { gap: 8px; margin-bottom: 0; align-items: flex-start; }
+.regie-layout .regie-inspector .guest-panel .section-heading .muted { margin-top: 2px; font-size: 12.5px; color: var(--ink-3); }
+.regie-layout .regie-inspector .guest-panel-setup { gap: 6px; margin: 14px 0 0; }
+.regie-layout .regie-inspector .guest-panel > .hint { margin-top: 10px; }
+.regie-layout .regie-inspector .guest-slots { gap: 8px; margin-top: 14px; }
+.regie-layout .regie-inspector .guest-slot { padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+.regie-layout .regie-inspector .guest-slot header { gap: 10px; margin-bottom: 12px; }
+.regie-layout .regie-inspector .guest-avatar { width: 32px; height: 32px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); }
+.regie-layout .regie-inspector .guest-avatar svg { width: 16px; height: 16px; }
+.regie-layout .regie-inspector .guest-slot h3 { font-size: 13.5px; font-weight: 500; line-height: 1.4; }
+.regie-layout .regie-inspector .guest-slot header p { margin: 0; font-size: 12px; color: var(--ink-3); }
+.regie-layout .regie-inspector .guest-slot > .field, .regie-layout .regie-inspector .guest-invitation { margin-bottom: 10px; }
+.regie-layout .regie-inspector .guest-slot > .button { width: 100%; }
+.regie-layout .regie-inspector .guest-slot-actions { gap: 6px; margin: 10px 0; }
+.regie-layout .regie-inspector .guest-remove { min-height: 32px; margin-top: 4px; font-size: 12.5px; color: var(--danger-text); }
+.regie-layout .regie-inspector .guest-network-help { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
+.regie-layout .regie-inspector .guest-network-help summary { display: flex; align-items: center; min-height: 28px; font-size: 12.5px; color: var(--ink-2); }
+.regie-layout .regie-inspector .guest-network-help summary:hover { color: var(--ink); }
+/* Same disclosure chevron as .regie-help. */
+.regie-layout .regie-inspector .guest-network-help summary { gap: 6px; list-style: none; cursor: pointer; }
+.regie-layout .regie-inspector .guest-network-help summary::-webkit-details-marker { display: none; }
+.regie-layout .regie-inspector .guest-network-help summary::before {
+  content: ""; width: 6px; height: 6px; flex-shrink: 0; margin: 0 3px 0 2px; border-right: 1.5px solid var(--ink-3); border-bottom: 1.5px solid var(--ink-3);
+  transform: rotate(-45deg); transition: transform 150ms var(--suite-ease-std);
+}
+.regie-layout .regie-inspector .guest-network-help[open] > summary::before { transform: rotate(45deg); }
+
+/* Médias à lancer: same card and title scale as the other inspector cards. */
+.regie-inspector .regie-cues { padding: 16px; border-radius: 12px; }
+.regie-inspector .regie-cues h2 { font-size: 14px; font-weight: 500; }
+.regie-inspector .regie-cues .project-media-heading svg { color: var(--ink-3); }
+
+/* ------------------------------------------------------------------ */
+/* Markers (Repères de montage)                                        */
+/* ------------------------------------------------------------------ */
+.regie-markers {
+  margin-top: 20px; padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow);
+}
+.regie-markers summary {
+  gap: 8px; min-height: 48px; padding: 0 16px; list-style: none; font-size: 14px; font-weight: 500; color: var(--ink); border-radius: 12px;
+}
+.regie-markers summary::-webkit-details-marker { display: none; }
+.regie-markers summary svg { width: 16px; height: 16px; color: var(--ink-3); }
+.regie-markers summary small {
+  margin-left: auto; padding: 1px 8px; border-radius: 9999px; font-size: 11px; font-weight: 500; color: var(--ink-3);
+  background: color-mix(in oklab, var(--ink) 6%, transparent); font-variant-numeric: tabular-nums;
+}
+.regie-markers-body { margin-top: 0; padding: 14px 16px 16px; border-top: 1px solid var(--line); }
+.marker-form { gap: 8px; align-items: center; }
+.regie-markers .hint { margin-top: 10px; }
+.marker-row { gap: 12px; align-items: baseline; padding: 8px 12px; margin-top: 4px; border-top: 0; border-radius: 8px; font-size: 13px; }
+.marker-row:nth-of-type(odd) { background: var(--surface-2); }
+.marker-row span { font-family: var(--font-mono); font-size: 12px; color: var(--ink-3); }
+
+/* ------------------------------------------------------------------ */
+/* Transport bar: a floating suite dock at the bottom of the panel     */
+/* ------------------------------------------------------------------ */
+.regie-transport {
+  left: calc(var(--rail-width) + 16px); right: 24px; bottom: 16px; min-height: 72px; gap: 20px; padding: 10px 12px 10px 20px;
+  border: 1px solid var(--line-strong); border-radius: 12px;
+  background: color-mix(in oklab, var(--surface) 96%, transparent);
+  -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); box-shadow: var(--suite-shadow-menu);
+}
+.regie-time { gap: 12px; }
+.record-light { width: 8px; height: 8px; border: 0; border-radius: 9999px; background: var(--ink-3); box-shadow: 0 0 0 3px color-mix(in oklab, var(--ink-3) 18%, transparent); }
+.record-light.active { background: var(--danger); border: 0; box-shadow: 0 0 0 3px color-mix(in oklab, var(--danger) 18%, transparent); animation: suite-pulse 2s cubic-bezier(.4, 0, .6, 1) infinite; }
+.record-light.uncertain, .record-light.paused { border: 0; background: var(--warn); box-shadow: 0 0 0 3px color-mix(in oklab, var(--warn) 18%, transparent); }
+.regie-time .timecode { font-family: var(--font-mono); font-size: 28px; line-height: 1.2; font-weight: 500; letter-spacing: -.01em; color: var(--ink); }
+.regie-take-state { gap: 2px; }
+.regie-take-state strong { font-size: 13.5px; font-weight: 500; color: var(--ink); }
+.regie-take-state > span { font-size: 12px; color: var(--ink-3); }
+.regie-record-actions { gap: 8px; }
+.regie-record-actions .button { min-height: 44px; padding: 0 16px; border-radius: 8px; font-size: 13.5px; }
+/* Enregistrer: the one red-coded call to action (REC). */
+.regie-record-actions .regie-record-trigger {
+  padding-inline: 20px; gap: 10px; border-color: transparent; background: var(--danger); color: var(--on-ink);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .25), 0 1px 2px rgba(0, 0, 0, .12), 0 6px 16px -6px var(--danger);
+}
+.regie-record-actions .regie-record-trigger:hover:not(:disabled) { background: var(--danger); border-color: transparent; filter: brightness(1.06); }
+.regie-record-actions .regie-record-trigger:focus-visible { box-shadow: var(--suite-ring), 0 6px 16px -6px var(--danger); }
+.regie-record-dot { width: 10px; height: 10px; border-radius: 9999px; background: var(--on-ink); box-shadow: 0 0 0 3px color-mix(in oklab, var(--on-ink) 30%, transparent); }
+
+@media (prefers-reduced-motion: reduce) {
+  .record-light.active { animation: none; }
+  .regie-scene:active:not(:disabled) { transform: none; }
+}
+
+/* ------------------------------------------------------------------ */
+/* Breakpoints (same queries as styles.css, restated so they win)      */
+/* ------------------------------------------------------------------ */
+/* PC: end the grid above the floating dock (dock 72 + bottom 16 + 16 gap). */
+@media (min-width: 1025px) {
+  .regie-layout { height: max(380px, calc(100dvh - 430px)); }
+}
+@media (max-width: 1180px) {
+  .regie-layout { gap: 16px; }
+}
+@media (max-width: 1024px) {
+  .regie-layout { gap: 14px; }
+  .regie-stage { gap: 12px; }
+  .regie-inspector { gap: 10px; }
+  .regie-live, .regie-audio, .regie-layout .regie-inspector .guest-panel { padding: 14px; }
+  .preview-overlay { padding: 20px; gap: 10px; }
+  .preview-overlay h2 { font-size: 22px; }
+  .preview-overlay p { font-size: 13px; }
+  .monitor-empty-icon svg { width: 24px; height: 24px; }
+  .preview-overlay .monitor-connect { min-height: 44px; }
+  .preview-toolbar .button { min-height: 44px; padding: 0 12px; }
+  /* The latency text is hidden on touch: drop the footer when it holds no button. */
+  .preview-toolbar:not(:has(.monitor-controls > *)) { display: none; }
+  .regie-inspector .button, .regie-inspector .button.compact, .regie-inspector .regie-live-trigger { min-height: 44px; }
+  .regie-help summary, .regie-layout .regie-inspector .guest-network-help summary { min-height: 40px; }
+  .regie-layout .regie-inspector .guest-remove { min-height: 44px; }
+  .regie-markers summary { min-height: 52px; }
+  .regie-scene-footer { padding: 8px 10px; }
+  .regie-transport {
+    left: 16px; right: 16px; bottom: calc(var(--touch-nav-height) + env(safe-area-inset-bottom) + 8px);
+    min-height: 68px; padding: 8px 10px 8px 16px; gap: 16px;
+  }
+  .regie-time .timecode { font-size: 24px; }
+  .regie-record-actions .button { min-height: 44px; }
+}
+@media (max-width: 900px) {
+  .regie-live { border-right: 1px solid var(--line); }
+  .regie-inspector { gap: 12px; padding: 0; }
+}
+@media (max-width: 760px) {
+  .regie-live { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .preview-overlay { padding: 16px; gap: 8px; }
+  .monitor-empty-icon { display: none; }
+  .preview-overlay h2 { font-size: 20px; }
+  .preview-overlay p { font-size: 12.5px; }
+  .regie-transport { left: 8px; right: 8px; bottom: calc(var(--touch-nav-height) + env(safe-area-inset-bottom) + 16px); padding: 8px 10px; gap: 8px; min-height: 0; }
+  .regie-time .timecode { font-size: 22px; }
+  .regie-take-state strong { font-size: 12.5px; }
+  .regie-record-actions .button { font-size: 13px; padding: 0 12px; }
+}
+@media (max-width: 430px) {
+  .regie-time .timecode { font-size: 20px; }
+  .marker-form { align-items: stretch; }
+}
+/* Short screens (iPad landscape, small laptops): a compact monitor empty state. */
+@media (max-height: 820px) {
+  .preview-overlay { gap: 8px; padding: 16px 20px; }
+  .monitor-empty-icon svg { width: 24px; height: 24px; }
+  .preview-overlay h2 { font-size: 20px; }
+  .preview-overlay p { font-size: 12.5px; }
+  .preview-overlay .button { margin-top: 4px; }
+}
+/* Tall touch screens (iPad portrait): keep the program monitor 16:9 instead of stretching it. */
+@media (max-width: 1024px) and (min-height: 1100px) {
+  .regie-stage .program-panel { flex: none; }
+  .regie-stage .program-video { flex: none; aspect-ratio: 16 / 9; }
+}
