@@ -3,7 +3,7 @@ import { captureShortNames, type CaptureCapability } from '@nino/shared';
 import type {
   AudioFrame, AuthResult, ClientMessage, ControlCommand, Device, DownloadTicket, PairingCode, Preparation,
   PreviewSession, Project, ProjectInput, RoomConfig, RoomConfigInput, SceneThumbnail, ServerMessage, StudioState,
-  MediaAsset, ProjectMediaLink, FilePlaybackSession, TakePlaybackStatus, TakeMp4DownloadStatus, ResolveExportStatus, GuestInvitation, GuestSession,
+  MediaAsset, ProjectMediaLink, FilePlaybackSession, TakePlaybackStatus, TakeMp4DownloadStatus, ResolveExportStatus, GuestInvitation, GuestSession, StudioProfile,
 } from '@nino/shared';
 
 const tokenKey = 'nino.studio.device';
@@ -247,6 +247,30 @@ async function saveRoom(input: RoomConfigInput): Promise<RoomConfig | undefined>
     notify('Configuration de la salle enregistrée.');
     return room;
   });
+}
+
+async function exportStudioProfile(): Promise<boolean> {
+  return (await run('profile', async () => {
+    const profile = await api<StudioProfile>('/room/profile');
+    const name = profile.room.name.normalize('NFKD').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'studio';
+    const url = URL.createObjectURL(new Blob([JSON.stringify(profile, null, 2)], { type: 'application/json' }));
+    const link = Object.assign(document.createElement('a'), { href: url, download: `nino-studio-${name}.json` });
+    document.body.append(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    notify('Configuration du studio exportée, sans mot de passe ni clé de diffusion.');
+    return true;
+  })) ?? false;
+}
+
+async function importStudioProfile(file: File): Promise<boolean> {
+  return (await run('profile', async () => {
+    let profile: unknown;
+    try { profile = JSON.parse(await file.text()); } catch { throw new Error('Ce fichier n’est pas une configuration de studio Nino.'); }
+    await api<RoomConfig>('/room/profile', { method: 'POST', body: JSON.stringify(profile) });
+    applyState(await api<StudioState>('/state'));
+    notify('Configuration importée. Saisissez le mot de passe du logiciel et la clé de diffusion si besoin.');
+    return true;
+  })) ?? false;
 }
 
 async function downloadTake(id: string): Promise<void> {
@@ -513,7 +537,7 @@ const mediaThumbnail = (id: string) => imageThumbnail(`/library/${encodeURICompo
 export function useStudio() {
   return {
     device, state, initialized, live, audioFrame, audioReceivedAt, error, notice, busy, canEdit, technician, captureName, can, guestInvitations,
-    initialize, pair, forgetDevice, saveProject, preparation, selectStreamDeckProject, control, connectObs, saveRoom, downloadTake, downloadTakeMp4, cancelTakeMp4Download, sceneThumbnail, takeThumbnail,
+    initialize, pair, forgetDevice, saveProject, preparation, selectStreamDeckProject, control, connectObs, saveRoom, exportStudioProfile, importStudioProfile, downloadTake, downloadTakeMp4, cancelTakeMp4Download, sceneThumbnail, takeThumbnail,
     suspendStudioConnection: () => { controllerEnabled = false; stopEvents(); },
     uploadMedia, updateMedia, saveProjectMedia, mediaFileSession, takePlaybackSession, exportProject, exportResolve, cancelResolveExport, mediaThumbnail,
     getDevices: () => run('devices', () => api<Device[]>('/devices')),

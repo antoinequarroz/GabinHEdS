@@ -3,7 +3,7 @@ import { computed, ref } from 'vue';
 import { captureDefaultUrls, captureShortNames, captureSoftwareLabels, formatLabels, type CaptureSoftware, type ProductionFormat, type RoomConfigInput } from '@nino/shared';
 import { useStudio } from '../composables/useStudio';
 import Icon from '../components/Icon.vue';
-const { state, busy, saveRoom, connectObs, technician, captureName } = useStudio();
+const { state, busy, saveRoom, connectObs, technician, captureName, exportStudioProfile, importStudioProfile } = useStudio();
 const initial = state.value!.room;
 const form = ref({ name: initial.name, captureSoftware: (initial.captureSoftware ?? 'obs') as CaptureSoftware, obsUrl: initial.obsUrl, recordingRoot: initial.recordingRoot, defaultScenes: { ...initial.defaultScenes }, liveDestination: { name: initial.liveDestination.name, server: initial.liveDestination.server } });
 const password = ref('');
@@ -27,6 +27,16 @@ const help: Record<CaptureSoftware, { title: string; body: string }> = {
 };
 const obs = computed(() => state.value?.obs);
 const configurationLocked = computed(() => !!obs.value?.recording || !!obs.value?.streaming || ['starting', 'live', 'stopping'].includes(state.value?.media.liveStatus ?? 'idle'));
+const profileInput = ref<HTMLInputElement | null>(null);
+async function importProfile(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file || !await importStudioProfile(file)) return;
+  const room = state.value!.room;
+  form.value = { name: room.name, captureSoftware: (room.captureSoftware ?? 'obs') as CaptureSoftware, obsUrl: room.obsUrl, recordingRoot: room.recordingRoot,
+    defaultScenes: { ...room.defaultScenes }, liveDestination: { name: room.liveDestination.name, server: room.liveDestination.server } };
+}
 async function save(): Promise<void> {
   const input: RoomConfigInput = { ...form.value, defaultScenes: { ...form.value.defaultScenes } };
   if (clearPassword.value) input.obsPassword = '';
@@ -111,6 +121,15 @@ async function save(): Promise<void> {
         <div class="setup-source-group"><h3>Plans {{ captureName }}</h3><ul v-if="obs?.scenes.length" class="setup-source-list"><li v-for="scene in obs.scenes" :key="scene"><Icon name="movie" /><span>{{ scene }}</span></li></ul><p v-else class="hint">Connectez {{ captureName }} pour retrouver les plans de la salle.</p></div>
         <div class="setup-source-group"><h3>Entrées {{ captureName }}</h3><ul v-if="obs?.inputs.length" class="setup-source-list"><li v-for="input in obs.inputs" :key="input.name"><Icon :name="input.muted !== null ? 'mic' : 'movie'" /><span>{{ input.name }}</span></li></ul><p v-else class="hint">Aucune entrée disponible.</p></div>
         <div class="setup-source-group"><h3>Dossier actuel {{ captureName }}</h3><div class="file-path">{{ obs?.recordingDirectory || 'Non disponible' }}</div></div>
+      </section>
+      <section v-if="technician" class="setup-inventory setup-profile">
+        <h2>Copier ce studio</h2>
+        <p class="hint">Exportez la configuration pour installer un autre studio à l’identique. Le fichier ne contient ni mot de passe ni clé de diffusion.</p>
+        <div class="setup-profile-actions">
+          <button type="button" class="button" :disabled="busy.profile" @click="exportStudioProfile()"><Icon name="download" />Exporter la configuration</button>
+          <button type="button" class="button" :disabled="busy.profile || configurationLocked" @click="profileInput?.click()"><Icon name="upload" />Importer une configuration</button>
+          <input ref="profileInput" type="file" accept="application/json,.json" hidden @change="importProfile" />
+        </div>
       </section>
       <details class="setup-help"><summary>{{ help[form.captureSoftware].title }}</summary><div><p>{{ help[form.captureSoftware].body }}</p><p class="hint">Aucune commande ne lance {{ chosenName }} à votre place.</p></div></details>
     </aside>

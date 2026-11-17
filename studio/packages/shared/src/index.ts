@@ -33,6 +33,8 @@ export interface ProjectInput {
 
 export interface RoomConfig {
   name: string;
+  /** Stable identity of this studio installation, never copied by a profile. */
+  studioId?: string;
   /** Capture software of this studio. Absent in rooms saved before the choice existed: OBS. */
   captureSoftware?: CaptureSoftware;
   /** Local WebSocket address of the capture software (OBS, Streamlabs or Maya Studio). */
@@ -41,6 +43,22 @@ export interface RoomConfig {
   recordingRoot: string;
   defaultScenes: Record<ProductionFormat, string>;
   liveDestination: LiveDestination;
+}
+
+/** A studio's reusable configuration, to set up another studio by copying this one.
+ * It never contains a password, a token or a live key. */
+export interface StudioProfile {
+  kind: 'nino.studio-profile';
+  version: 1;
+  exportedAt: string;
+  room: {
+    name: string;
+    captureSoftware: CaptureSoftware;
+    captureUrl: string;
+    recordingRoot: string;
+    defaultScenes: Record<ProductionFormat, string>;
+    liveDestination: { name: string; server: string };
+  };
 }
 
 export interface LiveDestination { name: string; server: string; keyConfigured: boolean; }

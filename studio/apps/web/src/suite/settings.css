@@ -247,3 +247,8 @@
 @media (prefers-reduced-motion: reduce) {
   :is(.setup-help, .devices-network-help, .devices-api-help) > summary::after { transition: none; }
 }
+
+/* Copy a studio: export / import of the room profile. */
+.setup-profile { display: grid; gap: 12px; }
+.setup-profile .hint { margin: 0; }
+.setup-profile-actions { display: flex; flex-wrap: wrap; gap: 8px; }
