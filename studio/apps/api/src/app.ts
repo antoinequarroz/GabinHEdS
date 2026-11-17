@@ -10,7 +10,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { Readable } from 'node:stream';
 import type { WebSocket } from 'ws';
-import type { Device, DeviceRole, ProjectInput, StudioState, Take } from '@nino/shared';
+import type { CaptureSoftware, Device, DeviceRole, ProjectInput, StudioState, Take } from '@nino/shared';
 import { RealObsGateway } from './obs.js';
 import type { CaptureDriver } from './capture.js';
 import { RealMediaGateway, validHlsResource, type MediaGateway } from './media.js';
@@ -25,7 +25,9 @@ import { CompanionBridge } from './companion.js';
 import { LOCAL_SHUTDOWN_PATH, registerLocalLifecycle, type LocalLifecycleOptions } from './local-lifecycle.js';
 
 declare module 'fastify' { interface FastifyRequest { device?: Device } interface FastifyInstance { guests: GuestService } }
-export interface AppOptions { dataDir: string; obs?: CaptureDriver; media?: MediaGateway; webDir?: string; logger?: boolean; guestConfig?: GuestConfig; companion?: boolean; localLifecycle?: LocalLifecycleOptions; studioOpener?: () => Promise<void> }
+export interface AppOptions { dataDir: string; obs?: CaptureDriver;
+  /** Capture drivers this installation offers. Defaults to OBS only. */
+  captureDrivers?: Partial<Record<CaptureSoftware, () => CaptureDriver>>; media?: MediaGateway; webDir?: string; logger?: boolean; guestConfig?: GuestConfig; companion?: boolean; localLifecycle?: LocalLifecycleOptions; studioOpener?: () => Promise<void> }
 const roles: DeviceRole[] = ['viewer', 'operator', 'technician'];
 const kinds = ['pc', 'ipad', 'streamdeck'] as const;
 const loopbackPeer = (ip: string | undefined): boolean => ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
@@ -61,7 +63,10 @@ export async function buildApp(options: AppOptions) {
   const media = options.media ?? new RealMediaGateway();
   const guests = new GuestService(store, options.guestConfig);
   app.decorate('guests', guests);
-  const studio = new Studio(store, options.obs ?? new RealObsGateway(), media, { guests, studioOpener: options.studioOpener });
+  const captureDrivers = options.captureDrivers ?? { obs: () => new RealObsGateway() };
+  const storedSoftware = store.room()?.captureSoftware ?? 'obs';
+  const capture = options.obs ?? (captureDrivers[storedSoftware] ?? captureDrivers.obs ?? (() => new RealObsGateway()))();
+  const studio = new Studio(store, capture, media, { guests, studioOpener: options.studioOpener, captureDrivers });
   const takeThumbnails = new TakeThumbnails();
   void media.refresh().catch(() => undefined);
   const clients = new Map<WebSocket, Device>();

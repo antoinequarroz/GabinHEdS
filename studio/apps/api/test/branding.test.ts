@@ -27,7 +27,7 @@ test('branding migrates the default room name while retaining production setting
       let response = await app.inject({ method: 'GET', url: '/api/state', headers });
       assert.equal(response.statusCode, 200);
       const { obsPassword: _password, liveKey: _key, ...publicRoom } = room;
-      assert.deepEqual(response.json().room, { ...publicRoom, name: expectedName });
+      assert.deepEqual(response.json().room, { ...publicRoom, name: expectedName, captureSoftware: 'obs' });
       await app.close();
 
       const migrated = new Store(dataDir);

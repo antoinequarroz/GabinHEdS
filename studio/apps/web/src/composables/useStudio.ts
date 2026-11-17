@@ -1,4 +1,5 @@
 import { computed, ref, shallowRef } from 'vue';
+import { captureShortNames } from '@nino/shared';
 import type {
   AudioFrame, AuthResult, ClientMessage, ControlCommand, Device, DownloadTicket, PairingCode, Preparation,
   PreviewSession, Project, ProjectInput, RoomConfig, RoomConfigInput, SceneThumbnail, ServerMessage, StudioState,
@@ -18,6 +19,8 @@ const notice = ref('');
 const busy = ref<Record<string, boolean>>({});
 const canEdit = computed(() => device.value?.role === 'technician' || device.value?.role === 'operator');
 const technician = computed(() => device.value?.role === 'technician');
+/** Short name of the capture software driven right now (OBS by default). */
+const captureName = computed(() => captureShortNames[state.value?.capture?.software ?? state.value?.room.captureSoftware ?? 'obs']);
 let socket: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 let reconnectDelay = 1000;
@@ -507,7 +510,7 @@ const mediaThumbnail = (id: string) => imageThumbnail(`/library/${encodeURICompo
 
 export function useStudio() {
   return {
-    device, state, initialized, live, audioFrame, audioReceivedAt, error, notice, busy, canEdit, technician, guestInvitations,
+    device, state, initialized, live, audioFrame, audioReceivedAt, error, notice, busy, canEdit, technician, captureName, guestInvitations,
     initialize, pair, forgetDevice, saveProject, preparation, selectStreamDeckProject, control, connectObs, saveRoom, downloadTake, downloadTakeMp4, cancelTakeMp4Download, sceneThumbnail, takeThumbnail,
     suspendStudioConnection: () => { controllerEnabled = false; stopEvents(); },
     uploadMedia, updateMedia, saveProjectMedia, mediaFileSession, takePlaybackSession, exportProject, exportResolve, cancelResolveExport, mediaThumbnail,
