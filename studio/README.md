@@ -21,7 +21,7 @@ Le [guide des invités à distance](docs/remote-guests.md) complète ces PDF ave
 - Retour du programme OBS en HLS sur PC/iPad, activation du son par l’utilisateur et vumètres provenant des événements OBS.
 - Diffusion RTMP/RTMPS vers une destination configurée par le technicien, avec des commandes séparées de l’enregistrement.
 - Historique des prises, chemin du fichier retourné par OBS et téléchargement authentifié de l’original ou d’une copie MP4 compatible.
-- Bibliothèque locale d’images, vidéos, sons et PDF, import depuis PC/iPad, noms, archivage et association aux productions.
+- Bibliothèque locale d’images, vidéos, sons et documents PDF/PPTX, import depuis PC/iPad, noms, archivage et association aux productions.
 - Lecture des médias dans OBS depuis la régie et l’API Stream Deck, avec confirmation de leur état.
 - Lecture des prises terminées sur PC/iPad et récupération d’un ZIP contenant les originaux, les médias associés et les repères de montage.
 - Réalisation automatique locale : sélection du plan à partir des micros distincts, confirmation de parole, durée minimale des plans, retour au plan large après silence ou voix simultanées, reprise manuelle prioritaire.

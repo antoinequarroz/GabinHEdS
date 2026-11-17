@@ -36,6 +36,8 @@ export interface FakeObsOptions {
   inputKinds?: string[];
   virtualCameraAvailable?: boolean;
   virtualCameraStartDelayMs?: number;
+  /** Keep the outgoing scene active while a real-time transition completes. */
+  sceneTransitionDelayMs?: number;
   specialInputs?: Record<string, string | null>;
   /** Simulate an OBS acknowledgement whose requested state was not applied. */
   ignoreMutations?: string[];
@@ -45,6 +47,7 @@ export async function startFakeObs(options: FakeObsOptions = {}) {
   const ownedDirectory = options.recordDirectory ? null : await mkdtemp(join(tmpdir(), 'gabin-fake-obs-'));
   let recordDirectory = options.recordDirectory ?? ownedDirectory!;
   let currentScene = 'Table ronde';
+  const outgoingScenes = new Map<string, number>();
   let recording = false;
   let paused = false;
   let startTime = 0;
@@ -110,7 +113,7 @@ export async function startFakeObs(options: FakeObsOptions = {}) {
     'CreateScene', 'GetSceneItemList', 'CreateInput', 'CreateSceneItem', 'GetInputSettings', 'SetInputSettings',
     'SetSceneItemEnabled', 'GetSceneItemEnabled', 'GetVideoSettings', 'SetSceneItemTransform', 'TriggerMediaInputAction', 'GetMediaInputStatus'];
   supported.push('GetInputKindList', 'GetInputAudioMonitorType', 'SetInputAudioMonitorType', 'GetSceneItemTransform', 'GetVirtualCamStatus', 'StartVirtualCam');
-  supported.push('GetSpecialInputs');
+  supported.push('GetSpecialInputs', 'GetSourceActive');
 
   server.on('connection', (client) => {
     send(client, { op: 0, d: { obsStudioVersion: 'test-fixture', obsWebSocketVersion: '5.6.0', rpcVersion: 1 } });
@@ -201,7 +204,7 @@ export async function startFakeObs(options: FakeObsOptions = {}) {
           case 'SetInputSettings': {
             const input = mediaInputs.get(String(request.requestData.inputName));
             if (!input) fail(600, 'Input not found');
-            else input.settings = request.requestData.overlay ? { ...input.settings, ...(request.requestData.inputSettings as Record<string, unknown>) } : structuredClone(request.requestData.inputSettings) as Record<string, unknown>;
+            else if (!options.ignoreMutations?.includes('SetInputSettings')) input.settings = request.requestData.overlay ? { ...input.settings, ...(request.requestData.inputSettings as Record<string, unknown>) } : structuredClone(request.requestData.inputSettings) as Record<string, unknown>;
             break;
           }
           case 'SetSceneItemEnabled': case 'GetSceneItemEnabled': {
@@ -315,7 +318,19 @@ export async function startFakeObs(options: FakeObsOptions = {}) {
           case 'SetCurrentProgramScene': {
             const name = String(request.requestData.sceneName);
             if (!scenes.includes(name)) fail(600, 'Scene not found');
-            else { currentScene = name; event('CurrentProgramSceneChanged', 4, { sceneName: name }); }
+            else if (!options.ignoreMutations?.includes('SetCurrentProgramScene')) {
+              if (currentScene !== name && options.sceneTransitionDelayMs) outgoingScenes.set(currentScene, Date.now() + options.sceneTransitionDelayMs);
+              currentScene = name; event('CurrentProgramSceneChanged', 4, { sceneName: name });
+            }
+            break;
+          }
+          case 'GetSourceActive': {
+            const name = String(request.requestData.sourceName);
+            if (!scenes.includes(name)) fail(600, 'Scene not found');
+            else {
+              const active = name === currentScene || (outgoingScenes.get(name) ?? 0) > Date.now();
+              responseData = { videoActive: active, videoShowing: active };
+            }
             break;
           }
           case 'StartRecord':

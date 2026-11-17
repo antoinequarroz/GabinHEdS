@@ -582,7 +582,7 @@ export class RealObsGateway implements ObsGateway {
     const inputName = this.mediaInputName(options);
     const inputKind = options.kind === 'image' ? 'image_source' : 'ffmpeg_source';
     const inputSettings: OBSRequestTypes['SetInputSettings']['inputSettings'] = options.kind === 'image' ? { file: options.file, nino_owner: options.ownerId, nino_asset: options.assetId }
-      : { is_local_file: true, local_file: options.file, looping: false, restart_on_activate: false, clear_on_media_end: true, close_when_inactive: true, nino_owner: options.ownerId, nino_asset: options.assetId };
+      : { is_local_file: true, local_file: options.file, looping: false, restart_on_activate: false, clear_on_media_end: options.kind !== 'video', close_when_inactive: true, nino_owner: options.ownerId, nino_asset: options.assetId };
     let sceneItemId: number;
     if (this.state.inputs.some(input => input.name === inputName)) {
       await this.assertMediaOwnership(options, inputName);
@@ -592,6 +592,11 @@ export class RealObsGateway implements ObsGateway {
       sceneItemId = item ? Number(item.sceneItemId) : (await this.call('CreateSceneItem', { sceneName, sourceName: inputName, sceneItemEnabled: false })).sceneItemId;
     } else {
       sceneItemId = (await this.call('CreateInput', { sceneName, inputName, inputKind, inputSettings, sceneItemEnabled: false })).sceneItemId;
+    }
+    const confirmedSettings = await this.assertMediaOwnership(options, inputName);
+    // Keep an ended clip's last frame until the operator returns to a plan.
+    if (options.kind === 'video' && confirmedSettings.inputSettings.clear_on_media_end !== false) {
+      throw new ObsMediaFailure('OBS n’a pas confirmé la conservation de la dernière image du clip. Vérifiez sa source avant de le diffuser.');
     }
     // Do not touch camera/microphone sources, including sources whose names only
     // resemble Nino. Owned local sources are disabled before the next one opens.
@@ -649,21 +654,33 @@ export class RealObsGateway implements ObsGateway {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
   }
+  private async waitForMediaExit(sceneName: string): Promise<void> {
+    const deadline = Date.now() + 5000;
+    while (true) {
+      // The outgoing scene stays active during a fade; an ACK alone is not enough.
+      const source = await this.call('GetSourceActive', { sourceName: sceneName });
+      if (source.videoActive === false) return;
+      if (Date.now() >= deadline) throw new ObsMediaFailure('OBS n’a pas confirmé la fin du retour au plan. Le média reste affichable ; vérifiez le programme avant de réessayer.');
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+  }
   async mediaAction(action: 'pause' | 'resume' | 'stop'): Promise<MediaPlayback> {
     const selected = this.mediaSelection;
     if (!selected || !this.state.connected) throw new ObsMediaFailure('Aucun média Nino actif ou OBS déconnecté.');
     if (selected.kind === 'image' && action !== 'stop') throw new ObsMediaFailure('Une image reste affichée jusqu’à son arrêt ; elle ne se met pas en pause.');
     await this.assertMediaOwnership(selected, selected.inputName);
-    if (selected.kind !== 'image') await this.call('TriggerMediaInputAction', { inputName: selected.inputName,
-      mediaAction: action === 'pause' ? 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_PAUSE' : action === 'resume' ? 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_PLAY' : 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP' });
-    if (action === 'stop') {
-      await this.call('SetSceneItemEnabled', { sceneName: selected.sceneName, sceneItemId: selected.sceneItemId, sceneItemEnabled: false });
-      // If an operator has chosen another plan, never force them back.
-      const scenes = await this.call('GetSceneList');
-      if (selected.mode === 'fullscreen' && scenes.currentProgramSceneName === selected.sceneName && selected.previousScene && selected.previousScene !== selected.sceneName
-        && scenes.scenes.some(scene => scene.sceneName === selected.previousScene)) await this.setScene(selected.previousScene);
-    }
     try {
+      if (action === 'stop' && selected.mode === 'fullscreen') {
+        // Keep the clip visible until OBS has completed the return transition.
+        const scenes = await this.call('GetSceneList');
+        if (scenes.currentProgramSceneName === selected.sceneName && selected.previousScene && selected.previousScene !== selected.sceneName
+          && scenes.scenes.some(scene => scene.sceneName === selected.previousScene)) await this.setScene(selected.previousScene);
+        await this.waitForMediaExit(selected.sceneName);
+        await this.assertMediaOwnership(selected, selected.inputName);
+      }
+      if (selected.kind !== 'image') await this.call('TriggerMediaInputAction', { inputName: selected.inputName,
+        mediaAction: action === 'pause' ? 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_PAUSE' : action === 'resume' ? 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_PLAY' : 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP' });
+      if (action === 'stop') await this.call('SetSceneItemEnabled', { sceneName: selected.sceneName, sceneItemId: selected.sceneItemId, sceneItemEnabled: false });
       await this.confirmMedia(action === 'pause' ? 'paused' : action === 'resume' ? 'playing' : 'stopped');
       const confirmed = await this.refresh(true);
       if (!confirmed.connected || confirmed.error) throw new ObsMediaFailure('OBS ne confirme plus l’état du programme. Vérifiez le média sur le PC.');

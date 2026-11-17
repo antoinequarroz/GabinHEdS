@@ -20,6 +20,7 @@ const step = ref<'prepare' | 'record' | 'takes'>('prepare');
 const editing = ref(false);
 const checks = ref<Preparation>();
 const confirm = ref<'start' | 'stop' | 'liveStart' | 'liveStop' | null>(null);
+const stopTakeId = ref<string | null>(null);
 const markerLabel = ref('');
 const obs = computed(() => state.value?.obs);
 const ownActiveTake = computed(() => state.value?.activeTake?.projectId === props.project.id ? state.value.activeTake : null);
@@ -59,13 +60,23 @@ const eligibleInputs = computed(() => {
 async function refreshChecks(): Promise<void> { const result = await preparation(props.project.id); if (result) checks.value = result; }
 watch(() => JSON.stringify({ id: props.project.id, updated: props.project.updatedAt, connected: obs.value?.connected, scenes: obs.value?.scenes, inputs: obs.value?.inputs.map(input => ({ name: input.name, muted: input.muted })), root: state.value?.room.recordingRoot, recording: obs.value?.recording, defaults: state.value?.room.defaultScenes, liveProjectId: state.value?.liveProjectId, liveStatus: media.value?.liveStatus }), refreshChecks, { immediate: true });
 watch(ownActiveTake, (take, previous) => { if (take && !previous) step.value = 'record'; }, { immediate: true });
+watch(() => ownActiveTake.value?.id, id => { if (confirm.value === 'stop' && id !== stopTakeId.value) confirm.value = null; }, { flush: 'sync' });
+watch(confirm, action => { if (action !== 'stop') stopTakeId.value = null; }, { flush: 'sync' });
 watch(step, () => window.scrollTo({ top: 0, behavior: 'instant' }), { flush: 'post' });
 
+function requestStop(): void {
+  const take = ownActiveTake.value;
+  if (!take || !obs.value?.recording) return;
+  stopTakeId.value = take.id;
+  confirm.value = 'stop';
+}
 async function confirmRecording(): Promise<void> {
   if (!confirm.value) return;
   const action = confirm.value;
+  const expectedTakeId = stopTakeId.value ?? undefined;
+  if (action === 'stop' && (!expectedTakeId || expectedTakeId !== ownActiveTake.value?.id)) { confirm.value = null; return; }
   const success = await control(action === 'start' ? { action: 'record.start', projectId: props.project.id }
-    : action === 'stop' ? { action: 'record.stop' }
+    : action === 'stop' ? { action: 'record.stop', expectedTakeId }
     : action === 'liveStart' ? { action: 'stream.start', projectId: props.project.id } : { action: 'stream.stop' });
   confirm.value = null;
   if (success) {
@@ -80,6 +91,10 @@ async function addMarker(): Promise<void> {
 function duration(milliseconds: number): string { const seconds = Math.floor(milliseconds / 1000); return `${Math.floor(seconds / 60)} min ${String(seconds % 60).padStart(2, '0')} s`; }
 function timestamp(value: string): string { return new Intl.DateTimeFormat('fr-CH', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)); }
 function bytes(value: number | null): string { return value === null ? 'Non mesuré' : `${(value / 1024 ** 3).toFixed(1)} Go`; }
+function participantAssociated(person: Project['participants'][number]): boolean {
+  return !!person.micInput && !!obs.value?.inputs.some(input => input.name === person.micInput && input.muted !== null)
+    && (!person.sceneName || !!obs.value?.scenes.includes(person.sceneName));
+}
 </script>
 
 <template>
@@ -109,7 +124,7 @@ function bytes(value: number | null): string { return value === null ? 'Non mesu
             <article v-for="person in project.participants" :key="person.id" class="prep-source">
               <span class="prep-source-avatar" aria-hidden="true">{{ person.name.trim().charAt(0).toUpperCase() || '?' }}</span>
               <div class="prep-source-person"><strong>{{ person.name }}</strong><span><Icon name="mic" />{{ person.micInput || 'Micro à associer' }}</span><span><Icon name="movie" />{{ person.sceneName || 'Sans plan associé' }}</span></div>
-              <span class="prep-source-state" :class="{ ready: person.micInput && person.sceneName }"><Icon :name="person.micInput && person.sceneName ? 'check' : 'warning'" /><span>{{ person.micInput && person.sceneName ? 'Associé' : 'À compléter' }}</span></span>
+              <span class="prep-source-state" :class="{ ready: participantAssociated(person) }"><Icon :name="participantAssociated(person) ? 'check' : 'warning'" /><span>{{ participantAssociated(person) ? 'Associé' : 'À compléter' }}</span></span>
             </article>
           </div>
           <div class="prep-start-scene"><Icon name="movie" /><div><span>Scène affichée au démarrage</span><strong>{{ checks?.sceneName || 'À définir' }}</strong></div></div>
@@ -181,7 +196,7 @@ function bytes(value: number | null): string { return value === null ? 'Non mesu
           <div class="regie-time"><span class="record-light" :class="{ active: live && obs?.connected && obs.recording, paused: live && obs?.connected && obs.paused, uncertain: !live || !obs?.connected }"></span><span class="timecode">{{ obs?.recording ? obs.timecode : '00:00:00' }}</span></div>
           <div class="regie-take-state"><strong>{{ recordLabel }}</strong><span>{{ ownActiveTake ? `Prise ${String(ownActiveTake.sequence).padStart(2, '0')} · original sur le PC` : 'Original conservé sur le PC de la salle' }}</span></div>
           <div class="regie-record-actions">
-            <template v-if="ownActiveTake && obs?.recording"><button class="button" :disabled="!controllable" @click="control({ action: obs.paused ? 'record.resume' : 'record.pause' })"><Icon :name="obs.paused ? 'play' : 'pause'" />{{ obs.paused ? 'Reprendre' : 'Pause' }}</button><button class="button danger" :disabled="!controllable" @click="confirm = 'stop'"><Icon name="stop" />Terminer la prise</button></template>
+            <template v-if="ownActiveTake && obs?.recording"><button class="button" :disabled="!controllable" @click="control({ action: obs.paused ? 'record.resume' : 'record.pause' })"><Icon :name="obs.paused ? 'play' : 'pause'" />{{ obs.paused ? 'Reprendre' : 'Pause' }}</button><button class="button danger" :disabled="!controllable" @click="requestStop"><Icon name="stop" />Terminer la prise</button></template>
             <button v-else-if="canEdit" class="button primary regie-record-trigger" aria-label="Démarrer la prise" :disabled="!canStart" @click="confirm = 'start'"><span class="regie-record-dot" aria-hidden="true"></span><span>Enregistrer</span></button>
           </div>
         </section>
