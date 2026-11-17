@@ -76,8 +76,8 @@ ouverts pendant la production.
 Créer un fichier ignoré `studio/.env.guests`, mode `600`, avant de démarrer Nino :
 
 ```text
-GABIN_HOST=0.0.0.0
-GABIN_PORT=4310
+NINO_HOST=0.0.0.0
+NINO_PORT=4310
 NINO_GUEST_HOST=127.0.0.1
 NINO_GUEST_PORT=4312
 NINO_GUEST_PUBLIC_URL=https://guest.example.com

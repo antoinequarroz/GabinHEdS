@@ -1,5 +1,5 @@
 import path from 'node:path';
-import type { AutoDirectionSettings, ControlCommand, MediaMode, Participant, ProductionFormat, ProjectInput, ProjectMediaLink, RoomConfigInput } from '@gabin/shared';
+import type { AutoDirectionSettings, ControlCommand, MediaMode, Participant, ProductionFormat, ProjectInput, ProjectMediaLink, RoomConfigInput } from '@nino/shared';
 
 export class ApiFailure extends Error {
   constructor(public statusCode: number, message: string, public code = 'INVALID_REQUEST') { super(message); }

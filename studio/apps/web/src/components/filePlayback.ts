@@ -1,4 +1,4 @@
-import type { FilePlaybackSession } from '@gabin/shared';
+import type { FilePlaybackSession } from '@nino/shared';
 
 export function playbackUrl(session: FilePlaybackSession): string {
   const url = new URL(session.url, location.origin);

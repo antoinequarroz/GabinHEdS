@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { MediaAsset, MediaMode, MediaRole, ProjectMediaLink } from '@gabin/shared';
+import type { MediaAsset, MediaMode, MediaRole, ProjectMediaLink } from '@nino/shared';
 import { useStudio } from '../composables/useStudio';
 import MediaPreview from './MediaPreview.vue';
 import MediaViewer from './MediaViewer.vue';

@@ -10,7 +10,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { Readable } from 'node:stream';
 import type { WebSocket } from 'ws';
-import type { Device, DeviceRole, ProjectInput, StudioState, Take } from '@gabin/shared';
+import type { Device, DeviceRole, ProjectInput, StudioState, Take } from '@nino/shared';
 import { RealObsGateway, type ObsGateway } from './obs.js';
 import { RealMediaGateway, validHlsResource, type MediaGateway } from './media.js';
 import { hashSecret, Store } from './store.js';

@@ -1,4 +1,4 @@
-# Internal programme transport. Only Gabin's authenticated API is exposed on LAN.
+# Internal programme transport. Only Nino's authenticated API is exposed on LAN.
 logLevel: warn
 logDestinations: [stdout]
 authMethod: internal
@@ -26,6 +26,6 @@ webrtc: false
 srt: false
 moq: false
 paths:
-  gabin/program:
+  nino/program:
     source: publisher
     overridePublisher: false

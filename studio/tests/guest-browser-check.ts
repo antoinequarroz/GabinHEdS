@@ -12,7 +12,7 @@ import { emptyMediaState, type MediaGateway } from '../apps/api/src/media.js';
 import { startFakeObs } from './fake-obs.js';
 import { startStunFixture } from './stun-fixture.js';
 import { noOverflow, proofScreenshot } from './browser-rendering.js';
-import type { AuthResult, GuestSlot, MediaState, PairingCode, Project, StudioState } from '@gabin/shared';
+import type { AuthResult, GuestSlot, MediaState, PairingCode, Project, StudioState } from '@nino/shared';
 
 // Capture devices and OBS are fixtures. RTCPeerConnection, its encoded packets,
 // remote video decoding, the signalling API and audio mixing are real.
@@ -30,16 +30,16 @@ class QuietMedia implements MediaGateway {
 const require = createRequire(import.meta.url);
 const fallback = join(homedir(), '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
 let playwright: any;
-if (process.env.GABIN_PLAYWRIGHT_MODULE) playwright = require(process.env.GABIN_PLAYWRIGHT_MODULE);
+if (process.env.NINO_PLAYWRIGHT_MODULE) playwright = require(process.env.NINO_PLAYWRIGHT_MODULE);
 else { try { playwright = require('playwright'); } catch (failure) { if (!existsSync(fallback)) throw failure; playwright = require(fallback); } }
-const engine = process.env.GABIN_TEST_BROWSER || 'chromium';
-if (!['chromium', 'webkit'].includes(engine)) throw new Error('GABIN_TEST_BROWSER doit être chromium ou webkit.');
-const tabletEngine = process.env.GABIN_GUEST_TABLET_BROWSER || engine;
-if (!['chromium', 'webkit'].includes(tabletEngine)) throw new Error('GABIN_GUEST_TABLET_BROWSER doit être chromium ou webkit.');
+const engine = process.env.NINO_TEST_BROWSER || 'chromium';
+if (!['chromium', 'webkit'].includes(engine)) throw new Error('NINO_TEST_BROWSER doit être chromium ou webkit.');
+const tabletEngine = process.env.NINO_GUEST_TABLET_BROWSER || engine;
+if (!['chromium', 'webkit'].includes(tabletEngine)) throw new Error('NINO_GUEST_TABLET_BROWSER doit être chromium ou webkit.');
 // OBS BrowserSource runs Chromium/CEF with this autoplay policy, including on
 // macOS. WebKit still exercises the actual bridge, callers and iPad controls.
 const sourceEngine = 'chromium';
-const screenshotDir = process.env.GABIN_GUEST_SCREENSHOT_DIR || join(tmpdir(), `nino-guests-${engine}`);
+const screenshotDir = process.env.NINO_GUEST_SCREENSHOT_DIR || join(tmpdir(), `nino-guests-${engine}`);
 const temp = await mkdtemp(join(tmpdir(), 'nino-guests-e2e-'));
 const failures: string[] = []; const steps: string[] = [];
 let fixture: Awaited<ReturnType<typeof startFakeObs>> | undefined;
@@ -73,7 +73,7 @@ function observe(page: any): any {
 
 async function captureFixture(context: any, frequency: number, label: string, privateToken?: string): Promise<void> {
   const setup = ({ frequency, label, privateToken, base }: { frequency: number; label: string; privateToken?: string; base: string }) => {
-    if (privateToken && location.origin === base) localStorage.setItem('gabin.studio.device', privateToken);
+    if (privateToken && location.origin === base) localStorage.setItem('nino.studio.device', privateToken);
     (window as any).__fixtureCaptureCount = 0;
     (window as any).__fixtureSocketEvents = [];
     (window as any).__fixtureMediaEvents = [];
@@ -304,7 +304,7 @@ async function screenshot(page: any, name: string, panelOnly = false): Promise<v
 
 try {
   await mkdir(screenshotDir, { recursive: true }); const guestPort = await freePort();
-  if (process.env.GABIN_GUEST_TEST_STUN === '1') stun = await startStunFixture();
+  if (process.env.NINO_GUEST_TEST_STUN === '1') stun = await startStunFixture();
   fixture = await startFakeObs({ meters: false, specialInputs: { mic1: 'Micro 1' } });
   app = await buildApp({ dataDir: join(temp, 'database'), media: new QuietMedia(), webDir: join(process.cwd(), 'apps/web/dist'), guestConfig: { port: guestPort, publicUrl: `http://127.0.0.1:${guestPort}`, ...(stun ? { stunUrls: [stun.url] } : {}) } });
   await app.listen({ host: '127.0.0.1', port: 0 }); const address = app.server.address(); assert.ok(address && typeof address !== 'string'); base = `http://127.0.0.1:${address.port}`;
@@ -318,7 +318,7 @@ try {
   const pairing = await request<PairingCode>('/pairing', { role: 'operator', kind: 'ipad' });
   const paired = await request<AuthResult>('/auth/pair', { code: pairing.code, name: 'iPad de validation', kind: 'ipad' });
   const deck = await request<AuthResult>('/devices', { role: 'operator', kind: 'streamdeck', name: 'Stream Deck de validation' });
-  const chromiumOptions = { headless: true, ...(process.env.GABIN_CHROMIUM_CHANNEL ? { channel: process.env.GABIN_CHROMIUM_CHANNEL } : {}), args: ['--autoplay-policy=no-user-gesture-required', '--disable-background-timer-throttling', '--disable-renderer-backgrounding'] };
+  const chromiumOptions = { headless: true, ...(process.env.NINO_CHROMIUM_CHANNEL ? { channel: process.env.NINO_CHROMIUM_CHANNEL } : {}), args: ['--autoplay-policy=no-user-gesture-required', '--disable-background-timer-throttling', '--disable-renderer-backgrounding'] };
   browser = await playwright[engine].launch(engine === 'chromium' ? chromiumOptions : { headless: true });
   const pcContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } }); await captureFixture(pcContext, 440, 'SALLE · 440 Hz', token);
   if (tabletEngine !== engine) tabletBrowser = await playwright[tabletEngine].launch({ headless: true });

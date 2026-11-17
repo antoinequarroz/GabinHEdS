@@ -362,14 +362,14 @@ def main():
     args=parser.parse_args();args.output.mkdir(parents=True,exist_ok=True);args.qa_dir.mkdir(parents=True,exist_ok=True)
     if args.import_screenshots:
         ASSETS.mkdir(parents=True,exist_ok=True)
-        for target,source in [('library','nino-library-pc.png'),('regie','gabin-studio-pc.png'),('takes','nino-production-files-pc.png')]:
+        for target,source in [('library','nino-library-pc.png'),('regie','nino-studio-pc.png'),('takes','nino-production-files-pc.png')]:
             shutil.copyfile(args.import_screenshots/source,ASSETS/(target+'.png'))
     if args.resolve_screenshot:
         ASSETS.mkdir(parents=True,exist_ok=True)
         shutil.copyfile(args.resolve_screenshot,ASSETS/'resolve.png')
     if args.import_current_screenshots:
         ASSETS.mkdir(parents=True,exist_ok=True)
-        for target,source in [('library','nino-library-pc.png'),('regie','gabin-studio-pc.png'),('takes','nino-resolve-pc.png'),('auto-pc','nino-auto-pc-detail.png')]:
+        for target,source in [('library','nino-library-pc.png'),('regie','nino-studio-pc.png'),('takes','nino-resolve-pc.png'),('auto-pc','nino-auto-pc-detail.png')]:
             shutil.copyfile(args.import_current_screenshots/source,ASSETS/(target+'.png'))
     initialize_fonts(args.qa_dir)
     spec=importlib.util.spec_from_file_location('nino_guide_content',GUIDES/'content.py')

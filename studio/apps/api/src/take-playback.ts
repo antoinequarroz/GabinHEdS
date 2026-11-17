@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, type Stats } from 'node:fs';
 import { lstat, mkdir, readdir, realpath, rename, rm, stat, statfs } from 'node:fs/promises';
 import path from 'node:path';
-import type { Take } from '@gabin/shared';
+import type { Take } from '@nino/shared';
 import { ApiFailure } from './validation.js';
 
 export interface ResolvedTakeFile { take: Take; file: string; fileStat: Stats; }
@@ -47,10 +47,10 @@ export class TakePlayback {
   private readonly conversionTimeoutMs: number;
 
   constructor(private readonly dataDir: string, options: { ffmpegPath?: string; ffprobePath?: string; cacheMaxBytes?: number; conversionTimeoutMs?: number } = {}) {
-    this.ffmpeg = options.ffmpegPath ?? process.env.GABIN_FFMPEG_PATH ?? (existsSync('/opt/homebrew/bin/ffmpeg') ? '/opt/homebrew/bin/ffmpeg' : 'ffmpeg');
-    this.ffprobe = options.ffprobePath ?? process.env.GABIN_FFPROBE_PATH
+    this.ffmpeg = options.ffmpegPath ?? process.env.NINO_FFMPEG_PATH ?? (existsSync('/opt/homebrew/bin/ffmpeg') ? '/opt/homebrew/bin/ffmpeg' : 'ffmpeg');
+    this.ffprobe = options.ffprobePath ?? process.env.NINO_FFPROBE_PATH
       ?? (path.isAbsolute(this.ffmpeg) ? path.join(path.dirname(this.ffmpeg), process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe') : 'ffprobe');
-    const configuredLimit = options.cacheMaxBytes ?? Number(process.env.GABIN_PLAYBACK_CACHE_MAX_BYTES);
+    const configuredLimit = options.cacheMaxBytes ?? Number(process.env.NINO_PLAYBACK_CACHE_MAX_BYTES);
     this.maxCacheBytes = Number.isSafeInteger(configuredLimit) && configuredLimit >= 1024 * 1024 ? configuredLimit : 20 * 1024 ** 3;
     this.conversionTimeoutMs = options.conversionTimeoutMs ?? 30 * 60_000;
   }

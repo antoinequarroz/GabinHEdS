@@ -380,19 +380,19 @@ function Invoke-NinoLauncher {
         }
 
         $settings = Get-NinoSettings -Path $layout.SettingsPath
-        $env:GABIN_DATA_DIR = $layout.DataRoot
-        $env:GABIN_HOST = if ($settings.ListenOnLan) { '0.0.0.0' } else { '127.0.0.1' }
-        $env:GABIN_PORT = '4310'
+        $env:NINO_DATA_DIR = $layout.DataRoot
+        $env:NINO_HOST = if ($settings.ListenOnLan) { '0.0.0.0' } else { '127.0.0.1' }
+        $env:NINO_PORT = '4310'
         $env:NINO_GUEST_HOST = '127.0.0.1'
         $env:NINO_GUEST_PORT = '4312'
-        $env:GABIN_FFMPEG_PATH = $layout.FfmpegPath
-        $env:GABIN_FFPROBE_PATH = $layout.FfprobePath
+        $env:NINO_FFMPEG_PATH = $layout.FfmpegPath
+        $env:NINO_FFPROBE_PATH = $layout.FfprobePath
         $env:NINO_LOCAL_SHUTDOWN_TOKEN = Get-NinoShutdownToken -Path $layout.ShutdownTokenPath -Create
-        $env:GABIN_MEDIA_API_URL = 'http://127.0.0.1:9997'
-        $env:GABIN_MEDIA_HLS_URL = 'http://127.0.0.1:8888'
-        $env:GABIN_MEDIA_RTSP_URL = 'rtsp://127.0.0.1:8554'
-        $env:GABIN_MEDIA_RTMP_URL = 'rtmp://127.0.0.1:1935'
-        $env:GABIN_MEDIA_PATH = 'gabin/program'
+        $env:NINO_MEDIA_API_URL = 'http://127.0.0.1:9997'
+        $env:NINO_MEDIA_HLS_URL = 'http://127.0.0.1:8888'
+        $env:NINO_MEDIA_RTSP_URL = 'rtsp://127.0.0.1:8554'
+        $env:NINO_MEDIA_RTMP_URL = 'rtmp://127.0.0.1:1935'
+        $env:NINO_MEDIA_PATH = 'nino/program'
         $env:PATH = (Split-Path -Parent $layout.NodePath) + ';' + (Split-Path -Parent $layout.FfmpegPath) + ';' + $env:PATH
 
         [void](Start-NinoService -Service media -Layout $layout -ExecutablePath $layout.MediaPath -Arguments @($layout.MediaConfigPath) `

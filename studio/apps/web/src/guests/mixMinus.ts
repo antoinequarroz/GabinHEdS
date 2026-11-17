@@ -1,4 +1,4 @@
-import type { GuestRoomState } from '@gabin/shared';
+import type { GuestRoomState } from '@nino/shared';
 
 /** Each caller has a separate bus. A caller's own microphone has no path to its return. */
 export class MixMinus {

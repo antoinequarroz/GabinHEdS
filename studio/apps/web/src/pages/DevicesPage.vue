@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import type { AuthResult, Device, PairingCode, MediaMode } from '@gabin/shared';
+import type { AuthResult, Device, PairingCode, MediaMode } from '@nino/shared';
 import { useStudio } from '../composables/useStudio';
 import Icon from '../components/Icon.vue';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
@@ -75,7 +75,7 @@ const expiry = (value: string) => new Intl.DateTimeFormat('fr-CH', { hour: '2-di
           </div>
         </li>
       </ol>
-      <details class="devices-network-help"><summary>Si l’iPad ne trouve pas la salle</summary><p class="hint">L’administrateur du PC peut activer l’écoute réseau avec GABIN_HOST=0.0.0.0. Utilisez uniquement le réseau privé de la salle.</p></details>
+      <details class="devices-network-help"><summary>Si l’iPad ne trouve pas la salle</summary><p class="hint">L’administrateur du PC peut activer l’écoute réseau avec NINO_HOST=0.0.0.0. Utilisez uniquement le réseau privé de la salle.</p></details>
     </section>
 
     <section class="devices-roster">

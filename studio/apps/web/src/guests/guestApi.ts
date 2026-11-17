@@ -1,4 +1,4 @@
-import type { GuestSession } from '@gabin/shared';
+import type { GuestSession } from '@nino/shared';
 
 export interface InvitationInfo { name: string; title: string; slot: 1 | 2; expiresAt: string; available: boolean; error?: string; }
 export async function guestApi<T>(path: string, body: unknown): Promise<T> {

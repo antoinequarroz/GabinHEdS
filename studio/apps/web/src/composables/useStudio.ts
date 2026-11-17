@@ -3,9 +3,9 @@ import type {
   AudioFrame, AuthResult, ClientMessage, ControlCommand, Device, DownloadTicket, PairingCode, Preparation,
   PreviewSession, Project, ProjectInput, RoomConfig, RoomConfigInput, SceneThumbnail, ServerMessage, StudioState,
   MediaAsset, ProjectMediaLink, FilePlaybackSession, TakePlaybackStatus, TakeMp4DownloadStatus, ResolveExportStatus, GuestInvitation, GuestSession,
-} from '@gabin/shared';
+} from '@nino/shared';
 
-const tokenKey = 'gabin.studio.device';
+const tokenKey = 'nino.studio.device';
 const token = ref(localStorage.getItem(tokenKey) ?? '');
 const device = shallowRef<Device | null>(null);
 const state = shallowRef<StudioState | null>(null);

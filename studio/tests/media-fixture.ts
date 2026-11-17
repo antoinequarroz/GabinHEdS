@@ -10,7 +10,7 @@ const execute = promisify(execFile);
  * camera, microphone, production data, or network inputs are accessed. */
 export async function createMediaFixture(directory: string) {
   await mkdir(directory, { recursive: true });
-  const ffmpeg = process.env.GABIN_FFMPEG_PATH ?? (existsSync('/opt/homebrew/bin/ffmpeg') ? '/opt/homebrew/bin/ffmpeg' : 'ffmpeg');
+  const ffmpeg = process.env.NINO_FFMPEG_PATH ?? (existsSync('/opt/homebrew/bin/ffmpeg') ? '/opt/homebrew/bin/ffmpeg' : 'ffmpeg');
   const mkv = join(directory, 'intro-test.mkv');
   const mp4 = join(directory, 'intro-test.mp4');
   const image = join(directory, 'logo-test.png');

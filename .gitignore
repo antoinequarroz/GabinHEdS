@@ -49,39 +49,10 @@ Thumbs.db
 *.cache
 
 # Electron dist folders
-/desktop-app/dist/
-/desktop-app/win-unpacked/
-/desktop-app/out/
-/desktop-app/release/
 
 # Ignore large files
-/desktop-app/dist/oneclick-hub-desktop Setup*.exe
-/desktop-app/dist/win-unpacked/
-/desktop-app/node_modules/
-/desktop-app/dist/*.exe
-/desktop-app/dist/*.asar
-/desktop-app/dist/*.dll
-/desktop-app/dist/*.pak
-/desktop-app/dist/*.bin
-/desktop-app/dist/*.blockmap
-/desktop-app/dist/*.yml
-/desktop-app/dist/*.yaml
-/desktop-app/dist/*.map
-/desktop-app/dist/*.dmg
-/desktop-app/dist/*.deb
-/desktop-app/dist/*.rpm
-/desktop-app/dist/*.snap
-/desktop-app/dist/*.zip
-/desktop-app/dist/*.tar.gz
-/desktop-app/dist/*.7z
-/desktop-app/dist/*.tgz
-/desktop-app/dist/*.gz
-/desktop-app/dist/*.bz2
-/desktop-app/dist/*.xz
 
 # Ignore Electron binaries
-/desktop-app/node_modules/electron/dist/
-/desktop-app/node_modules/.cache/
 
 # Ignore local dev files
 *.local.js
@@ -126,10 +97,8 @@ coverage/
 .env.*
 
 # Ignore PrimeVue build artifacts
-/desktop-app/dist/assets/
 
 # Ignore public build images
-/desktop-app/dist/img/
 
 # Reviewed configuration for the new Nino studio and its CI workflow
 !/.github/workflows/*.yml

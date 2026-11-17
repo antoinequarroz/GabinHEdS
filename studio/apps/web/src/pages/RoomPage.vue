@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { formatLabels, type ProductionFormat, type RoomConfigInput } from '@gabin/shared';
+import { formatLabels, type ProductionFormat, type RoomConfigInput } from '@nino/shared';
 import { useStudio } from '../composables/useStudio';
 import Icon from '../components/Icon.vue';
 const { state, busy, saveRoom, connectObs, technician } = useStudio();

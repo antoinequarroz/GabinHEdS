@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import type { Marker, Project, SceneChange, Take } from '@gabin/shared';
+import type { Marker, Project, SceneChange, Take } from '@nino/shared';
 import type { PlaybackFile } from './take-playback.js';
 import { ApiFailure } from './validation.js';
 
@@ -23,7 +23,7 @@ export class ResolveProbe {
   private readonly children = new Set<ChildProcess>();
   private active = 0;
   private closed = false;
-  constructor(private readonly ffprobe = process.env.GABIN_FFPROBE_PATH ??
+  constructor(private readonly ffprobe = process.env.NINO_FFPROBE_PATH ??
     (existsSync('/opt/homebrew/bin/ffprobe') ? '/opt/homebrew/bin/ffprobe' : 'ffprobe')) {}
   async inspect(file: PlaybackFile): Promise<ResolveMediaInfo> {
     if (this.closed) throw new ApiFailure(503, 'L’export est momentanément indisponible.', 'RESOLVE_EXPORT_UNAVAILABLE');

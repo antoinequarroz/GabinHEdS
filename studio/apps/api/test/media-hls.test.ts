@@ -25,11 +25,11 @@ test('real media gateway follows the local MediaMTX session redirect without cha
   const base = await httpFixture(t, (request, response) => {
     if (request.url === '/v3/paths/list') {
       response.writeHead(200, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({ items: [{ name: 'gabin/program', ready: true }] }));
+      response.end(JSON.stringify({ items: [{ name: 'nino/program', ready: true }] }));
       return;
     }
     requests.push(request.url!);
-    if (request.url === '/gabin/program/index.m3u8') {
+    if (request.url === '/nino/program/index.m3u8') {
       response.writeHead(302, { location: `index.m3u8?session=${mediaSession}` });
       response.end();
     } else {
@@ -42,10 +42,10 @@ test('real media gateway follows the local MediaMTX session redirect without cha
   const response = await gateway.hlsResource('index.m3u8');
   assert.equal(response.status, 200);
   assert.match(await response.text(), /#EXTM3U/);
-  assert.deepEqual(requests, ['/gabin/program/index.m3u8', `/gabin/program/index.m3u8?session=${mediaSession}`]);
+  assert.deepEqual(requests, ['/nino/program/index.m3u8', `/nino/program/index.m3u8?session=${mediaSession}`]);
   const segment = await gateway.hlsResource(`seg1.mp4?session=${mediaSession}`);
   await segment.text();
-  assert.equal(requests.at(-1), `/gabin/program/seg1.mp4?session=${mediaSession}`);
+  assert.equal(requests.at(-1), `/nino/program/seg1.mp4?session=${mediaSession}`);
 });
 
 test('MediaMTX cookie-check handshake stays internal before serving UUID session references', async (t) => {
@@ -53,10 +53,10 @@ test('MediaMTX cookie-check handshake stays internal before serving UUID session
   const base = await httpFixture(t, (request, response) => {
     if (request.url === '/v3/paths/list') { response.end('{"items":[]}'); return; }
     requests.push(request.url!);
-    if (request.url === '/gabin/program/index.m3u8') {
+    if (request.url === '/nino/program/index.m3u8') {
       response.writeHead(302, { location: 'index.m3u8?cookieCheck=1' });
       response.end();
-    } else if (request.url === '/gabin/program/index.m3u8?cookieCheck=1') {
+    } else if (request.url === '/nino/program/index.m3u8?cookieCheck=1') {
       response.writeHead(200, { 'content-type': 'application/vnd.apple.mpegurl' });
       response.end(`#EXTM3U\n#EXT-X-MAP:URI="init.mp4?session=${mediaSession}"\nseg1.mp4?session=${mediaSession}\n`);
     } else {
@@ -68,17 +68,17 @@ test('MediaMTX cookie-check handshake stays internal before serving UUID session
   const playlist = await gateway.hlsResource('index.m3u8');
   assert.equal(playlist.status, 200);
   assert.match(await playlist.text(), new RegExp(`seg1\\.mp4\\?session=${mediaSession}`));
-  assert.deepEqual(requests, ['/gabin/program/index.m3u8', '/gabin/program/index.m3u8?cookieCheck=1']);
+  assert.deepEqual(requests, ['/nino/program/index.m3u8', '/nino/program/index.m3u8?cookieCheck=1']);
   const segment = await gateway.hlsResource(`seg1.mp4?session=${mediaSession}`);
   assert.equal(await segment.text(), 'Real media segment fixture');
-  assert.equal(requests.at(-1), `/gabin/program/seg1.mp4?session=${mediaSession}`);
+  assert.equal(requests.at(-1), `/nino/program/seg1.mp4?session=${mediaSession}`);
 });
 
 test('real media gateway rejects external redirects and local path, filename or query changes', async (t) => {
   let externalHits = 0;
   const outside = await httpFixture(t, (_request, response) => { externalHits++; response.end('Must not be fetched'); });
   const requests: string[] = [];
-  let location = `${outside}/gabin/program/index.m3u8?session=${mediaSession}`;
+  let location = `${outside}/nino/program/index.m3u8?session=${mediaSession}`;
   const base = await httpFixture(t, (request, response) => {
     if (request.url === '/v3/paths/list') { response.end('{"items":[]}'); return; }
     requests.push(request.url!);

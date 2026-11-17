@@ -1,6 +1,6 @@
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import type { WebSocket } from 'ws';
-import type { GuestIceServer, GuestInvitation, GuestPeer, GuestPeerRole, GuestRoomState, GuestServerMessage, GuestSession, GuestSlot, Project } from '@gabin/shared';
+import type { GuestIceServer, GuestInvitation, GuestPeer, GuestPeerRole, GuestRoomState, GuestServerMessage, GuestSession, GuestSlot, Project } from '@nino/shared';
 import { Store, hashSecret } from './store.js';
 import { ApiFailure, object, string } from './validation.js';
 

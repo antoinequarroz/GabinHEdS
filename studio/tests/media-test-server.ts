@@ -10,9 +10,9 @@ import type { MediaOptions } from '../apps/api/src/media.js';
 /** Real media transport for bounded tests. It publishes a moving mire and a
  * sine wave, never cameras or microphones from the host. */
 export async function startTestMedia(directory: string) {
-  const binary = process.env.GABIN_MEDIAMTX_PATH ?? join(homedir(), '.cache/gabin-studio/mediamtx/v1.21.2', `${process.platform}-${process.arch}`, process.platform === 'win32' ? 'mediamtx.exe' : 'mediamtx');
+  const binary = process.env.NINO_MEDIAMTX_PATH ?? join(homedir(), '.cache/nino-studio/mediamtx/v1.21.2', `${process.platform}-${process.arch}`, process.platform === 'win32' ? 'mediamtx.exe' : 'mediamtx');
   if (!existsSync(binary)) throw new Error('MediaMTX manque pour la recette média : npm run setup:media.');
-  const ffmpegPath = process.env.GABIN_FFMPEG_PATH ?? (existsSync('/opt/homebrew/bin/ffmpeg') ? '/opt/homebrew/bin/ffmpeg' : 'ffmpeg');
+  const ffmpegPath = process.env.NINO_FFMPEG_PATH ?? (existsSync('/opt/homebrew/bin/ffmpeg') ? '/opt/homebrew/bin/ffmpeg' : 'ffmpeg');
   const [apiPort, hlsPort, rtspPort, rtmpPort] = await Promise.all([freePort(), freePort(), freePort(), freePort()]);
   const configuration = join(directory, 'mediamtx-test.yml');
   // One automation process alternates between two simulated devices. Retain a
@@ -64,10 +64,10 @@ paths:
   try { await until(async () => { await paths(); return true; }, 10_000); }
   catch (error) { await stopChild(media); throw new Error(`${String(error)}\n${logs}`); }
   const options: MediaOptions = { apiUrl, hlsUrl: `http://127.0.0.1:${hlsPort}`, rtspUrl: `rtsp://127.0.0.1:${rtspPort}`,
-    rtmpUrl: `rtmp://127.0.0.1:${rtmpPort}`, path: 'gabin/program', ffmpegPath, pollIntervalMs: 200 };
+    rtmpUrl: `rtmp://127.0.0.1:${rtmpPort}`, path: 'nino/program', ffmpegPath, pollIntervalMs: 200 };
   return {
     options,
-    destination: { name: 'Destination locale de recette', server: `rtmp://127.0.0.1:${rtmpPort}/gabin`, key: 'test-live' },
+    destination: { name: 'Destination locale de recette', server: `rtmp://127.0.0.1:${rtmpPort}/nino`, key: 'test-live' },
     async startSource(service: FakeStreamService) {
       if (source) throw new Error('La source de recette est déjà active.');
       const server = String(service.streamServiceSettings.server);
@@ -79,7 +79,7 @@ paths:
         '-f', 'flv', `${server.replace(/\/$/, '')}/${key}`], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
       source.stdout?.resume(); source.stderr?.on('data', capture);
       source.on('error', error => { logs += error.message; });
-      try { await until(async () => (await paths()).some(path => path.name === 'gabin/program' && path.ready), 10_000); }
+      try { await until(async () => (await paths()).some(path => path.name === 'nino/program' && path.ready), 10_000); }
       catch (error) {
         const child = source; source = null;
         if (child) await stopChild(child);
@@ -88,7 +88,7 @@ paths:
     },
     async stopSource() { if (source) { const child = source; source = null; await stopChild(child); } },
     async liveReady() {
-      try { await until(async () => (await paths()).some(path => path.name === 'gabin/test-live' && path.ready), 5000); return true; }
+      try { await until(async () => (await paths()).some(path => path.name === 'nino/test-live' && path.ready), 5000); return true; }
       catch { console.info('Destination MediaMTX non prête', await paths()); return false; }
     },
     async close() {

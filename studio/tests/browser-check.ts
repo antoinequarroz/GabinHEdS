@@ -13,7 +13,7 @@ import { startTestMedia } from './media-test-server.js';
 import { createMediaFixture } from './media-fixture.js';
 import { decodedImagePreviews, noOverflow as assertNoOverflow, proofScreenshot as captureProof,
   verifyRenderingGuards } from './browser-rendering.js';
-import type { AuthResult, MediaAsset, PreviewSession, StudioState } from '@gabin/shared';
+import type { AuthResult, MediaAsset, PreviewSession, StudioState } from '@nino/shared';
 
 // Bounded verification: real API, OBS adapter, MediaMTX, FFmpeg relay and HLS
 // decoding. OBS control and recording are fixtures; no physical capture.
@@ -22,26 +22,26 @@ const execute = promisify(execFile);
 const bundledModules = join(homedir(), '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
 let playwright: any;
 let usesBundledRuntime = false;
-if (process.env.GABIN_PLAYWRIGHT_MODULE) playwright = require(process.env.GABIN_PLAYWRIGHT_MODULE);
+if (process.env.NINO_PLAYWRIGHT_MODULE) playwright = require(process.env.NINO_PLAYWRIGHT_MODULE);
 else {
   try { playwright = require('playwright'); }
   catch (error) {
     if (process.platform !== 'darwin' || !existsSync(bundledModules)) {
-      throw new Error('Playwright manque : installez playwright et ses navigateurs, ou indiquez GABIN_PLAYWRIGHT_MODULE.', { cause: error });
+      throw new Error('Playwright manque : installez playwright et ses navigateurs, ou indiquez NINO_PLAYWRIGHT_MODULE.', { cause: error });
     }
     playwright = require(bundledModules);
     usesBundledRuntime = true;
   }
 }
 const bundledChromium = join(homedir(), 'Library/Caches/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-mac-arm64/chrome-headless-shell');
-const chromiumChannel = process.env.GABIN_CHROMIUM_CHANNEL;
+const chromiumChannel = process.env.NINO_CHROMIUM_CHANNEL;
 if (chromiumChannel && !['chromium', 'chrome', 'msedge'].includes(chromiumChannel)) throw new Error('Canal Chromium de recette non reconnu.');
-const executablePath = process.env.GABIN_CHROMIUM_PATH
+const executablePath = process.env.NINO_CHROMIUM_PATH
   ?? (usesBundledRuntime && !chromiumChannel && existsSync(bundledChromium) ? bundledChromium : undefined);
-const browserEngine = process.env.GABIN_TEST_BROWSER ?? 'chromium';
-if (!['chromium', 'webkit'].includes(browserEngine)) throw new Error('GABIN_TEST_BROWSER doit être chromium ou webkit.');
-const screenshotDir = process.env.GABIN_SCREENSHOT_DIR ?? join(tmpdir(), `gabin-browser-artifacts-${browserEngine}`);
-const temp = await mkdtemp(join(tmpdir(), 'gabin-browser-check-'));
+const browserEngine = process.env.NINO_TEST_BROWSER ?? 'chromium';
+if (!['chromium', 'webkit'].includes(browserEngine)) throw new Error('NINO_TEST_BROWSER doit être chromium ou webkit.');
+const screenshotDir = process.env.NINO_SCREENSHOT_DIR ?? join(tmpdir(), `nino-browser-artifacts-${browserEngine}`);
+const temp = await mkdtemp(join(tmpdir(), 'nino-browser-check-'));
 let mediaServer: Awaited<ReturnType<typeof startTestMedia>> | undefined;
 let fixture: Awaited<ReturnType<typeof startFakeObs>> | undefined;
 let app: Awaited<ReturnType<typeof buildApp>> | undefined;
@@ -157,13 +157,13 @@ try {
   meterTimer = setInterval(() => fixture!.emitMeters(meterLevels.map((db, index) => ({ inputName: `Micro ${index + 1}`,
     inputLevelsMul: [[10 ** (db / 20), 10 ** ((db + 2) / 20), 10 ** ((db + 2) / 20)]] }))), 125);
   meterTimer.unref();
-  app = await buildApp({ dataDir: join(temp, 'data'), media: new RealMediaGateway(testMedia.options), logger: process.env.GABIN_TEST_LOGGER === '1' });
+  app = await buildApp({ dataDir: join(temp, 'data'), media: new RealMediaGateway(testMedia.options), logger: process.env.NINO_TEST_LOGGER === '1' });
   await app.listen({ host: browserEngine === 'webkit' ? '0.0.0.0' : '127.0.0.1', port: 0 });
   const address = app.server.address();
   assert(address && typeof address !== 'string');
   baseUrl = `http://127.0.0.1:${address.port}`;
   browser = await playwright[browserEngine].launch({ headless: true,
-    ...(browserEngine === 'chromium' ? { args: ['--host-resolver-rules=MAP ipad.gabin.test 127.0.0.1', '--no-proxy-server'],
+    ...(browserEngine === 'chromium' ? { args: ['--host-resolver-rules=MAP ipad.nino.test 127.0.0.1', '--no-proxy-server'],
       ...(executablePath ? { executablePath } : chromiumChannel ? { channel: chromiumChannel } : {}) } : {}) });
   await verifyRenderingGuards(browser);
   steps.push('Gardes du test : débordement réel de 420 px rejeté à 390 px ; aperçu manquant rejeté, images valides décodées');
@@ -174,7 +174,7 @@ try {
   await pc.goto(baseUrl);
   await pc.getByRole('heading', { name: 'Vos productions', exact: true }).waitFor();
   console.info(`Interface compilée chargée : ${await pc.locator('script[type="module"][src]').getAttribute('src')}`);
-  token = await pc.evaluate(() => localStorage.getItem('gabin.studio.device'));
+  token = await pc.evaluate(() => localStorage.getItem('nino.studio.device'));
   assert(token, 'Jeton technicien créé sur le PC');
   steps.push('PC : connexion locale technicien, interface compilée et WebSocket');
 
@@ -232,7 +232,7 @@ try {
   ipad = await ipadContext.newPage();
   ipad.setDefaultTimeout(15_000);
   track(ipad);
-  const ipadHost = browserEngine === 'chromium' ? 'ipad.gabin.test' : process.env.GABIN_IPAD_HOST
+  const ipadHost = browserEngine === 'chromium' ? 'ipad.nino.test' : process.env.NINO_IPAD_HOST
     ?? Object.values(networkInterfaces()).flat().find(entry => entry && !entry.internal && entry.family === 'IPv4'
       && !entry.address.startsWith('169.254.') && !/^198\.(?:18|19)\./.test(entry.address))?.address;
   assert(ipadHost, 'Une adresse LAN est nécessaire pour tester l’association avec WebKit');
@@ -392,8 +392,8 @@ try {
 
   await pc.getByRole('button', { name: 'Activer le retour', exact: true }).click();
   await untilState(state => state.obs.streaming && state.media.previewReady, 'programme reçu par MediaMTX réel');
-  if (process.env.GABIN_TEST_LOGGER === '1') {
-    const manifest = await fetch(`${mediaServer.options.hlsUrl}/gabin/program/index.m3u8`, { signal: AbortSignal.timeout(15_000), redirect: 'manual' });
+  if (process.env.NINO_TEST_LOGGER === '1') {
+    const manifest = await fetch(`${mediaServer.options.hlsUrl}/nino/program/index.m3u8`, { signal: AbortSignal.timeout(15_000), redirect: 'manual' });
     console.info(`Manifest MediaMTX : ${manifest.status} ${manifest.headers.get('location') ?? ''} ${(await manifest.text()).slice(0, 1000)}`);
   }
   await decodedProgramme(pc, 'PC');
@@ -443,8 +443,8 @@ try {
     (document.activeElement as HTMLElement | null)?.blur();
     window.scrollTo(0, 0);
   });
-  await proofScreenshot(pc, 'gabin-studio-pc.png');
-  await proofScreenshot(ipad, 'gabin-studio-ipad.png');
+  await proofScreenshot(pc, 'nino-studio-pc.png');
+  await proofScreenshot(ipad, 'nino-studio-ipad.png');
 
   await ipad.getByRole('button', { name: 'Terminer la prise', exact: true }).click();
   await ipad.getByRole('dialog').getByRole('button', { name: 'Terminer et conserver la prise', exact: true }).click();
@@ -461,7 +461,7 @@ try {
   assert(fixture.requests.some(request => request.requestType === 'StopRecord'), 'StopRecord passé sur le protocole réel');
   steps.push('Arrêt iPad : confirmation OBS, historique PC/iPad, chemin et fichier persistés');
 
-  if (process.env.GABIN_SKIP_DOWNLOAD !== '1') {
+  if (process.env.NINO_SKIP_DOWNLOAD !== '1') {
     const pendingDownload = pc.waitForEvent('download');
     await pc.getByRole('button', { name: 'Télécharger le fichier', exact: true }).click();
     const download = await pendingDownload;
@@ -478,7 +478,7 @@ try {
     const mp4File = join(temp, 'download.mp4');
     await mp4Download.saveAs(mp4File);
     assert((await readFile(mp4File)).subarray(0, 32).includes(Buffer.from('ftyp')), 'Le bouton fournit directement un MP4, sans ZIP');
-    const ffprobe = process.env.GABIN_FFPROBE_PATH ?? (existsSync('/opt/homebrew/bin/ffprobe') ? '/opt/homebrew/bin/ffprobe' : 'ffprobe');
+    const ffprobe = process.env.NINO_FFPROBE_PATH ?? (existsSync('/opt/homebrew/bin/ffprobe') ? '/opt/homebrew/bin/ffprobe' : 'ffprobe');
     const { stdout: probeJson } = await execute(ffprobe, ['-v', 'error', '-show_streams', '-show_format', '-of', 'json', mp4File], { timeout: 15_000 });
     const probe = JSON.parse(probeJson);
     assert(probe.streams.some((stream: any) => stream.codec_type === 'video' && stream.codec_name === 'h264' && stream.width === 640 && stream.height === 360), 'Vidéo H.264 complète dans le MP4');
@@ -501,7 +501,7 @@ try {
   await proofScreenshot(ipad, 'nino-production-files-ipad.png');
   await proofScreenshot(pc, 'nino-resolve-pc.png');
   await proofScreenshot(ipad, 'nino-resolve-ipad.png');
-  if (process.env.GABIN_SKIP_DOWNLOAD !== '1') {
+  if (process.env.NINO_SKIP_DOWNLOAD !== '1') {
     const pendingArchive = pc.waitForEvent('download');
     await pc.getByRole('button', { name: 'Récupérer le dossier complet', exact: true }).click();
     const archive = await pendingArchive;
@@ -683,14 +683,14 @@ try {
   assert.deepEqual(pageErrors, [], 'Aucune exception pendant la sélection et le lancement');
   assert.deepEqual(failedApi, [], 'Sélection et lancement utilisent des requêtes autorisées');
   steps.push('Production Stream Deck : sélection PC partagée sur iPad sans matériel ; Tout lancer depuis iPad avec retour local déjà actif, confirmation annulable, REC avant intro, fin OBS puis scène/AUTO, live séparé et arrêt confirmé');
-  console.log(JSON.stringify({ passed: true, steps, pageErrors, failedApi, screenshots: ['gabin-studio-pc.png', 'gabin-studio-ipad.png',
+  console.log(JSON.stringify({ passed: true, steps, pageErrors, failedApi, screenshots: ['nino-studio-pc.png', 'nino-studio-ipad.png',
     'nino-auto-settings-pc.png', 'nino-auto-pc.png', 'nino-auto-ipad.png', 'nino-auto-ipad-portrait.png', 'nino-auto-pc-detail.png', 'nino-auto-ipad-detail.png',
     'nino-resolve-pc.png', 'nino-resolve-ipad.png', 'nino-streamdeck-selection-pc.png', 'nino-streamdeck-selection-ipad.png',
     'nino-tout-lancer-ipad.png'].map(name => join(screenshotDir, name)) }, null, 2));
 } catch (error) {
   await mkdir(screenshotDir, { recursive: true });
-  if (pc) await captureProof(pc, join(screenshotDir, 'gabin-studio-failure-pc.png'), browserEngine === 'webkit').catch(() => undefined);
-  if (ipad) await captureProof(ipad, join(screenshotDir, 'gabin-studio-failure-ipad.png'), browserEngine === 'webkit').catch(() => undefined);
+  if (pc) await captureProof(pc, join(screenshotDir, 'nino-studio-failure-pc.png'), browserEngine === 'webkit').catch(() => undefined);
+  if (ipad) await captureProof(ipad, join(screenshotDir, 'nino-studio-failure-ipad.png'), browserEngine === 'webkit').catch(() => undefined);
   const videoStates = await Promise.all([pc, ipad].map(page => page?.locator('video').evaluateAll((videos: HTMLVideoElement[]) => videos.map(video => ({
     readyState: video.readyState, width: video.videoWidth, height: video.videoHeight, time: video.currentTime,
     paused: video.paused, muted: video.muted, error: video.error?.code ?? null,

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import type { AudioFrame, AutoDirectionSettings, MediaPlayback, ObsState, Participant } from '@gabin/shared';
+import type { AudioFrame, AutoDirectionSettings, MediaPlayback, ObsState, Participant } from '@nino/shared';
 import { AutoDirection } from '../src/auto-direction.js';
 import { emptyObsState, type ObsEvent, type ObsGateway } from '../src/obs.js';
 import { controlInput } from '../src/validation.js';

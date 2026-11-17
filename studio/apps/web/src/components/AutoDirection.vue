@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { AutoDirectionSettings, Project } from '@gabin/shared';
+import type { AutoDirectionSettings, Project } from '@nino/shared';
 import { useStudio } from '../composables/useStudio';
 import Icon from './Icon.vue';
 

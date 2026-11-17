@@ -15,7 +15,7 @@ export class TakeThumbnails {
   private active = 0;
   private readonly waiting: { start(): void; cancel(): void }[] = [];
   private closed = false;
-  constructor(private readonly ffmpeg = process.env.GABIN_FFMPEG_PATH ?? (existsSync('/opt/homebrew/bin/ffmpeg') ? '/opt/homebrew/bin/ffmpeg' : 'ffmpeg')) {}
+  constructor(private readonly ffmpeg = process.env.NINO_FFMPEG_PATH ?? (existsSync('/opt/homebrew/bin/ffmpeg') ? '/opt/homebrew/bin/ffmpeg' : 'ffmpeg')) {}
 
   async image(file: string, modifiedAt: number, size: number): Promise<Buffer> {
     const format = formats[path.extname(file).toLowerCase()];

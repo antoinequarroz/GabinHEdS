@@ -9,18 +9,18 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { inflateRawSync } from 'node:zlib';
-import type { AuthResult, DownloadTicket, FilePlaybackSession, MediaAsset, Project, ResolveExportStatus, Take, TakeMp4DownloadStatus, TakePlaybackStatus } from '@gabin/shared';
+import type { AuthResult, DownloadTicket, FilePlaybackSession, MediaAsset, Project, ResolveExportStatus, Take, TakeMp4DownloadStatus, TakePlaybackStatus } from '@nino/shared';
 import { buildApp } from '../src/app.js';
 import { Store } from '../src/store.js';
 import { emptyMediaState, type MediaGateway } from '../src/media.js';
 import { TakePlayback } from '../src/take-playback.js';
 import { resolveTimeline } from '../src/resolve-export.js';
 
-const ffmpeg = process.env.GABIN_FFMPEG_PATH ?? (existsSync('/opt/homebrew/bin/ffmpeg') ? '/opt/homebrew/bin/ffmpeg' : 'ffmpeg');
+const ffmpeg = process.env.NINO_FFMPEG_PATH ?? (existsSync('/opt/homebrew/bin/ffmpeg') ? '/opt/homebrew/bin/ffmpeg' : 'ffmpeg');
 const run = promisify(execFile);
 const checksum = (buffer: Buffer): string => createHash('sha256').update(buffer).digest('hex');
 const fixtureMedia = (): MediaGateway => ({ getState: emptyMediaState, refresh: async () => emptyMediaState(),
-  ingestSettings: () => ({ server: 'rtmp://127.0.0.1:1935/gabin', key: 'fixture-only' }),
+  ingestSettings: () => ({ server: 'rtmp://127.0.0.1:1935/nino', key: 'fixture-only' }),
   startLive: async () => undefined, stopLive: async () => undefined, hlsResource: async () => new Response('', { status: 404 }),
   subscribe: () => () => undefined, close: async () => undefined });
 
@@ -208,7 +208,7 @@ test('MP4 attachment preserves the full programme and shares one compatibility j
   assert.equal((await readdir(path.join(dataDir, 'playback'))).filter(name => /^[a-f0-9]{64}\.mp4$/.test(name)).length, 1);
   const downloaded = path.join(directory, 'actual-download.mp4');
   await writeFile(downloaded, response.rawPayload);
-  const ffprobe = process.env.GABIN_FFPROBE_PATH ?? (path.isAbsolute(ffmpeg) ? path.join(path.dirname(ffmpeg), 'ffprobe') : 'ffprobe');
+  const ffprobe = process.env.NINO_FFPROBE_PATH ?? (path.isAbsolute(ffmpeg) ? path.join(path.dirname(ffmpeg), 'ffprobe') : 'ffprobe');
   const { stdout } = await run(ffprobe, ['-v', 'error', '-count_frames', '-show_entries', 'stream=codec_type,codec_name,nb_read_frames,duration:format=duration', '-of', 'json', downloaded]);
   const info = JSON.parse(stdout) as { streams: { codec_type: string; codec_name: string; nb_read_frames: string; duration: string }[]; format: { duration: string } };
   const video = info.streams.find(stream => stream.codec_type === 'video')!, audio = info.streams.find(stream => stream.codec_type === 'audio')!;
@@ -319,7 +319,7 @@ test('a full-duration MP4 container cannot conceal a shortened video or audio tr
     await run(ffmpeg, ['-v', 'error', '-f', 'lavfi', '-i', `testsrc2=size=160x90:rate=12:duration=${shortened === 'video' ? '0.4' : '1'}`,
       '-f', 'lavfi', '-i', `sine=frequency=440:sample_rate=48000:duration=${shortened === 'audio' ? '0.4' : '1'}`,
       '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-movflags', '+faststart', incomplete]);
-    const ffprobe = process.env.GABIN_FFPROBE_PATH ?? (path.isAbsolute(ffmpeg) ? path.join(path.dirname(ffmpeg), 'ffprobe') : 'ffprobe');
+    const ffprobe = process.env.NINO_FFPROBE_PATH ?? (path.isAbsolute(ffmpeg) ? path.join(path.dirname(ffmpeg), 'ffprobe') : 'ffprobe');
     const { stdout } = await run(ffprobe, ['-v', 'error', '-show_entries', 'stream=codec_type,duration:format=duration', '-of', 'json', incomplete]);
     const info = JSON.parse(stdout) as { streams: { codec_type: string; duration: string }[]; format: { duration: string } };
     assert.ok(Number(info.format.duration) >= 1, 'The container duration alone would pass');
@@ -609,7 +609,7 @@ test('conversion is stopped against the remaining cache budget while existing pl
   const encoder = path.join(directory, 'oversized-encoder.mjs');
   await writeFile(encoder, `#!/usr/bin/env node\nimport { writeFile } from 'node:fs/promises';\nawait writeFile(process.argv.at(-1), Buffer.alloc(300 * 1024));\nsetTimeout(() => process.exit(0), 30000);\n`);
   await chmod(encoder, 0o755);
-  const ffprobe = process.env.GABIN_FFPROBE_PATH ?? (path.isAbsolute(ffmpeg) ? path.join(path.dirname(ffmpeg), 'ffprobe') : 'ffprobe');
+  const ffprobe = process.env.NINO_FFPROBE_PATH ?? (path.isAbsolute(ffmpeg) ? path.join(path.dirname(ffmpeg), 'ffprobe') : 'ffprobe');
   const playback = new TakePlayback(dataDir, { ffmpegPath: encoder, ffprobePath: ffprobe, cacheMaxBytes: 1024 * 1024, conversionTimeoutMs: 10_000 });
   t.after(() => playback.close());
   playback.pin(existing);

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
-import type { GuestRoomState, GuestSession } from '@gabin/shared';
+import type { GuestRoomState, GuestSession } from '@nino/shared';
 import StudioBrand from '../components/StudioBrand.vue';
 import Icon from '../components/Icon.vue';
 import { guestApi, type InvitationInfo } from '../guests/guestApi';

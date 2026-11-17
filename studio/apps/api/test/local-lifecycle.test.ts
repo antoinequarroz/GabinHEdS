@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
-import type { MediaState, ObsState } from '@gabin/shared';
+import type { MediaState, ObsState } from '@nino/shared';
 import { buildApp } from '../src/app.js';
 import { emptyObsState, type ObsGateway } from '../src/obs.js';
 import { emptyMediaState, type MediaGateway } from '../src/media.js';
@@ -27,7 +27,7 @@ function gateways(connected = true) {
   };
   const media: MediaGateway = {
     getState: () => structuredClone(mediaState), refresh: async () => { calls.mediaRefresh++; return structuredClone(mediaState); },
-    ingestSettings: () => ({ server: 'rtmp://127.0.0.1:1935/gabin', key: 'program' }),
+    ingestSettings: () => ({ server: 'rtmp://127.0.0.1:1935/nino', key: 'program' }),
     startLive: mutate, stopLive: mutate, hlsResource: async () => new Response(), subscribe: () => () => {}, close: async () => {},
   };
   return { obs, media, state, mediaState, calls };

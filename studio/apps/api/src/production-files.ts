@@ -5,7 +5,7 @@ import { lstat, open, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { ZipFile } from 'yazl';
-import type { Device, DeviceRole, DownloadTicket, FilePlaybackSession, MediaAsset, Project, ProjectMediaLink, ResolveExportStatus, Take, TakeMp4DownloadStatus, TakePlaybackStatus } from '@gabin/shared';
+import type { Device, DeviceRole, DownloadTicket, FilePlaybackSession, MediaAsset, Project, ProjectMediaLink, ResolveExportStatus, Take, TakeMp4DownloadStatus, TakePlaybackStatus } from '@nino/shared';
 import { libraryFile } from './library.js';
 import { hashSecret, type Store } from './store.js';
 import type { Studio } from './studio.js';

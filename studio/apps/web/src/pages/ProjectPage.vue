@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import { type Preparation, type Project } from '@gabin/shared';
+import { type Preparation, type Project } from '@nino/shared';
 import { useStudio } from '../composables/useStudio';
 import Icon from '../components/Icon.vue';
 import ProjectForm from '../components/ProjectForm.vue';
