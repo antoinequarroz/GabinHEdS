@@ -1,65 +1,24 @@
 import OBSWebSocket, { EventSubscription, type OBSRequestTypes, type OBSResponseTypes } from 'obs-websocket-js/json';
 import path from 'node:path';
 import type { AudioFrame, MediaKind, MediaMode, MediaPlayback, ObsState, SceneThumbnail } from '@nino/shared';
+import { CaptureFeedConflict, CaptureGuestFailure, CaptureMediaFailure, emptyCaptureState, fullCaptureCapabilities, timecodeMs,
+  type CaptureDriver, type CaptureEvent, type CaptureGuestSourceOptions, type CaptureMediaOptions } from './capture.js';
+export { timecodeMs };
 
-export type ObsEvent =
-  | { type: 'state'; state: ObsState }
-  | { type: 'recordStopped'; outputPath: string | null; durationMs: number }
-  | { type: 'audio'; frame: AudioFrame }
-  | { type: 'disconnected' };
-export class ObsFeedConflict extends Error {}
-export class ObsMediaFailure extends Error {}
-export class ObsGuestFailure extends Error {}
-export interface ObsMediaOptions { assetId: string; ownerId: string; kind: Exclude<MediaKind, 'document'>; file: string; mode: MediaMode; ownedFiles?: Record<string, string> }
-export interface ObsGuestSourceOptions {
-  ownerId: string;
-  projectId: string;
-  /** Only the production's own plans; never all OBS scenes. */
-  sceneNames: string[];
-  /** Room microphones which are scene-local rather than OBS global devices. */
-  audioInputNames?: string[];
-  guests: { id: string; slot: 1 | 2; name: string; sceneName: string; inputName: string; url: string }[];
-}
+// Former OBS-only names, kept so existing callers and tests keep compiling.
+export type ObsEvent = CaptureEvent;
+export type ObsGateway = CaptureDriver;
+export type ObsMediaOptions = CaptureMediaOptions;
+export type ObsGuestSourceOptions = CaptureGuestSourceOptions;
+export const ObsFeedConflict = CaptureFeedConflict;
+export const ObsMediaFailure = CaptureMediaFailure;
+export const ObsGuestFailure = CaptureGuestFailure;
+export const emptyObsState = emptyCaptureState;
 
-/** The real adapter and tests share this interface. No command assumes success. */
-export interface ObsGateway {
-  getState(): ObsState;
-  connect(url: string, password: string): Promise<ObsState>;
-  disconnect(): Promise<void>;
-  refresh(fresh?: boolean): Promise<ObsState>;
-  sceneThumbnail(sceneName: string): Promise<SceneThumbnail>;
-  setScene(sceneName: string): Promise<void>;
-  setInputMute(inputName: string, muted: boolean): Promise<void>;
-  setRecordDirectory(directory: string): Promise<void>;
-  startRecord(): Promise<void>;
-  stopRecord(): Promise<{ outputPath: string | null }>;
-  pauseRecord(): Promise<void>;
-  resumeRecord(): Promise<void>;
-  configureLocalFeed(settings: { server: string; key: string }): Promise<void>;
-  startStream(): Promise<void>;
-  stopStream(): Promise<void>;
-  playMedia?(options: ObsMediaOptions): Promise<MediaPlayback>;
-  mediaAction?(action: 'pause' | 'resume' | 'stop'): Promise<MediaPlayback>;
-  getMediaPlayback?(): MediaPlayback | null;
-  prepareGuestSources?(options: ObsGuestSourceOptions): Promise<void>;
-  guestSourceOwned?(inputName: string, guestId: string, projectId: string): Promise<boolean>;
-  startVirtualCamera?(): Promise<void>;
-  subscribe(listener: (event: ObsEvent) => void): () => void;
-}
-
-export function emptyObsState(): ObsState {
-  return { connected: false, connecting: false, error: null, scenes: [], currentScene: null,
-    inputs: [], recording: false, paused: false, timecode: '00:00:00.000', recordingDirectory: null, outputBytes: 0,
-    streaming: false, streamReconnecting: false, streamTimecode: '00:00:00.000', streamOutputBytes: 0 };
-}
-
-export function timecodeMs(timecode: string): number {
-  const match = /^(\d+):(\d+):(\d+)(?:\.(\d+))?$/.exec(timecode);
-  if (!match) return 0;
-  return (+match[1] * 3600 + +match[2] * 60 + +match[3]) * 1000 + +(match[4] ?? '0').padEnd(3, '0').slice(0, 3);
-}
-
-export class RealObsGateway implements ObsGateway {
+/** OBS Studio driver, through obs-websocket v5. */
+export class RealObsGateway implements CaptureDriver {
+  readonly software = 'obs' as const;
+  readonly capabilities = fullCaptureCapabilities;
   private readonly client = new OBSWebSocket();
   private state: ObsState = emptyObsState();
   private readonly listeners = new Set<(event: ObsEvent) => void>();

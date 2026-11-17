@@ -11,7 +11,8 @@ import { fileURLToPath } from 'node:url';
 import { Readable } from 'node:stream';
 import type { WebSocket } from 'ws';
 import type { Device, DeviceRole, ProjectInput, StudioState, Take } from '@nino/shared';
-import { RealObsGateway, type ObsGateway } from './obs.js';
+import { RealObsGateway } from './obs.js';
+import type { CaptureDriver } from './capture.js';
 import { RealMediaGateway, validHlsResource, type MediaGateway } from './media.js';
 import { hashSecret, Store } from './store.js';
 import { Studio } from './studio.js';
@@ -24,7 +25,7 @@ import { CompanionBridge } from './companion.js';
 import { LOCAL_SHUTDOWN_PATH, registerLocalLifecycle, type LocalLifecycleOptions } from './local-lifecycle.js';
 
 declare module 'fastify' { interface FastifyRequest { device?: Device } interface FastifyInstance { guests: GuestService } }
-export interface AppOptions { dataDir: string; obs?: ObsGateway; media?: MediaGateway; webDir?: string; logger?: boolean; guestConfig?: GuestConfig; companion?: boolean; localLifecycle?: LocalLifecycleOptions; studioOpener?: () => Promise<void> }
+export interface AppOptions { dataDir: string; obs?: CaptureDriver; media?: MediaGateway; webDir?: string; logger?: boolean; guestConfig?: GuestConfig; companion?: boolean; localLifecycle?: LocalLifecycleOptions; studioOpener?: () => Promise<void> }
 const roles: DeviceRole[] = ['viewer', 'operator', 'technician'];
 const kinds = ['pc', 'ipad', 'streamdeck'] as const;
 const loopbackPeer = (ip: string | undefined): boolean => ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
@@ -222,9 +223,9 @@ export async function buildApp(options: AppOptions) {
   });
   app.get<{ Querystring: { name?: string } }>('/api/obs/scenes/thumbnail', { config: { rateLimit: { max: 240, timeWindow: '1 minute' } } }, async (request) => {
     const sceneName = string(request.query.name, 'scène', 200);
-    const current = studio.obs.getState();
+    const current = studio.capture.getState();
     if (!current.scenes.includes(sceneName)) throw new ApiFailure(404, 'Cette scène n’est pas disponible dans OBS.', 'SCENE_NOT_FOUND');
-    const result = await studio.obs.sceneThumbnail(sceneName);
+    const result = await studio.capture.sceneThumbnail(sceneName);
     if (!store.device(request.device!.id)) throw new ApiFailure(401, 'L’accès de cet appareil a été révoqué.', 'UNAUTHENTICATED');
     return result;
   });
