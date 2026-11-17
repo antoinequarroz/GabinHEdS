@@ -99,7 +99,16 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .top { position: sticky; top: 0; z-index: 50; background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
 .top-inner { display: flex; align-items: center; gap: 16px; height: 60px; }
 .brand { display: flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; }
-.brand-tile { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; background: var(--brand-tile); }
+.brand-tile { display: grid; width: 32px; height: 32px; }
+.brand-tile img { grid-area: 1 / 1; width: 32px; height: 32px; }
+/* Picto du kit d'identité Postmelo : seule la variante de l'apparence effective s'affiche. */
+.brand-dark { display: none; }
+:root[data-theme="dark"] .brand-light { display: none; }
+:root[data-theme="dark"] .brand-dark { display: block; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .brand-light { display: none; }
+  :root:not([data-theme="light"]) .brand-dark { display: block; }
+}
 .brand-name { font-weight: 600; font-size: 17px; letter-spacing: -0.01em; }
 .brand-suite { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-3); border: 1px solid var(--line-strong); border-radius: 999px; padding: 1px 8px; }
 .nav { display: none; gap: 4px; margin-left: auto; }
