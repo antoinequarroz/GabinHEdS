@@ -20,7 +20,7 @@ import { Studio } from './studio.js';
 import { TakeThumbnails } from './thumbnails.js';
 import { libraryFile, registerLibraryRoutes } from './library.js';
 import { registerProductionFileRoutes } from './production-files.js';
-import { ApiFailure, choice, controlInput, object, projectInput, roomInput, string } from './validation.js';
+import { ApiFailure, choice, controlInput, object, projectInput, roomInput, string, studioProfileInput } from './validation.js';
 import { GuestService, type GuestConfig } from './guests.js';
 import { CompanionBridge } from './companion.js';
 import { LOCAL_SHUTDOWN_PATH, registerLocalLifecycle, type LocalLifecycleOptions } from './local-lifecycle.js';
@@ -255,6 +255,17 @@ export async function buildApp(options: AppOptions) {
     requireRole(request, 'technician');
     const input = roomInput(request.body);
     return studio.serial(() => { studio.updateRoom(input); return store.publicRoom(); });
+  });
+  app.get('/api/room/profile', async (request, reply) => {
+    requireRole(request, 'technician');
+    const profile = studio.studioProfile();
+    const name = profile.room.name.normalize('NFKD').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'studio';
+    return reply.header('content-disposition', `attachment; filename="nino-studio-${name}.json"`).send(profile);
+  });
+  app.post('/api/room/profile', async (request) => {
+    requireRole(request, 'technician');
+    const input = studioProfileInput(request.body);
+    return studio.serial(() => { studio.importStudioProfile(input); return store.publicRoom(); });
   });
   app.post('/api/obs/connect', async (request) => {
     requireRole(request, 'technician');

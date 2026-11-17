@@ -41,6 +41,16 @@ export function projectInput(value: unknown, partial = false): Partial<ProjectIn
   }
   return result;
 }
+/** A profile becomes an ordinary room update, validated by the same rules. */
+export function studioProfileInput(value: unknown): RoomConfigInput {
+  const data = object(value);
+  if (data.kind !== 'nino.studio-profile') throw new ApiFailure(400, 'Ce fichier n’est pas une configuration de studio Nino.', 'PROFILE_INVALID');
+  if (data.version !== 1) throw new ApiFailure(400, 'Cette configuration vient d’une version de Nino plus récente.', 'PROFILE_VERSION');
+  const room = object(data.room);
+  const destination = object(room.liveDestination);
+  return roomInput({ name: room.name, captureSoftware: room.captureSoftware, obsUrl: room.captureUrl, recordingRoot: room.recordingRoot,
+    defaultScenes: room.defaultScenes, liveDestination: { name: destination.name, server: destination.server } });
+}
 export function roomInput(value: unknown): RoomConfigInput {
   const data = object(value);
   const result: RoomConfigInput = {};

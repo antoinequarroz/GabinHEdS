@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { access, mkdir, open, statfs, unlink } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import type { AudioFrame, AutoDirectionState, CaptureCapability, CaptureSoftware, ControlCommand, GuestSlot, Marker, MediaPlayback, ObsState, Participant, Preparation, PreparationCheck, ProductionLaunchState, Project, ProjectInput, RoomConfigInput, SceneChange, StreamDeckState, StudioState, Take } from '@nino/shared';
+import type { AudioFrame, AutoDirectionState, CaptureCapability, CaptureSoftware, ControlCommand, GuestSlot, Marker, MediaPlayback, ObsState, Participant, Preparation, PreparationCheck, ProductionLaunchState, Project, ProjectInput, RoomConfigInput, SceneChange, StreamDeckState, StudioProfile, StudioState, Take } from '@nino/shared';
 import { CaptureFeedConflict, CaptureGuestFailure, CaptureMediaFailure, captureHas, captureInfo, type CaptureDriver, type CaptureEvent, timecodeMs } from './capture.js';
 import { emptyMediaState, type MediaGateway } from './media.js';
 import { Store } from './store.js';
@@ -88,6 +88,7 @@ export class Studio {
       // The saved choice has no driver in this installation: record what is really driven.
       store.saveRoom({ ...store.room()!, captureSoftware: capture.software ?? 'obs' });
     }
+    if (!store.room()!.studioId) store.saveRoom({ ...store.room()!, studioId: randomUUID() });
     const legacyRoom = store.room()!;
     if (!legacyRoom.liveDestination || legacyRoom.liveKey === undefined || legacyRoom.name === 'Studio GabinHEdS') store.saveRoom({ ...legacyRoom,
       name: legacyRoom.name === 'Studio GabinHEdS' ? 'Studio Nino' : legacyRoom.name,
@@ -688,6 +689,21 @@ export class Studio {
     }
     this.store.saveRoom(room);
     return this.changed();
+  }
+  studioProfile(): StudioProfile {
+    const room = this.store.publicRoom();
+    return { kind: 'nino.studio-profile', version: 1, exportedAt: new Date(this.now()).toISOString(),
+      room: { name: room.name, captureSoftware: room.captureSoftware ?? 'obs', captureUrl: room.obsUrl, recordingRoot: room.recordingRoot,
+        defaultScenes: { ...room.defaultScenes }, liveDestination: { name: room.liveDestination.name, server: room.liveDestination.server } } };
+  }
+  /** Secrets never travel in a profile. One kept for another software or another
+   * live server would be sent to the wrong place, so it is cleared instead. */
+  importStudioProfile(input: RoomConfigInput): StudioState {
+    const current = this.store.room()!;
+    const next: RoomConfigInput = { ...input };
+    if ((input.captureSoftware && input.captureSoftware !== (current.captureSoftware ?? 'obs')) || (input.obsUrl && input.obsUrl !== current.obsUrl)) next.obsPassword = '';
+    if (input.liveDestination && input.liveDestination.server !== current.liveDestination.server) next.liveDestination = { ...input.liveDestination, key: '' };
+    return this.updateRoom(next);
   }
   private liveActive(): boolean {
     return ['starting', 'live', 'stopping'].includes(this.media?.getState().liveStatus ?? 'idle');
