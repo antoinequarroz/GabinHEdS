@@ -12,6 +12,7 @@ import { Readable } from 'node:stream';
 import type { WebSocket } from 'ws';
 import type { CaptureSoftware, Device, DeviceRole, ProjectInput, StudioState, Take } from '@nino/shared';
 import { RealObsGateway } from './obs.js';
+import { MayaStudioDriver } from './maya.js';
 import type { CaptureDriver } from './capture.js';
 import { RealMediaGateway, validHlsResource, type MediaGateway } from './media.js';
 import { hashSecret, Store } from './store.js';
@@ -26,7 +27,7 @@ import { LOCAL_SHUTDOWN_PATH, registerLocalLifecycle, type LocalLifecycleOptions
 
 declare module 'fastify' { interface FastifyRequest { device?: Device } interface FastifyInstance { guests: GuestService } }
 export interface AppOptions { dataDir: string; obs?: CaptureDriver;
-  /** Capture drivers this installation offers. Defaults to OBS only. */
+  /** Capture drivers this installation offers. Defaults to OBS and Maya Studio. */
   captureDrivers?: Partial<Record<CaptureSoftware, () => CaptureDriver>>; media?: MediaGateway; webDir?: string; logger?: boolean; guestConfig?: GuestConfig; companion?: boolean; localLifecycle?: LocalLifecycleOptions; studioOpener?: () => Promise<void> }
 const roles: DeviceRole[] = ['viewer', 'operator', 'technician'];
 const kinds = ['pc', 'ipad', 'streamdeck'] as const;
@@ -63,7 +64,7 @@ export async function buildApp(options: AppOptions) {
   const media = options.media ?? new RealMediaGateway();
   const guests = new GuestService(store, options.guestConfig);
   app.decorate('guests', guests);
-  const captureDrivers = options.captureDrivers ?? { obs: () => new RealObsGateway() };
+  const captureDrivers: Partial<Record<CaptureSoftware, () => CaptureDriver>> = options.captureDrivers ?? { obs: () => new RealObsGateway(), maya: () => new MayaStudioDriver() };
   const storedSoftware = store.room()?.captureSoftware ?? 'obs';
   const capture = options.obs ?? (captureDrivers[storedSoftware] ?? captureDrivers.obs ?? (() => new RealObsGateway()))();
   const studio = new Studio(store, capture, media, { guests, studioOpener: options.studioOpener, captureDrivers });

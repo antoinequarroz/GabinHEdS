@@ -1,5 +1,5 @@
 import { computed, ref, shallowRef } from 'vue';
-import { captureShortNames } from '@nino/shared';
+import { captureShortNames, type CaptureCapability } from '@nino/shared';
 import type {
   AudioFrame, AuthResult, ClientMessage, ControlCommand, Device, DownloadTicket, PairingCode, Preparation,
   PreviewSession, Project, ProjectInput, RoomConfig, RoomConfigInput, SceneThumbnail, ServerMessage, StudioState,
@@ -20,6 +20,8 @@ const busy = ref<Record<string, boolean>>({});
 const canEdit = computed(() => device.value?.role === 'technician' || device.value?.role === 'operator');
 const technician = computed(() => device.value?.role === 'technician');
 /** Short name of the capture software driven right now (OBS by default). */
+/** Whether the capture software can do this. Unknown (older API) counts as yes, as before. */
+const can = (capability: CaptureCapability): boolean => state.value?.capture?.capabilities.includes(capability) ?? true;
 const captureName = computed(() => captureShortNames[state.value?.capture?.software ?? state.value?.room.captureSoftware ?? 'obs']);
 let socket: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
@@ -510,7 +512,7 @@ const mediaThumbnail = (id: string) => imageThumbnail(`/library/${encodeURICompo
 
 export function useStudio() {
   return {
-    device, state, initialized, live, audioFrame, audioReceivedAt, error, notice, busy, canEdit, technician, captureName, guestInvitations,
+    device, state, initialized, live, audioFrame, audioReceivedAt, error, notice, busy, canEdit, technician, captureName, can, guestInvitations,
     initialize, pair, forgetDevice, saveProject, preparation, selectStreamDeckProject, control, connectObs, saveRoom, downloadTake, downloadTakeMp4, cancelTakeMp4Download, sceneThumbnail, takeThumbnail,
     suspendStudioConnection: () => { controllerEnabled = false; stopEvents(); },
     uploadMedia, updateMedia, saveProjectMedia, mediaFileSession, takePlaybackSession, exportProject, exportResolve, cancelResolveExport, mediaThumbnail,
