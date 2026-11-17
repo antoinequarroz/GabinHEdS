@@ -15,7 +15,7 @@ import GuestPanel from '../components/GuestPanel.vue';
 import StreamDeckPanel from '../components/StreamDeckPanel.vue';
 const props = defineProps<{ project: Project }>();
 const emit = defineEmits<{ navigate: [path: string] }>();
-const { state, live, canEdit, busy, preparation, control, downloadTake, downloadTakeMp4, cancelTakeMp4Download, exportProject, exportResolve, cancelResolveExport } = useStudio();
+const { state, live, canEdit, busy, can, preparation, control, downloadTake, downloadTakeMp4, cancelTakeMp4Download, exportProject, exportResolve, cancelResolveExport } = useStudio();
 const step = ref<'prepare' | 'record' | 'takes'>('prepare');
 const editing = ref(false);
 const checks = ref<Preparation>();
@@ -180,7 +180,7 @@ function participantAssociated(person: Project['participants'][number]): boolean
                 <div v-for="input in eligibleInputs" :key="input.name" class="regie-audio-channel">
                   <div class="regie-channel-heading"><span class="regie-channel-avatar" aria-hidden="true"><Icon name="mic" /></span><strong>{{ input.name }}</strong><span :class="{ muted: input.muted }">{{ input.muted ? 'Coupé' : 'Actif' }}</span></div>
                   <AudioMeter :input-name="input.name" :muted="input.muted" />
-                  <div class="regie-channel-control"><span>Gain OBS <strong>{{ input.volumeDb === null ? '—' : `${input.volumeDb.toFixed(1)} dB` }}</strong></span><button class="button compact" :class="input.muted ? 'warning' : ''" :disabled="!controllable" @click="control({ action: 'input.mute', inputName: input.name, muted: !input.muted })">{{ input.muted ? 'Réactiver' : 'Couper' }}</button></div>
+                  <div class="regie-channel-control"><span>Gain OBS <strong>{{ input.volumeDb === null ? '—' : `${input.volumeDb.toFixed(1)} dB` }}</strong></span><button class="button compact" :class="input.muted ? 'warning' : ''" :disabled="!controllable || !can('audio.mute')" @click="control({ action: 'input.mute', inputName: input.name, muted: !input.muted })">{{ input.muted ? 'Réactiver' : 'Couper' }}</button></div>
                 </div>
               </div>
               <details class="regie-help"><summary>Réglage des micros</summary><p>Les niveaux sont reçus d’OBS. Le gain se règle dans OBS.</p></details>
@@ -196,7 +196,7 @@ function participantAssociated(person: Project['participants'][number]): boolean
           <div class="regie-time"><span class="record-light" :class="{ active: live && obs?.connected && obs.recording, paused: live && obs?.connected && obs.paused, uncertain: !live || !obs?.connected }"></span><span class="timecode">{{ obs?.recording ? obs.timecode : '00:00:00' }}</span></div>
           <div class="regie-take-state"><strong>{{ recordLabel }}</strong><span>{{ ownActiveTake ? `Prise ${String(ownActiveTake.sequence).padStart(2, '0')} · original sur le PC` : 'Original conservé sur le PC de la salle' }}</span></div>
           <div class="regie-record-actions">
-            <template v-if="ownActiveTake && obs?.recording"><button class="button" :disabled="!controllable" @click="control({ action: obs.paused ? 'record.resume' : 'record.pause' })"><Icon :name="obs.paused ? 'play' : 'pause'" />{{ obs.paused ? 'Reprendre' : 'Pause' }}</button><button class="button danger" :disabled="!controllable" @click="requestStop"><Icon name="stop" />Terminer la prise</button></template>
+            <template v-if="ownActiveTake && obs?.recording"><button v-if="can('record.pause')" class="button" :disabled="!controllable" @click="control({ action: obs.paused ? 'record.resume' : 'record.pause' })"><Icon :name="obs.paused ? 'play' : 'pause'" />{{ obs.paused ? 'Reprendre' : 'Pause' }}</button><button class="button danger" :disabled="!controllable" @click="requestStop"><Icon name="stop" />Terminer la prise</button></template>
             <button v-else-if="canEdit" class="button primary regie-record-trigger" aria-label="Démarrer la prise" :disabled="!canStart" @click="confirm = 'start'"><span class="regie-record-dot" aria-hidden="true"></span><span>Enregistrer</span></button>
           </div>
         </section>

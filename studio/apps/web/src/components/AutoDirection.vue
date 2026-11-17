@@ -6,7 +6,7 @@ import Icon from './Icon.vue';
 
 const props = defineProps<{ project: Project }>();
 const fieldId = (name: string) => `auto-${props.project.id}-${name}`;
-const { state, live, canEdit, busy, control } = useStudio();
+const { state, live, canEdit, busy, control, can, captureName } = useStudio();
 const saved = computed(() => state.value?.autoDirectionSettings?.[props.project.id]);
 function initialSettings(): AutoDirectionSettings {
   return { wideScene: state.value?.obs.scenes.includes('Plan large') ? 'Plan large' : props.project.defaultScene ?? '',
@@ -64,8 +64,9 @@ async function start(): Promise<void> {
     <div class="field"><label :for="fieldId('wide')">Plan large</label><select :id="fieldId('wide')" v-model="draft.wideScene" :disabled="!editable"><option value="">Choisir un plan</option><option v-for="scene in state?.obs.scenes" :key="scene" :value="scene">{{ scene }}</option></select></div>
     <p v-if="own && automatic?.message" class="auto-message" role="status">{{ automatic.message }}</p>
     <p v-if="invalid" class="hint">{{ invalid }}</p>
+    <p v-if="!can('audio.meters')" class="hint">{{ captureName }} n’envoie pas encore les niveaux des micros à Nino : la réalisation automatique n’est pas disponible.</p>
     <p v-if="otherProduction" class="hint">Une autre production contrôle la salle. Terminez sa session avant d’activer l’automatique ici.</p>
-    <template v-if="canEdit"><button v-if="enabled" class="button auto-trigger" :disabled="!live || busy.control" @click="control({ action: 'auto.stop' })"><Icon name="stop" />Revenir en manuel</button><button v-else class="button primary auto-trigger" :disabled="!editable || !state?.obs.connected || !!invalid || !!otherProduction" @click="start"><Icon name="camera" />{{ own && automatic?.status === 'suspended' ? 'Reprendre l’automatique' : 'Activer l’automatique' }}</button></template>
+    <template v-if="canEdit"><button v-if="enabled" class="button auto-trigger" :disabled="!live || busy.control" @click="control({ action: 'auto.stop' })"><Icon name="stop" />Revenir en manuel</button><button v-else class="button primary auto-trigger" :disabled="!editable || !state?.obs.connected || !!invalid || !!otherProduction || !can('audio.meters')" @click="start"><Icon name="camera" />{{ own && automatic?.status === 'suspended' ? 'Reprendre l’automatique' : 'Activer l’automatique' }}</button></template>
     <details class="regie-help auto-settings"><summary>Réglages de détection</summary><div class="auto-settings-fields">
       <div class="field"><label :for="fieldId('thresholdDb')">Seuil des micros (dB)</label><input :id="fieldId('thresholdDb')" v-model.number="draft.thresholdDb" type="number" min="-60" max="-10" step="1" :disabled="!editable" /><small>De −60 à −10 dB. Une voix doit dépasser ce seuil.</small></div>
       <div class="field"><label :for="fieldId('dominanceDb')">Écart entre les micros (dB)</label><input :id="fieldId('dominanceDb')" v-model.number="draft.dominanceDb" type="number" min="3" max="20" step="1" :disabled="!editable" /><small>De 3 à 20 dB pour isoler la voix dominante.</small></div>

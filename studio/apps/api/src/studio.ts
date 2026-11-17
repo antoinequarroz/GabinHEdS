@@ -3,8 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { access, mkdir, open, statfs, unlink } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import type { AudioFrame, AutoDirectionState, CaptureSoftware, ControlCommand, GuestSlot, Marker, MediaPlayback, ObsState, Participant, Preparation, PreparationCheck, ProductionLaunchState, Project, ProjectInput, RoomConfigInput, SceneChange, StreamDeckState, StudioState, Take } from '@nino/shared';
-import { CaptureFeedConflict, CaptureGuestFailure, CaptureMediaFailure, captureInfo, type CaptureDriver, type CaptureEvent, timecodeMs } from './capture.js';
+import type { AudioFrame, AutoDirectionState, CaptureCapability, CaptureSoftware, ControlCommand, GuestSlot, Marker, MediaPlayback, ObsState, Participant, Preparation, PreparationCheck, ProductionLaunchState, Project, ProjectInput, RoomConfigInput, SceneChange, StreamDeckState, StudioState, Take } from '@nino/shared';
+import { CaptureFeedConflict, CaptureGuestFailure, CaptureMediaFailure, captureHas, captureInfo, type CaptureDriver, type CaptureEvent, timecodeMs } from './capture.js';
 import { emptyMediaState, type MediaGateway } from './media.js';
 import { Store } from './store.js';
 import { ApiFailure, autoDirectionInput } from './validation.js';
@@ -14,6 +14,15 @@ import type { GuestService } from './guests.js';
 
 const slug = (name: string): string => name.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 70) || 'production';
 type GuestCommand = Extract<ControlCommand, { action: `guest.${string}` }>;
+
+/** Commands that need more than the minimal capture surface. Refused before
+ * anything is sent when the studio's software cannot do them. */
+const commandCapabilities: Partial<Record<ControlCommand['action'], { capability: CaptureCapability; what: string }>> = {
+  'record.pause': { capability: 'record.pause', what: 'la pause d’enregistrement' },
+  'record.resume': { capability: 'record.pause', what: 'la pause d’enregistrement' },
+  'input.mute': { capability: 'audio.mute', what: 'de couper un micro' },
+  'auto.start': { capability: 'audio.meters', what: 'la réalisation automatique (pas de niveaux audio)' },
+};
 
 export class Studio {
   private queue: Promise<unknown> = Promise.resolve();
@@ -373,7 +382,7 @@ export class Studio {
       if (this.store.autoDirectionSettings()[this.launch.projectId!]) {
         try { await step('auto', 'Vérification des micros et activation de la réalisation automatique.', { action: 'auto.start', projectId: this.launch.projectId! }); autoMessage = 'Réalisation automatique activée.'; }
         catch (error) {
-          if (!(error instanceof ApiFailure) || !['AUTO_SETUP_REQUIRED', 'AUTO_DISTINCT_MICS', 'AUTO_DISTINCT_SCENES', 'AUTO_NOT_CONFIGURED'].includes(error.code)) throw error;
+          if (!(error instanceof ApiFailure) || !['AUTO_SETUP_REQUIRED', 'AUTO_DISTINCT_MICS', 'AUTO_DISTINCT_SCENES', 'AUTO_NOT_CONFIGURED', 'CAPTURE_UNSUPPORTED'].includes(error.code)) throw error;
           autoMessage = `Réalisation manuelle : ${error.message}`;
         }
       }
@@ -822,7 +831,9 @@ export class Studio {
       detail: sceneName && obs.scenes.includes(sceneName) ? `Scène OBS « ${sceneName} » disponible.` : 'Choisissez une scène affichée au démarrage présente dans OBS.' });
     const missingMic = project.participants.filter((person) => !person.micInput || !obs.inputs.some((input) => input.name === person.micInput && input.muted === false));
     const duplicateMics = new Set(project.participants.map((person) => person.micInput)).size !== project.participants.length;
-    checks.push({ id: 'mics', label: 'Micros des participants', status: missingMic.length ? 'blocked' : duplicateMics ? 'warning' : 'ready',
+    if (!captureHas(this.capture, 'audio.mute')) checks.push({ id: 'mics', label: 'Micros des participants', status: 'warning',
+      detail: `${captureInfo(this.capture).label} ne transmet pas encore les micros à Nino : vérifiez le son directement dans le logiciel.` });
+    else checks.push({ id: 'mics', label: 'Micros des participants', status: missingMic.length ? 'blocked' : duplicateMics ? 'warning' : 'ready',
       detail: missingMic.length ? `Micro absent, non audio ou coupé : ${missingMic.map((person) => person.name).join(', ')}.` : duplicateMics ? 'Plusieurs participants partagent une entrée. Les pistes séparées ne sont pas promises.' : 'Les entrées sélectionnées existent et ne sont pas coupées. Cela ne confirme pas un signal sonore.' });
     const invalidScenes = project.participants.filter((person) => person.sceneName && !obs.scenes.includes(person.sceneName));
     checks.push({ id: 'participant-scenes', label: 'Plans des participants', status: invalidScenes.length ? 'blocked' : 'ready',
@@ -892,6 +903,10 @@ export class Studio {
     const current = this.activeTake();
     const directionProjectId = this.autoDirection.enabled ? this.autoDirection.projectId : null;
     if (this.lastObservedScene === null) this.lastObservedScene = before.currentScene;
+    const needed = commandCapabilities[command.action];
+    if (needed && !captureHas(this.capture, needed.capability)) {
+      throw new ApiFailure(409, `${captureInfo(this.capture).label} ne permet pas encore ${needed.what} depuis Nino.`, 'CAPTURE_UNSUPPORTED');
+    }
     switch (command.action) {
       case 'auto.start': {
         const project = this.project(command.projectId);

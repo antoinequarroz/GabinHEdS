@@ -9,6 +9,8 @@ export type CaptureEvent =
 export class CaptureFeedConflict extends Error {}
 export class CaptureMediaFailure extends Error {}
 export class CaptureGuestFailure extends Error {}
+/** The capture software has no way to do this; nothing was sent. */
+export class CaptureUnsupported extends Error {}
 export interface CaptureMediaOptions { assetId: string; ownerId: string; kind: Exclude<MediaKind, 'document'>; file: string; mode: MediaMode; ownedFiles?: Record<string, string> }
 export interface CaptureGuestSourceOptions {
   ownerId: string;
