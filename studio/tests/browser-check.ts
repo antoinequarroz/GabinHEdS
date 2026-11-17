@@ -608,7 +608,11 @@ try {
       await mobile.getByRole('heading', { name: 'Changer de plan', exact: true }).waitFor();
       await noOverflow(mobile, `Régie ${width}`);
       await mobile.getByRole('button', { name: /Retrouver les prises/ }).click();
+      // Let the in-app navigation settle before leaving the page, otherwise
+      // WebKit can tear down the next page's context mid-screenshot.
+      await mobile.getByRole('heading', { name: 'Les prises de cette production', exact: true }).waitFor();
       await mobile.goto(`${ipadOrigin}/#library`);
+      await mobile.waitForLoadState('load');
       await mobile.getByRole('heading', { name: 'Bibliothèque de médias', exact: true }).waitFor();
       await noOverflow(mobile, `Bibliothèque ${width}`);
       await decodedImagePreviews(mobile, '.media-asset-card img', 2);
