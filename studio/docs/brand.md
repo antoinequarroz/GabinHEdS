@@ -14,6 +14,8 @@ Les polices sont servies depuis `apps/web/public/fonts` (licence OFL), sans rés
 
 ## Fichiers
 
+Depuis le 17.11.2026, l'interface et la page vitrine utilisent les pictos du kit d'identité Postmelo (N en ruban bleu-vert, version claire et sombre) : `icon-light-128.png`, `icon-dark-128.png`, `favicon.ico` et `apple-touch-icon.png`, dans `apps/web/public/brand/` et `site/brand/`. Les SVG ci-dessous restent la source des pages Stream Deck et des guides PDF.
+
 - `apps/web/public/brand/nino-mark.svg` : symbole transparent pour les interfaces et les supports sombres, sans dépendance externe. En apparence claire, il est posé sur une tuile anthracite.
 - `apps/web/public/brand/nino-icon.svg` : icône avec fond sombre pour l’onglet du navigateur.
 - `apps/web/src/components/StudioBrand.vue` : signature Nino et affiliation de la salle, utilisée à la connexion et dans la régie. Le symbole est décoratif ; le nom reste un vrai texte accessible.
