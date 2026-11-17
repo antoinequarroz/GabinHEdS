@@ -24,6 +24,7 @@ async function save(): Promise<void> {
 </script>
 
 <template>
+  <div class="setup-page">
   <div class="page-heading"><div><h1>Salle et OBS</h1><p>Préparez les sources, le stockage et la diffusion de votre salle.</p></div></div>
 
   <section class="setup-connection" :class="{ 'is-connected': obs?.connected }" aria-labelledby="obs-connection-title">
@@ -98,5 +99,6 @@ async function save(): Promise<void> {
       </section>
       <details class="setup-help"><summary>Activer le serveur dans OBS</summary><div><p>Dans OBS, ouvrez Outils → Paramètres du serveur WebSocket. Activez le serveur et l’authentification, puis reportez le mot de passe dans Nino.</p><p class="hint">Aucune commande ne lance OBS à votre place.</p></div></details>
     </aside>
+  </div>
   </div>
 </template>

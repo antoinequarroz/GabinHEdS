@@ -208,11 +208,11 @@ function participantAssociated(person: Project['participants'][number]): boolean
         <p v-if="takes.some(take => take.status === 'completed' && take.outputPath)" class="takes-export-note">Le dossier ZIP rassemble les vidéos originales terminées, les médias associés et les repères de montage. La préparation peut prendre du temps sur le PC.</p>
         <p v-if="takes.some(take => take.status === 'completed' && take.outputPath)" class="takes-export-note">Pour DaVinci Resolve : décompressez le dossier, puis choisissez Fichier → Importer → Timeline et une timeline .otio. Les changements de caméra sont déjà dans le programme enregistré ; les repères permettent de les retrouver. Les angles caméra séparés ne sont pas enregistrés.</p>
         <div v-if="!takes.length" class="takes-empty"><Icon name="movie" /><h3>Aucune prise enregistrée</h3><p>Préparez la salle, puis démarrez votre premier enregistrement.</p><button class="button primary" @click="step = 'prepare'">Configurer la première prise<Icon name="arrow" /></button></div>
-        <template v-else>
+        <div v-else class="takes-list">
           <div class="takes-list-heading" aria-hidden="true"><span>Prise</span><span>Fichier et informations</span><span>Récupération</span></div>
           <article v-for="take in takes" :key="take.id" class="takes-row">
             <div class="takes-index"><Icon name="movie" /><span>{{ String(take.sequence).padStart(2, '0') }}</span><small>PRISE</small></div>
-            <div class="takes-details"><div class="takes-title"><h3>{{ take.title }}</h3><span class="badge" :class="take.status === 'completed' ? '' : take.status === 'interrupted' ? 'warning' : 'recording'">{{ take.status === 'completed' ? 'Terminée' : take.status === 'interrupted' ? 'Interrompue' : take.status === 'paused' ? 'En pause' : 'En cours' }}</span></div><div class="takes-metadata"><span>{{ timestamp(take.startedAt) }}</span><span>{{ duration(take.durationMs) }}</span><span><Icon name="mark" />{{ state?.markers.filter(marker => marker.takeId === take.id).length ?? 0 }} repère(s) de montage</span></div><div class="file-path">{{ take.outputPath || (take.status === 'recording' || take.status === 'paused' ? 'Le chemin du fichier sera confirmé par OBS à la fin de la prise.' : 'Aucun fichier final confirmé. Vérifiez le dossier d’enregistrement dans OBS.') }}</div><TakePlayer v-if="take.status === 'completed' && take.outputPath" :take="take" /></div>
+            <div class="takes-details"><div class="takes-title"><h3>{{ take.title }}</h3><span class="badge" :class="take.status === 'completed' ? '' : take.status === 'interrupted' ? 'warning' : 'recording'">{{ take.status === 'completed' ? 'Terminée' : take.status === 'interrupted' ? 'Interrompue' : take.status === 'paused' ? 'En pause' : 'En cours' }}</span></div><div class="takes-metadata"><span>{{ timestamp(take.startedAt) }}</span><span>{{ duration(take.durationMs) }}</span><span><Icon name="mark" />{{ state?.markers.filter(marker => marker.takeId === take.id).length ?? 0 }} repère(s) de montage</span></div><div class="file-path" :class="{ 'is-message': !take.outputPath }">{{ take.outputPath || (take.status === 'recording' || take.status === 'paused' ? 'Le chemin du fichier sera confirmé par OBS à la fin de la prise.' : 'Aucun fichier final confirmé. Vérifiez le dossier d’enregistrement dans OBS.') }}</div><TakePlayer v-if="take.status === 'completed' && take.outputPath" :take="take" /></div>
             <div class="takes-delivery">
               <template v-if="take.status === 'completed' && take.outputPath">
                 <div class="take-download-option">
@@ -228,7 +228,7 @@ function participantAssociated(person: Project['participants'][number]): boolean
               <span v-else class="hint">{{ take.status === 'recording' || take.status === 'paused' ? 'Fichier en cours d’écriture' : 'Fichier final à vérifier' }}</span>
             </div>
           </article>
-        </template>
+        </div>
       </section>
     </template>
   </div>

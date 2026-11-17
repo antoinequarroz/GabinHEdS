@@ -1,10 +1,20 @@
 # Identité Nino
 
-Le symbole représente un N fait d’un ruban continu et de deux retours arrondis : plusieurs sources réunies dans une même régie. Il accompagne le nom **Nino** en Manrope, déjà intégrée localement. La marque reste calme pour laisser les états REC et LIVE porter les couleurs de production.
+Le symbole représente un N fait d’un ruban continu et de deux retours arrondis : plusieurs sources réunies dans une même régie. Il accompagne le nom **Nino** en Geist, la police de la Suite Media, intégrée localement. La marque reste calme pour laisser les états REC et LIVE porter les couleurs de production.
+
+## Design de la Suite Media
+
+Nino reprend le design commun des apps de la suite (Lamio, Cairn, Metricove) : fond papier chaud, encre presque noire, léger grain, polices Geist (texte), Geist Mono (chiffres et minutage) et Instrument Serif (titres de page). Chaque app garde sa couleur d’accent ; celle de Nino est le **bleu-vert pétrole** (`#0B7480` en clair, `#4EC4CD` en sombre). Le rouge reste réservé à l’enregistrement et aux erreurs.
+
+Les couleurs sont des variables CSS en tête de `apps/web/src/styles.css` (`--bg`, `--surface`, `--ink`, `--line`, `--accent`, `--danger`…). Ne pas réintroduire de couleur codée en dur : utiliser une variable, ou `color-mix()` à partir d’une variable pour une teinte intermédiaire.
+
+Trois apparences, au choix dans **Accès de cet appareil** : **Sombre** (par défaut dans la salle), **Clair** et **Auto** (suit le système). Le choix est gardé par appareil. Les vidéos restent sur un fond noir dans les deux apparences.
+
+Les polices sont servies depuis `apps/web/public/fonts` (licence OFL), sans réseau. Manrope y reste pour les guides PDF générés par `scripts/generate-guides.py`.
 
 ## Fichiers
 
-- `apps/web/public/brand/nino-mark.svg` : symbole transparent pour les interfaces et les supports sombres, sans dépendance externe.
+- `apps/web/public/brand/nino-mark.svg` : symbole transparent pour les interfaces et les supports sombres, sans dépendance externe. En apparence claire, il est posé sur une tuile anthracite.
 - `apps/web/public/brand/nino-icon.svg` : icône avec fond sombre pour l’onglet du navigateur.
 - `apps/web/src/components/StudioBrand.vue` : signature Nino et affiliation de la salle, utilisée à la connexion et dans la régie. Le symbole est décoratif ; le nom reste un vrai texte accessible.
 

@@ -51,6 +51,7 @@ const expiry = (value: string) => new Intl.DateTimeFormat('fr-CH', { hour: '2-di
 </script>
 
 <template>
+  <div class="devices-page">
   <div class="page-heading"><div><h1>iPad et Stream Deck</h1><p>Retrouvez la même régie sur chaque appareil, avec un accès individuel.</p></div></div>
 
   <div class="devices-layout">
@@ -114,4 +115,5 @@ const expiry = (value: string) => new Intl.DateTimeFormat('fr-CH', { hour: '2-di
 
   <p v-if="copied" class="banner" role="status">{{ copied }}</p>
   <ConfirmDialog :open="!!revoke" title="Révoquer cet appareil ?" confirm-label="Révoquer l’accès" busy-label="Révocation de l’accès…" :busy="busy.revoke" dangerous @cancel="revoke = undefined" @confirm="confirmRevoke"><p>« {{ revoke?.name }} » ne pourra plus accéder au studio. Vous pourrez l’associer à nouveau si nécessaire.</p></ConfirmDialog>
+  </div>
 </template>

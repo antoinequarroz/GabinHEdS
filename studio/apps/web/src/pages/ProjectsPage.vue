@@ -71,7 +71,7 @@ const formatIcon = (project: Project) => project.format === 'podcast' ? 'mic' : 
         <div class="library-list-toolbar"><div class="library-filter-tabs" role="group" aria-label="Filtrer les productions"><button v-for="item in filters" :key="item.id" :aria-pressed="filter === item.id" @click="filter = item.id">{{ item.label }}<span>{{ item.count }}</span></button></div><label class="library-search"><span class="sr-only">Rechercher une production</span><input v-model="query" type="search" placeholder="Rechercher une production" /></label></div>
         <div v-if="!projects.length" class="library-no-results">Aucune production ne correspond à cette recherche.</div>
         <div class="library-grid">
-          <button v-for="project in projects" :key="project.id" class="library-card project-row" :aria-label="project.title" @click="emit('navigate', `project/${project.id}`)">
+          <button v-for="(project, index) in projects" :key="project.id" class="library-card project-row" :style="{ '--i': index }" :aria-label="project.title" @click="emit('navigate', `project/${project.id}`)">
             <span class="library-card-poster">
               <TakePoster v-if="posterTake(project)" :take-id="posterTake(project)!.id" />
               <span v-else class="library-poster-empty"><Icon :name="formatIcon(project)" /><span>{{ formatLabels[project.format] }}</span></span>

@@ -1,0 +1,174 @@
+/* Suite Media components: guests. Loaded after styles.css; see docs/brand.md.
+   Public guest pages (invitation, device check, call, room bridge, OBS source)
+   and the "Invités à distance" panel of the prepare step, restyled after the
+   Lamio login/settings screens. Shared controls come from suite/base.css.
+   The régie inspector variant of the panel lives in suite/regie.css (higher
+   specificity, so it keeps winning over the generic rules below). */
+
+/* ------------------------------------------------------------------ */
+/* Shell: compact header + centred content                             */
+/* ------------------------------------------------------------------ */
+.guest-layout { padding: 0 24px 48px; color: var(--ink); background-color: var(--bg); }
+
+.guest-header {
+  position: sticky; top: 0; z-index: 10; max-width: none; min-height: 52px; height: 52px; gap: 12px;
+  margin: 0 -24px; padding: 0 max(24px, calc((100% - 1120px) / 2 + 24px));
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in oklab, var(--bg) 88%, transparent);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+}
+.guest-header .nino-brand { gap: 8px; color: var(--ink); font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.guest-header .nino-brand-mark { width: 28px; height: 28px; border-radius: 8px; }
+.guest-header .nino-brand small { display: none; }
+/* Scoped away from the studio gateway, whose label belongs to suite/shell.css. */
+.guest-layout:not(.studio-gateway) .guest-header > span:not(.nino-brand) {
+  display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border: 1px solid var(--line); border-radius: 9999px;
+  background: var(--surface); color: var(--ink-2); font-size: 12px; font-weight: 500; white-space: nowrap; box-shadow: var(--shadow);
+}
+
+.guest-main { max-width: 1120px; margin: 32px auto 0; }
+
+/* Page header (PageHeader recipe) */
+.guest-heading { max-width: none; margin: 0 0 24px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+.guest-heading h1 { font-family: var(--font-display); font-size: 28px; line-height: 1; font-weight: 400; letter-spacing: normal; margin-bottom: 0; }
+.guest-heading p { max-width: 640px; margin-top: 6px; color: var(--ink-3); font-size: 13px; line-height: 1.5; }
+
+/* Loading / error notes, and the "ask for a new link" fallback */
+.guest-main > .banner { max-width: 640px; }
+.guest-main > .hint { margin-top: 0; font-size: 13px; color: var(--ink-3); }
+
+/* ------------------------------------------------------------------ */
+/* Call layout: video well + control card                              */
+/* ------------------------------------------------------------------ */
+.guest-call-layout { grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; }
+
+.guest-programme {
+  background: var(--stage); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow);
+}
+/* Placeholder before the camera opens: a suite empty state, kept on the stage. */
+.guest-video-placeholder {
+  gap: 10px; padding: 32px;
+  background: radial-gradient(ellipse at 70% 15%, color-mix(in oklab, var(--accent) 7%, transparent), transparent 70%), var(--stage);
+}
+.guest-video-placeholder > svg, .guest-video-placeholder > .icon {
+  width: 28px; height: 28px; padding: 0; border-radius: 0;
+  background: none; color: var(--accent);
+}
+.guest-video-placeholder strong { margin-top: 4px; font-family: var(--font-display); font-size: 26px; line-height: 1; font-weight: 400; color: white; }
+/* Over the stage: legible in both themes without a new colour. */
+.guest-video-placeholder p { max-width: 380px; color: white; opacity: .6; font-size: 13.5px; line-height: 1.5; }
+
+/* Self preview while in the call */
+.guest-self-preview { width: 220px; margin-top: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--stage); box-shadow: var(--shadow); }
+.guest-self-preview.is-large { width: 100%; }
+.guest-self-preview > span {
+  bottom: 8px; left: 8px; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 9999px;
+  background: color-mix(in oklab, var(--surface) 85%, transparent); color: var(--ink);
+  font-size: 11px; font-weight: 500; line-height: 1.5;
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+}
+.guest-self-preview > span svg { width: 12px; height: 12px; color: var(--warn); }
+/* Over the stage: legible in both themes without a new colour. */
+.guest-self-preview > p { color: white; opacity: .6; font-size: 12px; }
+.guest-video-panel > .button.primary { margin-top: 12px; }
+
+/* Control column = suite card */
+.guest-controls {
+  gap: 14px; padding: 20px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--surface); box-shadow: var(--shadow);
+}
+.guest-controls h2 { font-size: 15px; font-weight: 500; line-height: 1.4; color: var(--ink); }
+.guest-controls h2 + .hint { margin-top: -10px; }
+.guest-controls .field { gap: 6px; }
+.guest-controls .field input, .guest-controls .field select { min-height: 40px; }
+.guest-controls .hint { margin: 0; line-height: 1.5; }
+.guest-controls .field + .hint { margin-top: -8px; }
+.guest-controls .button { width: 100%; min-height: 40px; }
+.guest-controls .button.primary { margin-top: 4px; }
+.guest-controls .button[aria-pressed="true"] { background: var(--surface-2); border-color: var(--line-hover); }
+.guest-controls .banner { margin: 0; }
+
+/* Status row (inset key/value row) */
+.guest-call-status {
+  gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface-2); font-size: 13.5px;
+}
+.guest-call-status strong { font-weight: 500; color: var(--ink); }
+.guest-call-status .status-dot { flex-shrink: 0; }
+
+/* Confirmation checkboxes (bridge) */
+.guest-check { gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink-2); font-size: 13px; line-height: 1.5; transition: background-color 150ms var(--suite-ease-std), border-color 150ms ease; }
+.guest-check:hover { background: var(--suite-hover-row); }
+.guest-check:has(input:checked) { border-color: color-mix(in oklab, var(--accent) 35%, transparent); background: color-mix(in oklab, var(--accent-soft) 50%, transparent); color: var(--ink); }
+.guest-check input { flex: 0 0 16px; width: 16px; height: 16px; margin-top: 2px; }
+
+/* ------------------------------------------------------------------ */
+/* Room bridge: guest return tiles                                     */
+/* ------------------------------------------------------------------ */
+.bridge-guests { gap: 12px; margin-top: 12px; }
+.bridge-guests article { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); }
+.bridge-guests video { display: block; background: var(--stage); border-bottom: 1px solid var(--line); }
+.bridge-guests span { margin: 10px 12px 0; font-size: 13.5px; font-weight: 500; color: var(--ink); overflow-wrap: anywhere; }
+.bridge-guests small { margin: 2px 12px 10px; font-size: 12px; color: var(--ink-3); }
+
+/* ------------------------------------------------------------------ */
+/* OBS browser source: full-bleed stage                                */
+/* ------------------------------------------------------------------ */
+.guest-source-placeholder { gap: 12px; background: radial-gradient(ellipse at 50% 70%, color-mix(in oklab, var(--accent) 8%, transparent), transparent 65%), var(--stage); }
+.guest-source-placeholder span { font-family: var(--font-display); font-size: clamp(32px, 4.4vw, 72px); line-height: 1; font-weight: 400; letter-spacing: normal; }
+.guest-source-placeholder small { color: white; opacity: .6; font-size: clamp(14px, 1.4vw, 20px); }
+
+/* ------------------------------------------------------------------ */
+/* "Invités à distance" panel (prepare step)                           */
+/* ------------------------------------------------------------------ */
+.guest-panel { padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); }
+.guest-panel h2 { gap: 8px; font-size: 15px; font-weight: 500; line-height: 1.4; color: var(--ink); }
+.guest-panel h2 svg { width: 16px; height: 16px; color: var(--ink-3); }
+.guest-panel .section-heading { gap: 12px; margin-bottom: 0; align-items: flex-start; }
+.guest-panel-setup { gap: 8px; margin: 16px 0 0; }
+.guest-panel .button:not(.compact) { min-height: 36px; }
+.guest-panel > .hint { margin-top: 10px; }
+.guest-slots { gap: 12px; margin-top: 16px; }
+.guest-slot { padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+.guest-slot header { gap: 10px; margin-bottom: 14px; }
+.guest-avatar { width: 36px; height: 36px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); }
+.guest-avatar svg { width: 16px; height: 16px; }
+.guest-slot h3 { font-size: 13.5px; font-weight: 500; line-height: 1.4; }
+.guest-slot header p { margin: 0; font-size: 12px; color: var(--ink-3); }
+.guest-slot > .field, .guest-invitation { margin-bottom: 10px; }
+.guest-slot-actions { gap: 8px; margin: 10px 0; }
+.guest-remove { min-height: 32px; margin-top: 4px; font-size: 12.5px; color: var(--danger-text); }
+.guest-network-help { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
+.guest-network-help summary { display: flex; align-items: center; min-height: 32px; font-size: 13px; color: var(--ink-2); }
+.guest-network-help summary:hover { color: var(--ink); }
+
+/* ------------------------------------------------------------------ */
+/* Breakpoints (same as guests.css)                                    */
+/* ------------------------------------------------------------------ */
+@media (max-width: 1024px) {
+  .guest-controls .button, .guest-controls .field input, .guest-controls .field select, .guest-panel .button:not(.compact) { min-height: 44px; }
+  .guest-check { min-height: 44px; }
+  .guest-remove, .guest-network-help summary { min-height: 44px; }
+}
+@media (max-width: 900px) {
+  .guest-call-layout { grid-template-columns: minmax(0, 1fr); }
+  .guest-controls { max-width: none; }
+}
+@media (max-width: 640px) {
+  .guest-layout { padding: 0 16px 32px; }
+  .guest-header { min-height: 52px; height: 52px; margin: 0 -16px; padding: 0 16px; gap: 12px; }
+  .guest-header .nino-brand-mark { width: 24px; height: 24px; border-radius: 6px; }
+  .guest-header > .nino-brand { max-width: none; font-size: 15px; }
+  .guest-layout:not(.studio-gateway) .guest-header > span:not(.nino-brand) { max-width: none; font-size: 11.5px; text-align: left; }
+  .guest-main { margin-top: 20px; }
+  .guest-heading { margin-bottom: 16px; padding-bottom: 16px; }
+  .guest-heading h1 { font-size: 26px; }
+  .guest-heading p { font-size: 13px; }
+  .guest-controls, .guest-panel { padding: 16px; }
+  .guest-self-preview { width: 160px; }
+  .guest-video-placeholder { padding: 16px; gap: 8px; }
+  .guest-video-placeholder > svg, .guest-video-placeholder > .icon { width: 24px; height: 24px; }
+  .guest-video-placeholder strong { font-size: 22px; }
+  .guest-video-placeholder p { font-size: 12.5px; }
+  .bridge-guests { grid-template-columns: minmax(0, 1fr); }
+}
