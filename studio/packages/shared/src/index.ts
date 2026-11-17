@@ -77,6 +77,22 @@ export interface ObsState {
   streamOutputBytes: number;
 }
 
+/** Capture software Nino can drive. Each studio picks one; OBS is the default. */
+export type CaptureSoftware = 'obs' | 'streamlabs' | 'maya';
+/** What a capture driver can actually do. Controls for a missing capability are
+ * disabled with a reason, never simulated. */
+export type CaptureCapability =
+  | 'record.pause' | 'record.directory' | 'audio.mute' | 'audio.meters' | 'scene.thumbnails'
+  | 'stream.local' | 'media.play' | 'guests.browser';
+export interface CaptureInfo { software: CaptureSoftware; label: string; capabilities: CaptureCapability[]; }
+/** Software-neutral name of the capture state. `StudioState.obs` keeps its name for existing controllers. */
+export type CaptureState = ObsState;
+export const captureSoftwareLabels: Record<CaptureSoftware, string> = {
+  obs: 'OBS Studio',
+  streamlabs: 'Streamlabs Desktop',
+  maya: 'Maya Studio',
+};
+
 export interface MediaState {
   available: boolean;
   previewReady: boolean;
@@ -206,7 +222,9 @@ export interface StudioState {
   revision: number;
   accessUrls?: string[];
   room: RoomConfig;
+  /** Capture state, whatever the software. Named `obs` for compatibility with iPad and Stream Deck. */
   obs: ObsState;
+  capture?: CaptureInfo;
   media: MediaState;
   projects: Project[];
   takes: Take[];
