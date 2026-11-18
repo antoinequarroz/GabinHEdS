@@ -151,7 +151,10 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          gh release create "$TAG" release/*.exe release/*.sha256 \
-            --verify-tag \
-            --title "Nino ${TAG#v}" \
-            --notes "Installateur Windows 11 x64 construit et vérifié par le workflow Nino Windows Installer (installation, double lancement, arrêt, désinstallation). Comparer l’empreinte avec Get-FileHash -Algorithm SHA256. Guide : studio/docs/windows-installer.md."
+          # Le workflow macOS peut créer la même version en parallèle : créer, sinon compléter.
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --verify-tag --title "Nino ${TAG#v}" \
+              --notes "Installateurs Nino construits et vérifiés en intégration continue : Windows 11 x64 (.exe) et macOS Apple Silicon (.dmg). Comparer l’empreinte SHA-256 avant d’ouvrir. Guides : studio/docs/windows-installer.md et studio/docs/macos-installer.md." \
+              || true
+          fi
+          gh release upload "$TAG" release/*.exe release/*.sha256 --clobber

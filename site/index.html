@@ -51,13 +51,16 @@
       <h1>Le studio se lance<br>en <em>un appui</em>.</h1>
       <p class="lede">Nino transforme le PC de la salle en régie&nbsp;: plans, enregistrement, direct et invités à distance, pilotés depuis le PC, un iPad ou un Stream Deck. Les vidéos restent sur place.</p>
       <div class="cta">
-        <a class="btn btn-primary" href="#installer">
+        <a class="btn btn-primary" href="#installer" data-os="windows">
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/></svg>
           Télécharger pour Windows
         </a>
-        <a class="btn" href="https://github.com/antoinequarroz/nino-studio">Voir le code</a>
+        <a class="btn" href="#installer" data-os="mac">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/></svg>
+          Télécharger pour macOS
+        </a>
       </div>
-      <p class="hero-meta">Windows 11 · OBS Studio ou Maya Studio · iPad et Stream Deck</p>
+      <p class="hero-meta">Windows 11 et macOS · OBS Studio ou Maya Studio · iPad et Stream Deck</p>
 
       <figure class="shot">
         <img class="shot-light" src="images/regie-clair.webp" width="1440" height="900" alt="La régie de Nino : programme, diffusion en direct, réalisation automatique et compteur d’enregistrement.">
@@ -140,24 +143,29 @@
         <div class="install-main">
           <p class="eyebrow">Installer</p>
           <h2 id="t-installer">Nino pour le PC de la salle.</h2>
-          <p class="section-lede">Un installateur pour Windows 11, qui embarque tout ce qu’il faut et crée le raccourci «&nbsp;Nino + OBS&nbsp;».</p>
+          <p class="section-lede">Un installateur pour Windows 11 et une app pour les Mac Apple Silicon. Les deux embarquent tout ce qu’il faut et ouvrent Nino avec OBS en un clic.</p>
           <div class="cta">
-            <a class="btn btn-primary" id="download" href="https://github.com/antoinequarroz/nino-studio/releases/latest">
+            <a class="btn btn-primary" id="download" data-os="windows" href="https://github.com/antoinequarroz/nino-studio/releases/latest">
               <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/></svg>
-              <span id="download-label">Télécharger l’installateur</span>
+              <span id="download-label">Télécharger pour Windows</span>
             </a>
-            <a class="btn" href="https://github.com/antoinequarroz/nino-studio/releases">Toutes les versions</a>
+            <a class="btn" id="download-mac" data-os="mac" href="https://github.com/antoinequarroz/nino-studio/releases/latest">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/></svg>
+              <span id="download-mac-label">Télécharger pour macOS</span>
+            </a>
           </div>
           <p class="install-meta" id="download-meta">Windows 11 x64 · installateur .exe avec son empreinte SHA-256</p>
+          <p class="install-meta" id="download-mac-meta">macOS 13.5 ou plus récent, Mac Apple Silicon (M1 et suivants) · image .dmg avec son empreinte SHA-256</p>
+          <p class="install-meta"><a href="https://github.com/antoinequarroz/nino-studio/releases">Toutes les versions</a></p>
         </div>
         <ol class="steps">
-          <li><strong>Installer.</strong> Lancez le Setup avec le compte habituel de la salle. La première préparation télécharge FFmpeg et vérifie son empreinte&nbsp;; OBS peut s’installer au passage.</li>
+          <li><strong>Installer.</strong> Sur Windows, lancez le Setup avec le compte habituel de la salle. Sur Mac, glissez Nino dans Applications puis ouvrez-le. La première préparation télécharge FFmpeg et vérifie son empreinte&nbsp;; OBS peut s’installer au passage.</li>
           <li><strong>Brancher la captation.</strong> Dans «&nbsp;Salle&nbsp;», choisissez OBS Studio ou Maya Studio, connectez-le et choisissez le dossier des productions.</li>
           <li><strong>Associer les appareils.</strong> Un code temporaire relie chaque iPad&nbsp;; le Stream Deck se branche via Companion.</li>
           <li><strong>Faire une prise d’essai.</strong> Trente secondes, puis relire le MP4 avant la première vraie séance.</li>
         </ol>
       </div>
-      <p class="note">L’installateur n’est pas encore signé&nbsp;: Windows peut afficher «&nbsp;Windows a protégé votre ordinateur&nbsp;». Cliquez sur «&nbsp;Informations complémentaires&nbsp;», puis «&nbsp;Exécuter quand même&nbsp;». Les guides illustrés&nbsp;: <a href="https://github.com/antoinequarroz/nino-studio/blob/main/studio/docs/guides/nino-guide-utilisateur.pdf">tutoriel</a>, <a href="https://github.com/antoinequarroz/nino-studio/blob/main/studio/docs/guides/nino-manuel-complet.pdf">manuel complet</a>, <a href="https://github.com/antoinequarroz/nino-studio/blob/main/studio/docs/windows-installer.md">installation Windows</a>.</p>
+      <p class="note">L’installateur n’est pas encore signé&nbsp;: Windows peut afficher «&nbsp;Windows a protégé votre ordinateur&nbsp;». Cliquez sur «&nbsp;Informations complémentaires&nbsp;», puis «&nbsp;Exécuter quand même&nbsp;». Sur Mac, l’app n’est pas encore notarisée par Apple&nbsp;: au premier lancement, ouvrez Réglages Système → Confidentialité et sécurité, puis «&nbsp;Ouvrir quand même&nbsp;». Les guides illustrés&nbsp;: <a href="https://github.com/antoinequarroz/nino-studio/blob/main/studio/docs/guides/nino-guide-utilisateur.pdf">tutoriel</a>, <a href="https://github.com/antoinequarroz/nino-studio/blob/main/studio/docs/guides/nino-manuel-complet.pdf">manuel complet</a>, <a href="https://github.com/antoinequarroz/nino-studio/blob/main/studio/docs/windows-installer.md">installation Windows</a>, <a href="https://github.com/antoinequarroz/nino-studio/blob/main/studio/docs/macos-installer.md">installation Mac</a>.</p>
     </section>
   </main>
 

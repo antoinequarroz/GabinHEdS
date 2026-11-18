@@ -91,6 +91,10 @@ Cette version remplace les anciens noms techniques par `Nino`. Sur un poste déj
 
 L’installateur Windows applique ces changements lui-même.
 
+## Installation sur Mac
+
+Pour un Mac Apple Silicon (macOS 13.5 ou plus récent), utiliser l’[app Nino.app et son image .dmg](docs/macos-installer.md). Elle embarque Node.js et MediaMTX, prépare FFmpeg au premier lancement depuis un téléchargement vérifié et range les données dans `~/Library/Application Support/Nino`. Le workflow **Nino macOS App** construit le .dmg et vérifie l’ouverture, la relance et l’arrêt sur un vrai Mac.
+
 ## Installation sur le PC Windows
 
 Pour le PC Windows 11 x64 de la salle, utiliser l’[installateur et son raccourci Nino + OBS](docs/windows-installer.md). Ce paquet inclut Node.js et MediaMTX, prépare FFmpeg depuis un téléchargement vérifié et conserve les données hors du dossier du logiciel. La construction et son installation sont vérifiées par le workflow **Nino Windows Installer** ; la recette des caméras, micros et OBS reste à faire dans la salle.

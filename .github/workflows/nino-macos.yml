@@ -1,0 +1,137 @@
+name: Nino macOS App
+
+on:
+  push:
+    branches: ['**']
+    # Une étiquette vX.Y.Z joint le .dmg testé à la version GitHub (job « release »).
+    tags: ['v*']
+    paths:
+      - 'studio/**'
+      - '.github/workflows/nino-macos.yml'
+  pull_request:
+    paths:
+      - 'studio/**'
+      - '.github/workflows/nino-macos.yml'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Joindre le .dmg à une version existante (ex. v0.1.0). Laisser vide pour un simple essai.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nino-macos-${{ github.ref }}-${{ inputs.release_tag }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+    working-directory: studio
+
+jobs:
+  app:
+    name: macOS arm64 - construire, ouvrir, relancer et arrêter
+    runs-on: macos-15
+    timeout-minutes: 35
+    outputs:
+      name: ${{ steps.name.outputs.name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Node.js verrouillé
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.22.0'
+          cache: npm
+          cache-dependency-path: studio/package-lock.json
+      - name: Installer et construire sur macOS
+        run: |
+          npm ci
+          npm run build
+          node --test macos/tests/launcher.test.mjs
+      - name: Nom de la construction
+        id: name
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          echo "name=Nino-${version}-${GITHUB_SHA:0:12}-macos-arm64" >> "$GITHUB_OUTPUT"
+      - name: Construire Nino.app avec les runtimes vérifiés
+        run: node scripts/build-macos.mjs --output "$RUNNER_TEMP/nino-app"
+      - name: Signer et créer le DMG
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: macos/package-dmg.sh "$RUNNER_TEMP/nino-app/Nino.app" "$RUNNER_TEMP/nino-dmg" "${{ steps.name.outputs.name }}"
+      - name: Ouvrir, relancer, arrêter (DMG réel)
+        run: macos/smoke-test.sh "$RUNNER_TEMP/nino-dmg/${{ steps.name.outputs.name }}.dmg" "$RUNNER_TEMP/nino-report"
+      - name: Livrer le DMG testé
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nino-macos-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/nino-dmg/*.dmg
+            ${{ runner.temp }}/nino-dmg/*.sha256
+            ${{ runner.temp }}/nino-report/macos-smoke.txt
+          if-no-files-found: error
+          retention-days: 30
+      - name: Conserver le diagnostic de l’essai macOS
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nino-macos-diagnostic-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/nino-report/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  release:
+    name: Joindre le DMG à la version GitHub
+    needs: app
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+        working-directory: .
+    steps:
+      - name: Récupérer le DMG testé
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nino-macos-${{ github.sha }}-${{ github.run_attempt }}
+          path: release
+      - name: Vérifier que l’étiquette correspond à la version de Nino
+        env:
+          TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          dmgs=(release/*.dmg)
+          if [ "${#dmgs[@]}" -ne 1 ]; then echo "Un seul DMG attendu, ${#dmgs[@]} trouvés." >&2; exit 1; fi
+          case "$(basename "${dmgs[0]}")" in
+            "Nino-${TAG#v}-"*) ;;
+            *) echo "L’étiquette $TAG ne correspond pas au DMG $(basename "${dmgs[0]}") (version de studio/package.json)." >&2; exit 1 ;;
+          esac
+          (cd release && sha256sum -c ./*.sha256)
+      - name: Joindre le DMG (en créant la version si besoin)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          # Le workflow Windows peut créer la même version en parallèle : créer, sinon compléter.
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --verify-tag --title "Nino ${TAG#v}" \
+              --notes "Installateurs Nino construits et vérifiés en intégration continue : Windows 11 x64 (.exe) et macOS Apple Silicon (.dmg). Comparer l’empreinte SHA-256 avant d’ouvrir. Guides : studio/docs/windows-installer.md et studio/docs/macos-installer.md." \
+              || true
+          fi
+          gh release upload "$TAG" release/*.dmg release/*.dmg.sha256 --clobber
