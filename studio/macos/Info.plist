@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>fr</string>
+  <key>CFBundleDisplayName</key>
+  <string>Nino</string>
+  <key>CFBundleName</key>
+  <string>Nino</string>
+  <key>CFBundleExecutable</key>
+  <string>Nino</string>
+  <key>CFBundleIconFile</key>
+  <string>nino</string>
+  <key>CFBundleIdentifier</key>
+  <string>ch.postmelo.nino</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>@VERSION@</string>
+  <key>CFBundleVersion</key>
+  <string>@VERSION@</string>
+  <key>NinoSourceRevision</key>
+  <string>@REVISION@</string>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.video</string>
+  <key>LSArchitecturePriority</key>
+  <array>
+    <string>arm64</string>
+  </array>
+  <key>LSMinimumSystemVersion</key>
+  <string>13.5</string>
+  <key>LSRequiresNativeExecution</key>
+  <true/>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>NSHumanReadableCopyright</key>
+  <string>Nino — studio vidéo PostMelo</string>
+</dict>
+</plist>
