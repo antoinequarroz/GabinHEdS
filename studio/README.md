@@ -178,6 +178,21 @@ Depuis l’iPad connecté au même réseau, ouvrir `http://ADRESSE-IP-DU-PC:4310
 
 Cette association contrôle l’accès, mais HTTP ne chiffre pas les jetons ni les données sur le réseau. Pour l’installation durable, prévoir un proxy HTTPS avec un certificat approuvé par les iPad, qui transmet également `/api/events` en WebSocket (`wss` côté navigateur). Garder le contrôleur en boucle locale derrière ce proxy ; le proxy doit refuser `/api/auth/local` aux clients distants. Ne pas publier le contrôleur directement sur Internet. La connexion OBS reste locale au PC ; aucun mot de passe OBS n’est transmis à l’iPad.
 
+## Se connecter avec le Compte Postmelo
+
+Nino accepte le compte unique de la suite ([postmelo-compte](https://github.com/antoinequarroz/postmelo-compte), OpenID Connect). Dans l’environnement du serveur Nino (par exemple `.env.local`, ou la commande du serveur Portly) :
+
+```env
+COMPTE_URL=https://compte.postmelo.ch
+COMPTE_CLIENT_ID=nino
+COMPTE_CLIENT_SECRET=<32 caractères au moins>
+APP_URL=https://<adresse HTTPS de la régie>
+```
+
+Côté compte : `NINO_URL` (la même adresse que `APP_URL`) et `NINO_CLIENT_SECRET` (le même secret), puis redémarrage du compte. L’adresse de retour est toujours `APP_URL/api/auth/compte/callback`. Le PC de la salle doit pouvoir joindre `COMPTE_URL` ; le navigateur de l’iPad n’a besoin que d’atteindre la régie et le compte.
+
+L’écran « Rejoindre la salle » propose alors **Continuer avec mon Compte Postmelo**. Après la connexion, ce navigateur reçoit son propre accès, valable 30 jours, comme avec un code d’association : **Configuration** pour un administrateur du compte, **Contrôle** pour un membre. L’accès apparaît dans **Appareils** sous le nom « Prénom · Compte Postmelo » et se révoque de la même façon. C’est le compte qui décide qui a accès à Nino (page Admin du compte). Le code d’association reste disponible en secours, et le PC de la salle garde son accès local. Sans ces variables, rien ne change.
+
 ## Données et récupération
 
 La base locale `studio/.data/studio.sqlite` conserve les projets, les prises, les repères, les paramètres privés OBS/live et les empreintes des jetons d’appareils. Le dossier de données peut être déplacé avec `NINO_DATA_DIR` avant le lancement du serveur. Cette variable ne déplace pas les vidéos : leur racine se règle séparément dans l’interface.

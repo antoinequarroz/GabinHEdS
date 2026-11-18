@@ -11,6 +11,8 @@ const token = ref(localStorage.getItem(tokenKey) ?? '');
 const device = shallowRef<Device | null>(null);
 const state = shallowRef<StudioState | null>(null);
 const initialized = ref(false);
+/** The studio offers "Continuer avec mon Compte Postmelo" (COMPTE_* variables set on the PC). */
+const compteEnabled = ref(false);
 const live = ref(false);
 const audioFrame = shallowRef<AudioFrame | null>(null);
 const audioReceivedAt = ref(0);
@@ -182,8 +184,17 @@ async function acceptAuth(result: AuthResult): Promise<void> {
 async function initialize(): Promise<void> {
   controllerEnabled = true;
   if (initialized.value) { if (token.value && device.value) connectEvents(); return; }
+  // Back from the Compte Postmelo: the API left a one-use cookie to claim this browser's access.
+  const params = new URLSearchParams(location.search);
+  const compteReturn = params.has('compte');
+  const compteError = params.get('compte_erreur');
+  if (compteReturn || compteError !== null) history.replaceState(null, '', location.pathname + location.hash);
+  void fetch('/api/auth/compte').then(response => (response.ok ? response.json() : {}) as Promise<{ enabled?: boolean }>)
+    .then(config => { compteEnabled.value = config.enabled === true; }, () => undefined);
   await run('auth', async () => {
-    if (token.value) {
+    if (compteReturn) {
+      await acceptAuth(await api<AuthResult>('/auth/compte/claim', { method: 'POST' }));
+    } else if (token.value) {
       device.value = await api<Device>('/auth/me');
       state.value = await api<StudioState>('/state');
       connectEvents();
@@ -191,6 +202,7 @@ async function initialize(): Promise<void> {
       await acceptAuth(await api<AuthResult>('/auth/local', { method: 'POST', body: JSON.stringify({ name: 'PC de la salle' }) }));
     }
   });
+  if (compteError) error.value = compteError;
   initialized.value = true;
 }
 
@@ -536,7 +548,7 @@ const mediaThumbnail = (id: string) => imageThumbnail(`/library/${encodeURICompo
 
 export function useStudio() {
   return {
-    device, state, initialized, live, audioFrame, audioReceivedAt, error, notice, busy, canEdit, technician, captureName, can, guestInvitations,
+    device, state, initialized, compteEnabled, live, audioFrame, audioReceivedAt, error, notice, busy, canEdit, technician, captureName, can, guestInvitations,
     initialize, pair, forgetDevice, saveProject, preparation, selectStreamDeckProject, control, connectObs, saveRoom, exportStudioProfile, importStudioProfile, downloadTake, downloadTakeMp4, cancelTakeMp4Download, sceneThumbnail, takeThumbnail,
     suspendStudioConnection: () => { controllerEnabled = false; stopEvents(); },
     uploadMedia, updateMedia, saveProjectMedia, mediaFileSession, takePlaybackSession, exportProject, exportResolve, cancelResolveExport, mediaThumbnail,
