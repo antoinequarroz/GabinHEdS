@@ -114,6 +114,8 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
+          # L’artefact garde ses sous-dossiers (nino-dmg/, nino-report/) : ramener le DMG à la racine.
+          find release -mindepth 2 -type f \( -name '*.dmg' -o -name '*.dmg.sha256' \) -exec mv {} release/ \;
           dmgs=(release/*.dmg)
           if [ "${#dmgs[@]}" -ne 1 ]; then echo "Un seul DMG attendu, ${#dmgs[@]} trouvés." >&2; exit 1; fi
           case "$(basename "${dmgs[0]}")" in
