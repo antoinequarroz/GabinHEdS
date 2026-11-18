@@ -59,8 +59,10 @@ launch --stop
 [ -d "$NINO_USER_ROOT/data" ] && ok "données conservées après l’arrêt"
 
 # A foreign listener on a Nino port is reported, never killed.
-python3 -c 'import socket,time; s=socket.socket(); s.bind(("127.0.0.1",4310)); s.listen(); time.sleep(60)' &
-blocker=$!; sleep 1
+python3 -c 'import socket,time; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(("127.0.0.1",4310)); s.listen(); time.sleep(120)' &
+blocker=$!
+for _ in $(seq 50); do nc -z 127.0.0.1 4310 2>/dev/null && break; sleep 0.2; done
+kill -0 $blocker || { echo "Le programme d’essai n’a pas pu occuper le port 4310." >&2; exit 1; }
 if launch; then echo "Le lanceur aurait dû refuser un port occupé." >&2; kill $blocker; exit 1; fi
 kill -0 $blocker && ok "port occupé par un autre programme : refus sans rien arrêter"
 kill $blocker
