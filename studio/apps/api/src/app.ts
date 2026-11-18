@@ -10,7 +10,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { Readable } from 'node:stream';
 import type { WebSocket } from 'ws';
-import type { CaptureSoftware, Device, DeviceRole, ProjectInput, StudioState, Take } from '@nino/shared';
+import type { AuthResult, CaptureSoftware, Device, DeviceRole, ProjectInput, StudioState, Take } from '@nino/shared';
 import { RealObsGateway } from './obs.js';
 import { MayaStudioDriver } from './maya.js';
 import type { CaptureDriver } from './capture.js';
@@ -24,14 +24,28 @@ import { ApiFailure, choice, controlInput, object, projectInput, roomInput, stri
 import { GuestService, type GuestConfig } from './guests.js';
 import { CompanionBridge } from './companion.js';
 import { LOCAL_SHUTDOWN_PATH, registerLocalLifecycle, type LocalLifecycleOptions } from './local-lifecycle.js';
+import { finishSignIn, PENDING_COOKIE, PENDING_MAX_AGE, settings as compteSettings, startSignIn } from './compte.js';
 
 declare module 'fastify' { interface FastifyRequest { device?: Device } interface FastifyInstance { guests: GuestService } }
 export interface AppOptions { dataDir: string; obs?: CaptureDriver;
   /** Capture drivers this installation offers. Defaults to OBS and Maya Studio. */
-  captureDrivers?: Partial<Record<CaptureSoftware, () => CaptureDriver>>; media?: MediaGateway; webDir?: string; logger?: boolean; guestConfig?: GuestConfig; companion?: boolean; localLifecycle?: LocalLifecycleOptions; studioOpener?: () => Promise<void> }
+  captureDrivers?: Partial<Record<CaptureSoftware, () => CaptureDriver>>; media?: MediaGateway; webDir?: string; logger?: boolean; guestConfig?: GuestConfig; companion?: boolean; localLifecycle?: LocalLifecycleOptions; studioOpener?: () => Promise<void>;
+  /** COMPTE_URL, COMPTE_CLIENT_ID, COMPTE_CLIENT_SECRET and APP_URL. Defaults to process.env. */
+  compteEnv?: Record<string, string | undefined> }
 const roles: DeviceRole[] = ['viewer', 'operator', 'technician'];
 const kinds = ['pc', 'ipad', 'streamdeck'] as const;
 const loopbackPeer = (ip: string | undefined): boolean => ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+const COMPTE_PATH = '/api/auth/compte';
+/** One-use cookie that hands the device created after a Compte Postmelo sign-in to the page. */
+const HANDOFF_COOKIE = 'nino_compte_handoff';
+const HANDOFF_MAX_AGE = 120;
+function readCookie(request: FastifyRequest, name: string): string | undefined {
+  for (const part of (request.headers.cookie ?? '').split(';')) {
+    const index = part.indexOf('=');
+    if (index > 0 && part.slice(0, index).trim() === name) return part.slice(index + 1).trim();
+  }
+  return undefined;
+}
 
 function websocketSources(request: FastifyRequest): string {
   const host = request.headers.host;
@@ -136,7 +150,7 @@ export async function buildApp(options: AppOptions) {
     if (!sameOrigin(request)) throw new ApiFailure(403, 'Origine de la requête non autorisée.', 'ORIGIN_REJECTED');
     const route = request.url.split('?')[0];
     if (options.localLifecycle && request.method === 'POST' && route === LOCAL_SHUTDOWN_PATH) return;
-    if (['/api/auth/local', '/api/auth/pair', '/api/events', '/api/guest/config'].includes(route) || /^\/api\/downloads\/[a-zA-Z0-9_-]{43}$/.test(route)
+    if (['/api/auth/local', '/api/auth/pair', '/api/events', '/api/guest/config', COMPTE_PATH, `${COMPTE_PATH}/start`, `${COMPTE_PATH}/callback`, `${COMPTE_PATH}/claim`].includes(route) || /^\/api\/downloads\/[a-zA-Z0-9_-]{43}$/.test(route)
       || /^\/api\/(?:library-files|playback-files|mp4-downloads|production-exports|resolve-exports)\/[a-zA-Z0-9_-]{43}$/.test(route)
       || /^\/api\/monitor\/[a-zA-Z0-9_-]{43}\/[a-zA-Z0-9_.-]+$/.test(route)) return;
     const authorization = request.headers.authorization;
@@ -173,6 +187,50 @@ export async function buildApp(options: AppOptions) {
     return result;
   });
   app.get('/api/auth/me', async (request) => request.device!);
+
+  // "Continuer avec mon Compte Postmelo": the account proves who the person is, then Nino
+  // associates this browser like a pairing code would. The pairing code stays the fallback.
+  const compteEnv = options.compteEnv ?? process.env;
+  const compte = () => compteSettings(compteEnv);
+  const secureCompteCookies = () => (compteEnv.APP_URL ?? '').trim().startsWith('https:');
+  const compteCookie = (name: string, value: string, path: string, maxAge: number) =>
+    `${name}=${value}; Path=${path}; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secureCompteCookies() ? '; Secure' : ''}`;
+  const handoffs = new Map<string, { result: AuthResult; expiresAt: number }>();
+  const backToLogin = (reply: FastifyReply, message: string) => reply.code(302).header('Location', `/?compte_erreur=${encodeURIComponent(message)}`).send();
+  app.get(COMPTE_PATH, async () => ({ enabled: compte() !== null }));
+  app.get(`${COMPTE_PATH}/start`, { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (_request, reply) => {
+    const settings = compte();
+    if (!settings) return backToLogin(reply, 'La connexion par Compte Postmelo n’est pas configurée sur ce studio.');
+    try {
+      const { url, cookie } = await startSignIn({}, settings);
+      return reply.code(302).header('Set-Cookie', compteCookie(PENDING_COOKIE, cookie, COMPTE_PATH, PENDING_MAX_AGE)).header('Location', url).send();
+    } catch {
+      return backToLogin(reply, 'Le Compte Postmelo ne répond pas. Réessayez, ou utilisez un code d’association.');
+    }
+  });
+  app.get(`${COMPTE_PATH}/callback`, { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (request, reply) => {
+    reply.header('Set-Cookie', compteCookie(PENDING_COOKIE, '', COMPTE_PATH, 0));
+    try {
+      const person = await finishSignIn(`http://nino${request.url}`, readCookie(request, PENDING_COOKIE), compte());
+      const result = store.createDevice(`${person.name} · Compte Postmelo`.slice(0, 100), 'ipad', person.role === 'admin' ? 'technician' : 'operator');
+      for (const [key, handoff] of handoffs) if (handoff.expiresAt <= Date.now()) handoffs.delete(key);
+      const ticket = randomBytes(32).toString('base64url');
+      handoffs.set(hashSecret(ticket), { result, expiresAt: Date.now() + HANDOFF_MAX_AGE * 1000 });
+      return reply.code(302).header('Set-Cookie', [compteCookie(PENDING_COOKIE, '', COMPTE_PATH, 0), compteCookie(HANDOFF_COOKIE, ticket, COMPTE_PATH, HANDOFF_MAX_AGE)])
+        .header('Location', '/?compte=1').send();
+    } catch (error) {
+      return backToLogin(reply, (error as Error).message);
+    }
+  });
+  app.post(`${COMPTE_PATH}/claim`, { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (request, reply) => {
+    const ticket = readCookie(request, HANDOFF_COOKIE);
+    const key = ticket ? hashSecret(ticket) : '';
+    const handoff = handoffs.get(key);
+    handoffs.delete(key);
+    reply.header('Set-Cookie', compteCookie(HANDOFF_COOKIE, '', COMPTE_PATH, 0));
+    if (!handoff || handoff.expiresAt <= Date.now() || !store.device(handoff.result.device.id)) throw new ApiFailure(401, 'La connexion a expiré, recommencez.', 'COMPTE_EXPIRED');
+    return handoff.result;
+  });
   app.get('/api/guest/config', async () => ({ mode: 'studio' }));
   app.post<{ Params: { id: string } }>('/api/projects/:id/guests/invitations', { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async request => {
     const device = requireRole(request, 'operator');
